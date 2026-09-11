@@ -52,6 +52,8 @@ administrator-enforced account policy.
 
 The client uses the name Allowgram, a separate Windows application identity,
 its own `%APPDATA%\Allowgram` account directory, and its own installer/shortcuts.
+The portable zip instead keeps account data in `AllowgramForcePortable` beside
+the executable.
 It does not register Telegram URL protocols. Official Telegram automatic
 updates are disabled so they cannot replace this custom build.
 
@@ -65,16 +67,18 @@ a signing certificate is added to the packaging process.
 The standalone C++ ID parser passed 78 checks under MSVC 14.44 with warnings
 treated as errors. The outgoing request filter passed 62 native checks using
 the actual generated Telegram schema and request serializer, plus 6 schema
-audits. The localization, palette, emoji, and style generators also succeeded.
-Twelve modified production translation units covering onboarding, account
-settings, storage, UI gating, session management, transport, and sign-in branding also compiled
-successfully against the real generated Telegram headers. These local checks
-used Qt 6.8.3; the release workflow builds upstream Qt 6.11.2. The original
-Allowgram icons passed Windows icon loading and resource compilation checks.
+audits. Those isolated checks used Qt 6.8.3. The original Allowgram icons
+passed Windows icon loading and resource compilation checks.
 
-The complete application has not yet been linked or started. Installer
-validation and interactive phone-login/allow-list acceptance testing are
-pending. This source tree is not yet a verified distributable.
+The complete Windows x64 Release application was built and linked with
+MSVC 14.44 and the upstream patched Qt 6.11.2. Startup checks passed with
+both an explicit isolated account directory and the installed application's
+Allowgram data-directory layout. The checks confirmed that the process
+remained running, initialized its renderer and account storage, and produced
+no fatal startup log entries.
+
+Interactive phone-login, allow-list setup and persistence, and real
+allowed/blocked messaging have not been tested with a signed-in account.
 
 Telegram Desktop and its dependencies retain their upstream licenses. The
 packaging workflow produces a corresponding source archive with the installer.

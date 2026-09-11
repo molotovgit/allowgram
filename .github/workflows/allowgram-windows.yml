@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 360
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
-      NUMBER_OF_PROCESSORS: '2'
+      ALLOWGRAM_BUILD_JOBS: '2'
       PYTHONUTF8: '1'
     defaults:
       run:
@@ -229,7 +229,10 @@ jobs:
             if ($process.HasExited) { throw "Client exited during startup: $($process.ExitCode)" }
             $log = Join-Path $profile 'log.txt'
             if (-not (Test-Path -LiteralPath $log)) { throw 'Startup log was not created.' }
-            if (Select-String -LiteralPath $log -Pattern 'FATAL|ASSERTION FAILED|Could not load the Qt platform plugin' -Quiet) {
+            $logStream = [IO.File]::Open($log, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            $logReader = [IO.StreamReader]::new($logStream)
+            try { $logText = $logReader.ReadToEnd() } finally { $logReader.Dispose() }
+            if ($logText -match 'FATAL|ASSERTION FAILED|Could not load the Qt platform plugin') {
               throw 'Startup log contains a fatal error.'
             }
           } finally {

@@ -40,6 +40,20 @@ def release_commands(name, commands):
             line = line.replace('ninja ', 'ninja -j2 ', 1)
         if line.startswith('msbuild -m '):
             line = line.replace('msbuild -m ', 'msbuild -m:2 ', 1)
+        line = line.replace('jom -j%NUMBER_OF_PROCESSORS%', 'jom -j2')
+        if line in (
+            'bash --login ../patches/build_libvpx_win.sh',
+            'bash --login ../patches/build_ffmpeg_win.sh',
+        ):
+            script = line.removeprefix('bash --login ')
+            lines.append(
+                'python -c "from pathlib import Path; '
+                + f"source = Path('{script}'); "
+                + "target = source.with_name('allowgram_' + source.name); "
+                + "target.write_bytes(source.read_bytes().replace("
+                + "b'NUMBER_OF_PROCESSORS', b'ALLOWGRAM_BUILD_JOBS'))\""
+            )
+            line = line.replace('/build_', '/allowgram_build_')
         line = line.replace(
             'TD_ENABLE_MULTI_PROCESSOR_COMPILATION=ON',
             'TD_ENABLE_MULTI_PROCESSOR_COMPILATION=OFF',
@@ -59,7 +73,7 @@ def release_commands(name, commands):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build the upstream Windows dependencies for Release only.')
+    parser = argparse.ArgumentParser(description='Prepare upstream Windows dependencies for the Release client.')
     parser.add_argument('--print-only', action='store_true')
     args, upstream_args = parser.parse_known_args()
     if sys.platform != 'win32':
@@ -67,9 +81,8 @@ def main():
     if os.environ.get('Platform') != 'x64':
         parser.error('Initialize vcvars64.bat before running this script.')
     os.environ['CMAKE_BUILD_PARALLEL_LEVEL'] = '2'
-    os.environ['NUMBER_OF_PROCESSORS'] = '2'
     os.environ['CARGO_BUILD_JOBS'] = '2'
-    os.environ['MAKEFLAGS'] = '-j2'
+    os.environ['ALLOWGRAM_BUILD_JOBS'] = '2'
     upstream = Path(__file__).resolve().parent.parent / 'prepare' / 'prepare.py'
     source = upstream.read_text(encoding='utf-8')
     marker = 'def runStages():\n'

@@ -1,11 +1,15 @@
 # Building Allowgram for Windows
 
-Allowgram requires Windows 10 version 1809 or later, or Windows 11, on an x64
+Allowgram requires Windows 10 version 1903 or later, or Windows 11, on an x64
 PC. It is a modification of Telegram Desktop. The dedicated
 workflow builds the application and its dependencies in Release configuration,
 disables upstream automatic updates and crash submission, checks that the
 application starts, and packages a per-user installer, a portable zip, the
 corresponding repository source, and SHA-256 checksums.
+
+The Windows build imports the system `icu.dll`, which Microsoft added in
+[Windows 10 version 1903](https://learn.microsoft.com/en-us/windows/win32/intl/international-components-for-unicode--icu-).
+The installer enforces that minimum version.
 
 Only this manually dispatched workflow is active. Original upstream workflow
 files are retained in `.github/upstream-workflows` so pushing this fork does
@@ -66,8 +70,10 @@ changes spending limits. Its cache and artifact storage also use account limits.
 
 The dependency wrapper uses the checked-in upstream preparation script and
 its pinned revisions. It selects Release commands before the upstream cache
-keys are calculated, skips the Debug compilations, and selects Qt's Release
-configuration without forced debug symbols. OpenAL retains the upstream
+keys are calculated, skips explicit Debug compilations, and selects Qt's
+Release configuration without forced debug symbols. The upstream libvpx make
+helper still produces both Release and Debug MSVC libraries internally; only
+the Release libraries are used by the client. OpenAL retains the upstream
 RelWithDebInfo configuration expected by the application build. Build workers
 are capped at two across CMake, Ninja, Meson, MSBuild, make, and Cargo; TD's
 nested multiprocess compilation is disabled to stay within that cap. Other
@@ -83,7 +89,8 @@ client. The client itself links the upstream patched Qt 6.11.2 source build.
 ## Local build
 
 Use a Windows x64 Visual Studio developer terminal with compiler 14.44 and SDK
-10.0.26100.0. Python, CMake, Ninja, Git, and Inno Setup 6 must be available.
+10.0.26100.0 and the C++ ATL headers/libraries for v143. Python, CMake, Ninja,
+Git, and Inno Setup 6 must be available.
 The repository's parent contains `Libraries` and `ThirdParty`; place the whole
 build on a drive with sufficient free space.
 
@@ -91,7 +98,7 @@ From the repository root:
 
 ```powershell
 $env:CMAKE_BUILD_PARALLEL_LEVEL = '2'
-$env:NUMBER_OF_PROCESSORS = '2'
+$env:ALLOWGRAM_BUILD_JOBS = '2'
 python Telegram/build/allowgram/prepare_release.py
 python Telegram/configure.py -G 'Ninja Multi-Config' qt6 `
   -D CMAKE_CONFIGURATION_TYPES=Release `

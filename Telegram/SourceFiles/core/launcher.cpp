@@ -239,8 +239,8 @@ bool MoveLegacyAlphaFolder(const QString &folder, const QString &file) {
 }
 
 bool MoveLegacyAlphaFolder() {
-	if (!MoveLegacyAlphaFolder(u"TelegramAlpha_data"_q, u"alpha"_q)
-		|| !MoveLegacyAlphaFolder(u"TelegramBeta_data"_q, u"beta"_q)) {
+	if (!MoveLegacyAlphaFolder(u"AllowgramAlpha_data"_q, u"alpha"_q)
+		|| !MoveLegacyAlphaFolder(u"AllowgramBeta_data"_q, u"beta"_q)) {
 		return false;
 	}
 	return true;
@@ -473,7 +473,7 @@ void Launcher::writeInstallBetaVersionsSetting() {
 }
 
 bool Launcher::checkPortableVersionFolder() {
-	return CheckPortableVersionFolder();
+	return customWorkingDir() || CheckPortableVersionFolder();
 }
 
 QStringList Launcher::readArguments(int argc, char *argv[]) const {

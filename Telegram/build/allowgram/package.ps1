@@ -57,7 +57,7 @@ if (Test-Path -LiteralPath $modules -PathType Container) {
 $readme = @'
 ALLOWGRAM
 
-Requires Windows 10 version 1809 or later, or Windows 11, on an x64 PC.
+Requires Windows 10 version 1903 or later, or Windows 11, on an x64 PC.
 
 Allowgram is an independent modification of Telegram Desktop. Sign in with
 your phone number, complete Telegram verification, and configure the required
@@ -73,6 +73,8 @@ sessions are outside its control. Automatic upstream updates are disabled.
 
 This unsigned installer installs for the current Windows user. Windows may
 show an unknown-publisher prompt. Uninstalling preserves account data.
+Installed account data is saved in %APPDATA%\Allowgram. The portable zip
+keeps its account data in AllowgramForcePortable beside Allowgram.exe.
 
 The accompanying Allowgram source archive includes this client's source and
 build scripts. Telegram Desktop and its dependencies retain their original
@@ -96,6 +98,8 @@ $buildInfo = [ordered]@{
 [IO.File]::WriteAllText((Join-Path $payload 'build-info.json'), ($buildInfo | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 
 $archiveName = $(if ($TestBuild) { 'Allowgram-Test' } else { 'Allowgram' })
+$portableDirectory = Join-Path $payload 'AllowgramForcePortable'
+New-Item -ItemType Directory -Path $portableDirectory | Out-Null
 Compress-Archive -Path (Join-Path $payload '*') -DestinationPath (Join-Path $OutputDirectory "$archiveName-$version-x64.zip") -Force
 if (-not $TestBuild) {
     $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue

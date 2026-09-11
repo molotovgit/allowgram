@@ -362,14 +362,14 @@ void start() {
 
 	LogsData = new LogsDataFields();
 	if (cWorkingDir().isEmpty()) {
-#if (!defined Q_OS_WIN && !defined _DEBUG) || defined Q_OS_WINRT || defined OS_WIN_STORE || defined OS_MAC_STORE
+#if !defined _DEBUG || defined Q_OS_WINRT || defined OS_WIN_STORE || defined OS_MAC_STORE
 		cForceWorkingDir(psAppDataPath());
-#else // (!Q_OS_WIN && !_DEBUG) || Q_OS_WINRT || OS_WIN_STORE || OS_MAC_STORE
+#else // !_DEBUG || Q_OS_WINRT || OS_WIN_STORE || OS_MAC_STORE
 		cForceWorkingDir(cExeDir());
 		if (!LogsData->openMain()) {
 			cForceWorkingDir(psAppDataPath());
 		}
-#endif // (!Q_OS_WIN && !_DEBUG) || Q_OS_WINRT || OS_WIN_STORE || OS_MAC_STORE
+#endif // !_DEBUG || Q_OS_WINRT || OS_WIN_STORE || OS_MAC_STORE
 	}
 
 	if (launcher.validateCustomWorkingDir()) {

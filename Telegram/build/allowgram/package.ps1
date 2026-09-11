@@ -103,7 +103,17 @@ $buildInfo = [ordered]@{
 $archiveName = $(if ($TestBuild) { 'Allowgram-Test' } else { 'Allowgram' })
 $portableDirectory = Join-Path $payload 'AllowgramForcePortable'
 New-Item -ItemType Directory -Path $portableDirectory | Out-Null
-Compress-Archive -Path (Join-Path $payload '*') -DestinationPath (Join-Path $OutputDirectory "$archiveName-$version-x64.zip") -Force
+$portableArchive = Join-Path $OutputDirectory "$archiveName-$version-x64.zip"
+Compress-Archive -Path (Join-Path $payload '*') -DestinationPath $portableArchive -Force
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [IO.Compression.ZipFile]::Open($portableArchive, [IO.Compression.ZipArchiveMode]::Update)
+try {
+    if (-not $zip.GetEntry('AllowgramForcePortable/')) {
+        $zip.CreateEntry('AllowgramForcePortable/') | Out-Null
+    }
+} finally {
+    $zip.Dispose()
+}
 if (-not $TestBuild) {
     $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     $compilerPath = if ($compiler) { $compiler.Source } else { Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe' }

@@ -41,6 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/notifications_manager.h"
 #include "window/themes/window_theme.h"
 #include "window/themes/window_theme_warning.h"
+#include "window/window_allowlist.h"
 #include "window/window_main_menu.h"
 #include "window/window_controller.h" // App::wnd.
 #include "window/window_session_controller.h"
@@ -149,9 +150,9 @@ void MainWindow::finishFirstShow() {
 
 	setAttribute(Qt::WA_NoSystemBackground);
 
-	if (!_passcodeLock && !_setupEmailLock && _main) {
+	if (!_passcodeLock && !_setupEmailLock && !_allowlistLock && _main) {
 		_main->activate();
-	} else if (!_passcodeLock && !_setupEmailLock && _intro) {
+	} else if (!_passcodeLock && !_setupEmailLock && !_allowlistLock && _intro) {
 		_intro->setInnerFocus();
 	}
 }
@@ -164,6 +165,7 @@ void MainWindow::clearWidgetsHook() {
 		_passcodeLock.destroy();
 	}
 	_setupEmailLock.destroy();
+	_allowlistLock.destroy();
 }
 
 QPixmap MainWindow::grabForSlideAnimation() {
@@ -191,6 +193,9 @@ void MainWindow::setupPasscodeLock() {
 	if (_intro) {
 		_intro->hide();
 	}
+	if (_allowlistLock) {
+		_allowlistLock->hide();
+	}
 	if (animated) {
 		_passcodeLock->showAnimated(std::move(oldContentCache));
 	} else {
@@ -203,7 +208,7 @@ void MainWindow::setupPasscodeLock() {
 }
 
 void MainWindow::setupSetupEmailLock() {
-	auto animated = (_main || _intro || _passcodeLock);
+	auto animated = (_main || _intro || _passcodeLock || _allowlistLock);
 	auto oldContentCache = animated ? grabForSlideAnimation() : QPixmap();
 	_setupEmailLock.create(bodyWidget(), &controller());
 	updateControlsGeometry();
@@ -217,6 +222,9 @@ void MainWindow::setupSetupEmailLock() {
 	}
 	if (_passcodeLock) {
 		_passcodeLock->hide();
+	}
+	if (_allowlistLock) {
+		_allowlistLock->hide();
 	}
 	if (animated) {
 		_setupEmailLock->showAnimated(std::move(oldContentCache));
@@ -240,6 +248,10 @@ void MainWindow::clearSetupEmailLock() {
 		_passcodeLock->show();
 		updateControlsGeometry();
 		_passcodeLock->showAnimated(std::move(oldContentCache));
+	} else if (_allowlistLock) {
+		_allowlistLock->show();
+		updateControlsGeometry();
+		_allowlistLock->showAnimated(std::move(oldContentCache));
 	} else if (_intro) {
 		_intro->show();
 		updateControlsGeometry();
@@ -249,6 +261,24 @@ void MainWindow::clearSetupEmailLock() {
 		updateControlsGeometry();
 		_main->showAnimated(std::move(oldContentCache), true);
 	}
+}
+
+void MainWindow::clearAllowlistLock() {
+	if (!_allowlistLock || !account().session().allowlistConfigured()) {
+		return;
+	}
+	_allowlistLock.destroy();
+	_main->controller()->showByInitialId(
+		Window::SectionShow::Way::ClearStack,
+		_allowlistShowAtMsgId);
+	updateControlsGeometry();
+	if (!_passcodeLock && !_setupEmailLock) {
+		_main->show();
+		_main->activate();
+		Core::App().checkStartUrls();
+	}
+	fixOrder();
+	setInnerFocus();
 }
 
 void MainWindow::clearPasscodeLock() {
@@ -264,6 +294,10 @@ void MainWindow::clearPasscodeLock() {
 		_setupEmailLock->show();
 		updateControlsGeometry();
 		_setupEmailLock->showAnimated(std::move(oldContentCache));
+	} else if (_allowlistLock) {
+		_allowlistLock->show();
+		updateControlsGeometry();
+		_allowlistLock->showAnimated(std::move(oldContentCache));
 	} else if (_intro) {
 		_intro->show();
 		updateControlsGeometry();
@@ -280,7 +314,7 @@ void MainWindow::setupIntro(
 		Intro::EnterPoint point,
 		Main::Account *accountBeforeIntro,
 		QPixmap oldContentCache) {
-	auto animated = (_main || _passcodeLock || _setupEmailLock);
+	auto animated = (_main || _passcodeLock || _setupEmailLock || _allowlistLock);
 
 	destroyLayer();
 	auto created = object_ptr<Intro::Widget>(
@@ -299,7 +333,7 @@ void MainWindow::setupIntro(
 	DragArea::SetupProxyDropArea(_intro.data(), [](const QString &localUrl) {
 		Core::App().openLocalUrl(localUrl, {});
 	});
-	if (_passcodeLock || _setupEmailLock) {
+	if (_passcodeLock || _setupEmailLock || _allowlistLock) {
 		_intro->hide();
 	} else {
 		_intro->show();
@@ -320,11 +354,14 @@ void MainWindow::setupMain(
 
 	const auto animated = _intro
 		|| (_passcodeLock && !Core::App().passcodeLocked())
-		|| _setupEmailLock;
-	const auto weakAnimatedLayer = (_main
+		|| _setupEmailLock
+		|| _allowlistLock;
+	const auto weakAnimatedLayer = (account().session().allowlistConfigured()
+			&& _main
 			&& _layer
 			&& !_passcodeLock
-			&& !_setupEmailLock)
+			&& !_setupEmailLock
+			&& !_allowlistLock)
 		? base::make_weak(_layer.get())
 		: nullptr;
 	if (weakAnimatedLayer) {
@@ -336,12 +373,28 @@ void MainWindow::setupMain(
 	auto created = object_ptr<MainWidget>(bodyWidget(), sessionController());
 	clearWidgets();
 	_main = std::move(created);
+	if (!account().session().allowlistConfigured()) {
+		_allowlistShowAtMsgId = singlePeerShowAtMsgId;
+		_allowlistLock.create(bodyWidget(), &controller());
+		_main->hide();
+		updateControlsGeometry();
+		if (_passcodeLock) {
+			_allowlistLock->hide();
+		} else if (animated) {
+			_allowlistLock->showAnimated(std::move(oldContentCache));
+		} else {
+			_allowlistLock->show();
+			_allowlistLock->showFinished();
+		}
+		fixOrder();
+		return;
+	}
 	updateControlsGeometry();
 	Ui::SendPendingMoveResizeEvents(_main);
 	_main->controller()->showByInitialId(
 		Window::SectionShow::Way::ClearStack,
 		singlePeerShowAtMsgId);
-	if (_passcodeLock || _setupEmailLock) {
+	if (_passcodeLock || _setupEmailLock || _allowlistLock) {
 		_main->hide();
 	} else {
 		_main->show();
@@ -360,7 +413,7 @@ void MainWindow::setupMain(
 }
 
 void MainWindow::showSettings() {
-	if (_passcodeLock || _setupEmailLock) {
+	if (_passcodeLock || _setupEmailLock || _allowlistLock) {
 		return;
 	}
 
@@ -377,7 +430,7 @@ void MainWindow::showSettings() {
 void MainWindow::showSpecialLayer(
 		object_ptr<Ui::LayerWidget> layer,
 		anim::type animated) {
-	if (_passcodeLock || _setupEmailLock) {
+	if (_passcodeLock || _setupEmailLock || _allowlistLock) {
 		return;
 	}
 
@@ -392,6 +445,9 @@ void MainWindow::showSpecialLayer(
 bool MainWindow::showSectionInExistingLayer(
 		not_null<Window::SectionMemento*> memento,
 		const Window::SectionShow &params) {
+	if (_allowlistLock) {
+		return false;
+	}
 	if (_layer) {
 		return _layer->showSectionInternal(memento, params);
 	}
@@ -399,7 +455,7 @@ bool MainWindow::showSectionInExistingLayer(
 }
 
 void MainWindow::showMainMenu() {
-	if (_passcodeLock || _setupEmailLock) return;
+	if (_passcodeLock || _setupEmailLock || _allowlistLock) return;
 
 	if (isHidden()) showFromTray();
 
@@ -519,6 +575,9 @@ bool MainWindow::closeLayerByBackButton() {
 bool MainWindow::showMediaPreview(
 		Data::FileOrigin origin,
 		not_null<DocumentData*> document) {
+	if (_allowlistLock) {
+		return false;
+	}
 	const auto media = document->activeMediaView();
 	const auto preview = Data::VideoPreviewState(media.get());
 	if (!document->sticker()
@@ -539,6 +598,9 @@ bool MainWindow::showMediaPreview(
 bool MainWindow::showMediaPreview(
 		Data::FileOrigin origin,
 		not_null<PhotoData*> photo) {
+	if (_allowlistLock) {
+		return false;
+	}
 	if (!_mediaPreview) {
 		_mediaPreview.create(bodyWidget(), sessionController());
 		updateControlsGeometry();
@@ -625,6 +687,8 @@ void MainWindow::setInnerFocus() {
 		_passcodeLock->setInnerFocus();
 	} else if (_setupEmailLock) {
 		_setupEmailLock->setInnerFocus();
+	} else if (_allowlistLock) {
+		_allowlistLock->setInnerFocus();
 	} else if (_main) {
 		_main->setInnerFocus();
 	} else if (_intro) {
@@ -708,6 +772,7 @@ bool MainWindow::takeThirdSectionFromLayer() {
 }
 
 void MainWindow::fixOrder() {
+	if (_allowlistLock) _allowlistLock->raise();
 	if (_setupEmailLock) _setupEmailLock->raise();
 	if (_passcodeLock) _passcodeLock->raise();
 	if (_layer) _layer->raise();
@@ -747,6 +812,7 @@ void MainWindow::updateControlsGeometry() {
 	auto body = bodyWidget()->rect();
 	if (_passcodeLock) _passcodeLock->setGeometry(body);
 	if (_setupEmailLock) _setupEmailLock->setGeometry(body);
+	if (_allowlistLock) _allowlistLock->setGeometry(body);
 	auto mainLeft = 0;
 	auto mainWidth = body.width();
 	if (const auto session = sessionController()) {
@@ -767,7 +833,9 @@ void MainWindow::updateControlsGeometry() {
 	if (_mediaPreview) _mediaPreview->setGeometry(body);
 	if (_testingThemeWarning) _testingThemeWarning->setGeometry(body);
 
-	if (_main) _main->checkMainSectionToLayer();
+	if (_main && !_allowlistLock) {
+		_main->checkMainSectionToLayer();
+	}
 }
 
 void MainWindow::handleStartFiles(

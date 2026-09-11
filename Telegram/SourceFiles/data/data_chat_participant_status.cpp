@@ -235,6 +235,9 @@ bool CanSendAnyOf(
 		not_null<const PeerData*> peer,
 		ChatRestrictions rights,
 		bool forbidInForums) {
+	if (!peer->session().allowlistAllows(peer->id)) {
+		return false;
+	}
 	if (peer->session().frozen()
 		&& !peer->isFreezeAppealChat()) {
 		return false;
@@ -297,6 +300,11 @@ SendError RestrictionError(
 		not_null<PeerData*> peer,
 		ChatRestriction restriction) {
 	using Flag = ChatRestriction;
+	if (!peer->session().allowlistAllows(peer->id)) {
+		return SendError({
+			.text = tr::lng_allowlist_write_restricted(tr::now),
+		});
+	}
 	if (peer->session().frozen()
 		&& !peer->isFreezeAppealChat()) {
 		return SendError({

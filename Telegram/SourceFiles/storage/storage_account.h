@@ -84,6 +84,8 @@ public:
 	}
 
 	void writeSessionSettings();
+	[[nodiscard]] bool writeSessionSettingsVerified(
+		const QByteArray &serialized);
 	void writeMtpData();
 	void writeMtpConfig();
 
@@ -244,7 +246,7 @@ private:
 	void clearLegacyFiles();
 	void writeMapDelayed();
 	void writeMapQueued();
-	void writeMap();
+	void writeMap(QByteArray *writtenData = nullptr);
 
 	void readLocations();
 	void writeLocations();
@@ -257,6 +259,9 @@ private:
 
 	std::unique_ptr<Main::SessionSettings> readSessionSettings();
 	void writeSessionSettings(Main::SessionSettings *stored);
+	void writeSessionSettingsSerialized(
+		const QByteArray &serialized,
+		QByteArray *writtenData = nullptr);
 
 	std::unique_ptr<MTP::Config> readMtpConfig();
 	void readMtpData();

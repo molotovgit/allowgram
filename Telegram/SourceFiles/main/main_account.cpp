@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_changes.h"
 #include "window/window_controller.h"
 #include "media/audio/media_audio.h"
+#include "mtproto/allowlist_request_guard.h"
 #include "mtproto/mtproto_config.h"
 #include "mainwidget.h"
 #include "api/api_updates.h"
@@ -433,6 +434,14 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 	_mtp = std::make_unique<MTP::Instance>(
 		MTP::Instance::Mode::Normal,
 		std::move(fields));
+	_mtp->setRequestFilter([=](const MTP::details::SerializedRequest &request) {
+		return MTP::AllowlistRequestAllowed(
+			request,
+			_session ? _session->userId() : UserId(),
+			[=](PeerId peerId) {
+				return _session && _session->allowlistAllows(peerId);
+			});
+	});
 
 	const auto writingKeys = _mtp->lifetime().make_state<bool>(false);
 	_mtp->writeKeysRequests(

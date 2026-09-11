@@ -24,6 +24,7 @@ enum class EnterPoint : uchar;
 } // namespace Intro
 
 namespace Window {
+class AllowlistLockWidget;
 class MediaPreviewWidget;
 class SectionMemento;
 struct SectionShow;
@@ -58,6 +59,7 @@ public:
 	void clearPasscodeLock();
 	void setupSetupEmailLock();
 	void clearSetupEmailLock();
+	void clearAllowlistLock();
 	void setupIntro(
 		Intro::EnterPoint point,
 		Main::Account *accountBeforeIntro,
@@ -139,6 +141,8 @@ private:
 
 	object_ptr<Window::PasscodeLockWidget> _passcodeLock = { nullptr };
 	object_ptr<Window::SetupEmailLockWidget> _setupEmailLock = { nullptr };
+	object_ptr<Window::AllowlistLockWidget> _allowlistLock = { nullptr };
+	MsgId _allowlistShowAtMsgId = 0;
 	object_ptr<Intro::Widget> _intro = { nullptr };
 	object_ptr<MainWidget> _main = { nullptr };
 	base::unique_qptr<Ui::LayerStackWidget> _layer;

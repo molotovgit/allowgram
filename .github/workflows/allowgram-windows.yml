@@ -1,0 +1,260 @@
+name: Build Allowgram for Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Production requires this app's Telegram API secrets; test produces no installer.
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: allowgram-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      NUMBER_OF_PROCESSORS: '2'
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out exact source with submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: TBuild/tdesktop
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Validate API configuration
+        env:
+          BUILD_MODE: ${{ inputs.mode }}
+          TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
+          TDESKTOP_API_HASH: ${{ secrets.TDESKTOP_API_HASH }}
+        run: |
+          if ($env:BUILD_MODE -eq 'production') {
+            if ($env:TDESKTOP_API_ID -notmatch '^[1-9][0-9]+$' -or $env:TDESKTOP_API_HASH -notmatch '^[a-fA-F0-9]{32}$') {
+              throw 'Set repository secrets TDESKTOP_API_ID and TDESKTOP_API_HASH for your Telegram application.'
+            }
+            if ($env:TDESKTOP_API_ID -in '17349', '2040', '611335') {
+              throw 'Production requires your own API credentials, not upstream test or public build credentials.'
+            }
+          }
+
+      - name: Initialize MSVC 14.44 and Windows SDK
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) { throw 'Visual C++ Build Tools are missing.' }
+          $vcvars = Join-Path $installation 'VC/Auxiliary/Build/vcvars64.bat'
+          $environmentLines = & cmd.exe /d /c ('call "' + $vcvars + '" -vcvars_ver=14.44 10.0.26100.0 >nul && set')
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot initialize the required Visual C++ toolset.' }
+          foreach ($line in $environmentLines) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              $key = $matches[1]
+              if ($key -notmatch '^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)') {
+                Add-Content -LiteralPath $env:GITHUB_ENV -Value $line
+              }
+            }
+          }
+
+      - name: Select a build volume with enough free space
+        run: |
+          $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'TBuild')).TrimEnd('\')
+          $originalRepository = (Resolve-Path -LiteralPath (Join-Path $workspaceRoot 'tdesktop')).Path
+          if ($originalRepository -ne (Join-Path $workspaceRoot 'tdesktop')) { throw 'Unexpected source checkout path.' }
+          $workspaceDrive = (Split-Path -Qualifier $workspaceRoot).TrimEnd(':')
+          $workspaceFree = (Get-PSDrive -Name $workspaceDrive).Free
+          $systemFree = (Get-PSDrive -Name C).Free
+          if (($workspaceDrive -eq 'C' -or $workspaceFree -lt 35GB) -and $systemFree -lt 50GB) {
+            $allowedTargets = @('C:\hostedtoolcache\CodeQL', 'C:\hostedtoolcache\go', 'C:\Android', 'C:\Miniconda')
+            foreach ($target in $allowedTargets) {
+              if (Test-Path -LiteralPath $target -PathType Container) {
+                $resolved = (Resolve-Path -LiteralPath $target).Path.TrimEnd('\')
+                if ($resolved -ne $target -or $resolved.Length -lt 10) { throw 'Unexpected runner cleanup path.' }
+                Remove-Item -LiteralPath $resolved -Recurse -Force
+              }
+            }
+          }
+          Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free
+          $buildRoot = $workspaceRoot
+          if ((Get-PSDrive -Name $workspaceDrive).Free -lt 35GB) {
+            if ($workspaceDrive -eq 'C' -or (Get-PSDrive -Name C).Free -lt 35GB) {
+              throw 'Neither the workspace volume nor C: has the required 35 GiB free after optional tool cleanup.'
+            }
+            $buildRoot = 'C:\AllowgramBuild'
+            $destination = [IO.Path]::GetFullPath((Join-Path $buildRoot 'tdesktop'))
+            if ($destination -ne 'C:\AllowgramBuild\tdesktop' -or (Test-Path -LiteralPath $buildRoot)) {
+              throw 'Refusing to reuse an existing or unexpected C:\AllowgramBuild directory.'
+            }
+            New-Item -ItemType Directory -Path $buildRoot | Out-Null
+            robocopy.exe $originalRepository $destination /E /COPY:DAT /DCOPY:DAT /XJ /R:1 /W:1 /NFL /NDL /NJH /NJS /NP
+            if ($LASTEXITCODE -ge 8) { throw 'Copying the checked-out source to C: failed.' }
+          }
+          $repository = (Resolve-Path -LiteralPath (Join-Path $buildRoot 'tdesktop')).Path
+          $expectedCommit = git -C $originalRepository rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the original source commit.' }
+          $actualCommit = git -C $repository rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actualCommit -ne $expectedCommit) { throw 'Selected build tree has the wrong source commit.' }
+          $submodules = git -C $repository submodule status --recursive
+          if ($LASTEXITCODE -ne 0 -or ($submodules | Where-Object { $_ -notmatch '^ [a-fA-F0-9]{40} ' })) {
+            throw 'The selected build tree has missing or mismatched submodules.'
+          }
+          $sourceStatus = git -C $repository status --porcelain --untracked-files=all
+          if ($LASTEXITCODE -ne 0 -or $sourceStatus) { throw 'The selected build tree is not a clean checkout.' }
+          $buildDrive = (Split-Path -Qualifier $buildRoot).TrimEnd(':')
+          $remaining = (Get-PSDrive -Name $buildDrive).Free
+          if ($remaining -lt 35GB) { throw 'The selected build volume has less than 35 GiB free after copying the source.' }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "TBUILD=$buildRoot"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "TBUILD_DRIVE=$buildDrive"
+          Write-Output "Build directory: $buildRoot ($([math]::Round($remaining / 1GB, 1)) GiB free)"
+
+      - name: Compile and run allowlist parser regression tests
+        working-directory: ${{ env.TBUILD }}/tdesktop
+        run: |
+          $repository = (Resolve-Path -LiteralPath '.').Path
+          $testRoot = Join-Path $repository 'out/allowgram-policy-tests'
+          New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
+          Push-Location -LiteralPath $testRoot
+          try {
+            cl.exe /nologo /std:c++20 /EHsc /W4 /WX /O2 /Fe:allowlist_policy_test.exe "/I$repository/Telegram/SourceFiles" "$repository/Telegram/SourceFiles/test/allowlist_policy_test.cpp" "$repository/Telegram/SourceFiles/main/allowlist_policy.cpp"
+            if ($LASTEXITCODE -ne 0) { throw 'Allowlist parser tests failed to compile.' }
+            & ./allowlist_policy_test.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Allowlist parser regression tests failed.' }
+            python "$repository/Telegram/SourceFiles/test/allowlist_request_schema_test.py"
+            if ($LASTEXITCODE -ne 0) { throw 'Transport policy schema audit failed.' }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Restore build tools and Release dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ${{ env.TBUILD }}/ThirdParty
+            ${{ env.TBUILD }}/Libraries
+            ${{ env.TBUILD }}/QtTest
+          key: allowgram-win2022-x64-qt6-release-v2-${{ env.TBUILD_DRIVE }}-${{ hashFiles('TBuild/tdesktop/Telegram/build/prepare/prepare.py', 'TBuild/tdesktop/Telegram/build/qt_version.py', 'TBuild/tdesktop/Telegram/build/allowgram/prepare_release.py') }}-sdk26100
+
+      - name: Test the transport guard against real serialized Telegram requests
+        working-directory: ${{ env.TBUILD }}/tdesktop
+        run: |
+          $qtTests = Join-Path $env:TBUILD 'QtTest'
+          $qtCore = Join-Path $qtTests '6.8.3/msvc2022_64'
+          if (-not (Test-Path -LiteralPath (Join-Path $qtCore 'lib/Qt6Core.lib'))) {
+            $venv = Join-Path $env:RUNNER_TEMP 'allowgram-aqt'
+            python -m venv $venv
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot create the test-tool environment.' }
+            $python = Join-Path $venv 'Scripts/python.exe'
+            & $python -m pip install --disable-pip-version-check aqtinstall==3.3.0
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot install the Qt test downloader.' }
+            & $python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 --archives qtbase --outputdir $qtTests
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot install the isolated Qt Core test runtime.' }
+          }
+          & Telegram/build/allowgram/test_request_guard.ps1 -QtDirectory $qtCore
+
+      - name: Configure NuGet
+        run: |
+          nuget sources Disable -Name 'Microsoft Visual Studio Offline Packages'
+          nuget sources Add -Name 'nuget.org' -Source 'https://api.nuget.org/v3/index.json'
+          exit 0
+
+      - name: Build Release dependencies
+        working-directory: ${{ env.TBUILD }}/tdesktop
+        run: |
+          python Telegram/build/allowgram/prepare_release.py
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency build failed.' }
+
+      - name: Trim dependency intermediates
+        run: |
+          $libraries = (Resolve-Path -LiteralPath (Join-Path $env:TBUILD 'Libraries')).Path.TrimEnd('\')
+          $buildRoot = [IO.Path]::GetFullPath($env:TBUILD).TrimEnd('\')
+          $allowedRoots = @([IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'TBuild')).TrimEnd('\'), 'C:\AllowgramBuild')
+          if ($buildRoot -notin $allowedRoots) { throw 'Unexpected build root for dependency cleanup.' }
+          $expected = [IO.Path]::GetFullPath((Join-Path $buildRoot 'Libraries')).TrimEnd('\')
+          if ($libraries -ne $expected) { throw 'Unexpected dependency cleanup path.' }
+          Get-ChildItem -LiteralPath $libraries -Recurse -File | ForEach-Object {
+            $relative = $_.FullName.Substring($libraries.Length + 1).Replace('\', '/')
+            $keep = $_.Extension -in '.lib', '.a', '.exe', '.h', '.hpp', '.inc', '.cmake', '.pc'
+            $keep = $keep -or $relative -match '(?:^|/)(?:include|objects-[^/]*|cache_keys|patches|nv-codec-headers)/'
+            if (-not $keep) { Remove-Item -LiteralPath $_.FullName -Force }
+          }
+
+      - name: Configure and compile Allowgram
+        working-directory: ${{ env.TBUILD }}/tdesktop
+        env:
+          BUILD_MODE: ${{ inputs.mode }}
+          TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
+          TDESKTOP_API_HASH: ${{ secrets.TDESKTOP_API_HASH }}
+        run: |
+          $configure = @(
+            'Telegram/configure.py', '-G', 'Ninja Multi-Config', 'qt6',
+            '-D', 'CMAKE_CONFIGURATION_TYPES=Release',
+            '-D', 'CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=',
+            '-D', 'DESKTOP_APP_DISABLE_AUTOUPDATE=ON',
+            '-D', 'DESKTOP_APP_DISABLE_CRASH_REPORTS=ON'
+          )
+          if ($env:BUILD_MODE -eq 'production') {
+            $configure += @('-D', 'TDESKTOP_API_TEST=OFF', '-D', "TDESKTOP_API_ID=$env:TDESKTOP_API_ID", '-D', "TDESKTOP_API_HASH=$env:TDESKTOP_API_HASH")
+          } else {
+            $configure += @('-D', 'TDESKTOP_API_TEST=ON')
+          }
+          python @configure
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
+          cmake --build out --config Release --target Telegram --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Allowgram compilation failed.' }
+
+      - name: Smoke test startup with an isolated account directory
+        working-directory: ${{ env.TBUILD }}/tdesktop
+        run: |
+          $executable = (Resolve-Path -LiteralPath 'out/Release/Telegram.exe').Path
+          $profile = Join-Path $env:RUNNER_TEMP ('allowgram-smoke-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $profile | Out-Null
+          $process = Start-Process -FilePath $executable -ArgumentList @('-noupdate', '-workdir', ('"' + $profile + '"')) -WindowStyle Hidden -PassThru
+          try {
+            Start-Sleep -Seconds 15
+            $process.Refresh()
+            if ($process.HasExited) { throw "Client exited during startup: $($process.ExitCode)" }
+            $log = Join-Path $profile 'log.txt'
+            if (-not (Test-Path -LiteralPath $log)) { throw 'Startup log was not created.' }
+            if (Select-String -LiteralPath $log -Pattern 'FATAL|ASSERTION FAILED|Could not load the Qt platform plugin' -Quiet) {
+              throw 'Startup log contains a fatal error.'
+            }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+
+      - name: Create source archive and package
+        working-directory: ${{ env.TBUILD }}/tdesktop
+        env:
+          BUILD_MODE: ${{ inputs.mode }}
+        run: |
+          python Telegram/build/allowgram/archive_source.py out/allowgram-package/Allowgram-source.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Source archiving failed.' }
+          $arguments = @{}
+          if ($env:BUILD_MODE -eq 'test') { $arguments.TestBuild = $true }
+          & Telegram/build/allowgram/package.ps1 @arguments
+
+      - name: Upload installer, portable client, source and checksums
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Allowgram-Windows-x64-${{ inputs.mode }}
+          path: |
+            ${{ env.TBUILD }}/tdesktop/out/allowgram-package/*.exe
+            ${{ env.TBUILD }}/tdesktop/out/allowgram-package/*.zip
+            ${{ env.TBUILD }}/tdesktop/out/allowgram-package/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7

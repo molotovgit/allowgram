@@ -1,11 +1,14 @@
 [CmdletBinding()]
 param(
-    [string]$Repository = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path,
+    [string]$Repository,
     [string]$OutputDirectory,
     [switch]$TestBuild
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Repository) {
+    $Repository = Join-Path $PSScriptRoot '../../..'
+}
 $Repository = (Resolve-Path -LiteralPath $Repository).Path
 if (-not $OutputDirectory) {
     $OutputDirectory = Join-Path $Repository 'out/allowgram-package'

@@ -75,15 +75,26 @@ void EditBusinessChats(
 		nullptr);
 	const auto rawController = controller.get();
 	const auto save = descriptor.save;
+	const auto original = descriptor.current.list;
 	auto initBox = [=](not_null<PeerListBox*> box) {
 		box->setCloseByOutsideClick(false);
 		box->addButton(tr::lng_settings_save(), crl::guard(box, [=] {
 			const auto peers = box->collectSelectedRows();
-			auto &&users = ranges::views::all(
+			const auto selected = ranges::views::all(
 				peers
 			) | ranges::views::transform([=](not_null<PeerData*> peer) {
 				return not_null(peer->asUser());
 			}) | ranges::to_vector;
+			auto users = original | ranges::views::filter([&](
+					not_null<UserData*> user) {
+				return !session->allowlistAllows(user->id)
+					|| ranges::contains(selected, user);
+			}) | ranges::to_vector;
+			for (const auto user : selected) {
+				if (!ranges::contains(users, user)) {
+					users.push_back(user);
+				}
+			}
 			save(Data::BusinessChats{
 				.types = FlagsToTypes(rawController->chosenOptions()),
 				.list = std::move(users),

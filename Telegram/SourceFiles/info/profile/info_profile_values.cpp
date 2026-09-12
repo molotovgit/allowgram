@@ -573,7 +573,10 @@ rpl::producer<not_null<PeerData*>> MigratedOrMeValue(
 			peer,
 			UpdateFlag::Migration
 		) | rpl::map([=] {
-			return chat->migrateToOrMe();
+			const auto migrated = chat->migrateToOrMe();
+			return peer->session().allowlistAllows(migrated->id)
+				? migrated
+				: peer;
 		});
 	} else {
 		return rpl::single(peer);
@@ -608,6 +611,11 @@ rpl::producer<int> SharedMediaCountValue(
 		PeerId monoforumPeerId,
 		PeerData *migrated,
 		Storage::SharedMediaType type) {
+	if (!peer->session().allowlistAllows(peer->id)
+		|| (monoforumPeerId
+			&& !peer->session().allowlistAllows(monoforumPeerId))) {
+		return rpl::single(0);
+	}
 	auto aroundId = 0;
 	auto limit = 0;
 	auto updated = SharedMediaMergedViewer(
@@ -617,7 +625,9 @@ rpl::producer<int> SharedMediaCountValue(
 				peer->id,
 				topicRootId,
 				monoforumPeerId,
-				migrated ? migrated->id : 0,
+				(migrated && peer->session().allowlistAllows(migrated->id))
+					? migrated->id
+					: 0,
 				aroundId),
 			type),
 		limit,
@@ -629,12 +639,7 @@ rpl::producer<int> SharedMediaCountValue(
 }
 
 rpl::producer<int> CommonGroupsCountValue(not_null<UserData*> user) {
-	return user->session().changes().peerFlagsValue(
-		user,
-		UpdateFlag::CommonChats
-	) | rpl::map([=] {
-		return user->commonChatsCount();
-	});
+	return rpl::single(0);
 }
 
 rpl::producer<int> SimilarPeersCountValue(
@@ -647,12 +652,18 @@ rpl::producer<int> SimilarPeersCountValue(
 		rpl::mappers::_1 == peer
 	) | rpl::map([=] {
 		const auto &similar = participants->similar(peer);
-		return int(similar.list.size()) + similar.more;
+		return int(ranges::count_if(similar.list, [=](const auto &entry) {
+			return peer->session().allowlistAllows(entry->id);
+		}));
 	});
 }
 
 rpl::producer<int> SavedSublistCountValue(
 		not_null<PeerData*> peer) {
+	if (!peer->session().allowlistAllows(peer->id)
+		|| !peer->session().allowlistAllows(peer->session().userPeerId())) {
+		return rpl::single(0);
+	}
 	const auto saved = &peer->owner().savedMessages();
 	const auto sublist = saved->sublist(peer);
 	if (!sublist->fullCount().has_value()) {

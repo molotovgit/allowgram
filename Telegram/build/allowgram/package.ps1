@@ -73,9 +73,18 @@ allowlist with Telegram user and group identifiers before using the client.
 
 Only allowed conversations appear in the chat list, archive, search and
 notifications. Excluded conversations produce no message previews, unread
-badges, sounds or incoming-call alerts. Calls, aggregate stories, mini apps,
+badges, sounds or incoming-call alerts. Calls, aggregate stories,
 payments and business automation are disabled. Saved Messages requires your
 own user ID. Channel comments need the linked discussion group ID.
+
+Mini Apps work only for server-resolved bots explicitly included under Users.
+Their conversation, reply and send-as contexts must also be allowed. App links
+resolve and check each destination bot independently. Native Telegram consent,
+authentication and origin checks remain enabled. Accepting app Terms does not
+grant write access; permission requests require separate confirmation.
+Opaque app IDs, arbitrary custom bridge methods/cloud storage, prepared-message
+sharing, chat/contact chooser bridges, managed-bot creation and emoji-status
+changes remain disabled. Third-party dashboards retain their backend permissions.
 
 Each setup section has a + button to add another ID row and a Remove button
 to delete an unwanted row. Up to 10,000 distinct IDs are supported.

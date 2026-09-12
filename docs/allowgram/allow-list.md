@@ -6,6 +6,10 @@
 
 Complete Telegram's normal phone-number, verification-code and, if enabled, two-step-verification flow. When an account has no saved Allowgram list, **Set up your allow-list** covers the client before conversations become available. Setup requires at least one valid user, bot, group or channel ID. It is not a username search box.
 
+![Allowgram setup showing Allowed users, Allowed groups and channels, add-row buttons and Save and continue](images/allow-list-overview.png)
+
+*The real setup controls in an isolated unsigned-in documentation fixture. In ordinary use this screen appears after sign-in. See [capture scope](screenshots.md).*
+
 ## Add a user or bot
 
 1. In **Allowed users**, enter the numeric Telegram user ID in the first row.
@@ -28,6 +32,10 @@ These are neutral format examples, not a recommended personal list. The bot exam
 
 The signed channel form is `-(1000000000000 + raw_channel_id)`. Use `channel:` when you have the raw channel ID, so a positive value is not mistaken for a user. IDs are stored with their peer type; matching digits do not make a user and channel the same destination.
 
+![Allowgram with two user rows and two group or channel rows, each with Remove controls](images/allow-list-multiple.png)
+
+*Multiple rows use the same controls; the scrollbar reveals the rest of the form. Neutral example values are written out in the table above so they can be copied accurately.*
+
 ## Validate and save
 
 Select **Save and continue**. The client validates the combined fields, removes duplicate IDs and permits at most 10,000 distinct entries. Empty extra rows are ignored. Comma, whitespace and semicolon separators are also accepted by the parser, although one ID per row is easier to review.
@@ -40,6 +48,10 @@ Select **Save and continue**. The client validates the combined fields, removes 
 | “The allow-list can contain up to 10,000 IDs.” | Remove entries to stay within the total limit. |
 | “The allow-list input is too long.” | Shorten oversized input; the parser bounds total input bytes. |
 | “The allow-list could not be saved. Check free disk space and try again.” | Correct the local storage problem and retry. The client remains locked if saving fails. |
+
+![Allowgram showing an Invalid ID error after a username is entered in a numeric user-ID row](images/allow-list-validation.png)
+
+*The real parser rejects `@example_bot`. Correct the entry, scroll to **Save and continue**, and try again. This fixture demonstrates validation only; it does not save a policy to a signed-in account.*
 
 After a successful save, the setup lock closes and only permitted conversations become available. Saving an ID does not join a private group, create membership or override Telegram's posting permissions. A permitted chat may still need to be opened or loaded through Telegram before it appears.
 

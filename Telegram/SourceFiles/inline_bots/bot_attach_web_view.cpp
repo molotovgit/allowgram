@@ -2350,6 +2350,11 @@ AttachWebView::AttachWebView(not_null<Main::Session*> session)
 , _storage(std::make_unique<Storage>(session))
 , _refreshTimer([=] { requestBots(); }) {
 	_refreshTimer.callEach(kRefreshBotsTimeout);
+	_session->domain().activeSessionChanges() | rpl::on_next([=](Main::Session *active) {
+		if (active != _session) {
+			closeAll();
+		}
+	}, _lifetime);
 	_session->data().joinChatWebViewDecision(
 	) | rpl::on_next([=](
 			const Data::Session::JoinChatWebViewDecision &decision) {
@@ -2586,6 +2591,11 @@ bool AttachWebView::showMainMenuNewBadge(
 void AttachWebView::requestAddToMenu(
 		not_null<UserData*> bot,
 		Fn<void(AddToMenuResult, PeerTypes supported)> done) {
+	if (!AllowedBot(_session, bot)) {
+		if (done) { done(AddToMenuResult::Cancelled, {}); }
+		return;
+	}
+
 	auto &process = _addToMenu[bot];
 	if (done) {
 		process.done.push_back(std::move(done));
@@ -2683,9 +2693,20 @@ void AttachWebView::resolveUsername(
 }
 
 void AttachWebView::open(WebViewDescriptor &&descriptor) {
+	if (!AllowedContext(_session, descriptor.bot, descriptor.context)
+		|| v::is<WebViewSourceGame>(descriptor.source)
+		|| v::is<WebViewSourceJoinChat>(descriptor.source)
+		|| v::is<WebViewSourceAgeVerification>(descriptor.source)) {
+		return;
+	}
+	descriptor.context = ResolveContext(descriptor.bot, std::move(descriptor.context));
+	if (!AllowedContext(_session, descriptor.bot, descriptor.context)) {
+		return;
+	}
 	for (const auto &instance : _instances) {
 		if (instance->bot() == descriptor.bot
-			&& instance->source() == descriptor.source) {
+			&& instance->source() == descriptor.source
+			&& instance->matches(descriptor.context, descriptor.button)) {
 			instance->activate();
 			return;
 		}
@@ -2699,6 +2720,11 @@ void AttachWebView::acceptMainMenuDisclaimer(
 		std::shared_ptr<Ui::Show> show,
 		not_null<UserData*> bot,
 		Fn<void(AddToMenuResult, PeerTypes supported)> done) {
+	if (!AllowedBot(_session, bot)) {
+		done(AddToMenuResult::Cancelled, {});
+		return;
+	}
+
 	const auto i = ranges::find(_attachBots, bot, &AttachWebViewBot::user);
 	if (i == end(_attachBots)) {
 		_attachBotsUpdates.fire({});
@@ -2712,7 +2738,7 @@ void AttachWebView::acceptMainMenuDisclaimer(
 	}
 	const auto types = i->types;
 	show->show(Box(FillDisclaimerBox, crl::guard(this, [=](bool accepted) {
-		if (accepted) {
+		if (accepted && AllowedBot(_session, bot)) {
 			_disclaimerAccepted.emplace(bot);
 			_attachBotsUpdates.fire({});
 			done(AddToMenuResult::AlreadyInMenu, types);
@@ -2726,19 +2752,31 @@ void AttachWebView::confirmAddToMenu(
 		AttachWebViewBot bot,
 		Fn<void(bool added)> callback) {
 	const auto active = Core::App().activeWindow();
-	if (!active) {
+	if (!active || active->maybeSession() != _session
+		|| !AllowedBot(_session, bot.user)) {
 		if (callback) {
 			callback(false);
 		}
 		return;
 	}
 	const auto weak = base::make_weak(active);
-	active->show(Box([=](not_null<Ui::GenericBox*> box) {
+	const auto eligible = [=] {
+		const auto window = weak.get();
+		return window && window->maybeSession() == _session
+			&& AllowedBot(_session, bot.user);
+	};
+	active->show(Box(crl::guard(this, [=](not_null<Ui::GenericBox*> box) {
 		const auto allowed = std::make_shared<Ui::Checkbox*>();
 		const auto disclaimer = !disclaimerAccepted(bot);
-		const auto done = [=](Fn<void()> close) {
-			const auto state = (disclaimer
-				|| ((*allowed) && (*allowed)->checked()))
+		const auto done = crl::guard(this, [=](Fn<void()> close) {
+			if (!eligible()) {
+				if (callback) {
+					callback(false);
+				}
+				close();
+				return;
+			}
+			const auto state = ((*allowed) && (*allowed)->checked())
 				? ToggledState::AllowedToWrite
 				: ToggledState::Added;
 			toggleInMenu(bot.user, state, [=](bool success) {
@@ -2752,17 +2790,17 @@ void AttachWebView::confirmAddToMenu(
 				}
 			});
 			close();
-		};
+		});
 		if (disclaimer) {
-			FillDisclaimerBox(box, [=](bool accepted) {
-				if (accepted) {
+			FillDisclaimerBox(box, crl::guard(this, [=](bool accepted) {
+				if (accepted && eligible()) {
 					_disclaimerAccepted.emplace(bot.user);
 					_attachBotsUpdates.fire({});
 					done([] {});
 				} else if (callback) {
 					callback(false);
 				}
-			});
+			}));
 			box->addRow(object_ptr<Ui::FixedHeightWidget>(
 				box,
 				st::boxRowPadding.left()));
@@ -2808,13 +2846,18 @@ void AttachWebView::confirmAddToMenu(
 				(*allowed)->setAllowTextLines();
 			}
 		}
-	}));
+	})));
 }
 
 void AttachWebView::toggleInMenu(
 		not_null<UserData*> bot,
 		ToggledState state,
 		Fn<void(bool success)> callback) {
+	if (!AllowedBot(_session, bot)) {
+		if (callback) { callback(false); }
+		return;
+	}
+
 	using Flag = MTPmessages_ToggleBotInAttachMenu::Flag;
 	_session->api().request(MTPmessages_ToggleBotInAttachMenu(
 		MTP_flags((state == ToggledState::AllowedToWrite)

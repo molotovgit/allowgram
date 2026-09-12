@@ -1222,6 +1222,10 @@ void WebViewInstance::confirmOpen(Fn<void()> done, bool forceConfirmation) {
 		return;
 	}
 	const auto callback = [=](Fn<void()> close) {
+		if (!checkAllowlist()) {
+			close();
+			return;
+		}
 		_session->local().markPeerTrustedOpenWebView(_bot->id);
 		close();
 		done();
@@ -1252,7 +1256,11 @@ void WebViewInstance::confirmAppOpen(
 		bool writeAccess,
 		Fn<void(bool allowWrite)> done,
 		bool forceConfirmation) {
-	if (!forceConfirmation
+	if (!checkAllowlist()) {
+		return;
+	}
+
+	if (!writeAccess && !forceConfirmation
 		&& (_bot->isVerified()
 			|| _session->local().isPeerTrustedOpenWebView(_bot->id))) {
 		done(writeAccess);
@@ -1261,6 +1269,10 @@ void WebViewInstance::confirmAppOpen(
 	_parentShow->show(Box([=](not_null<Ui::GenericBox*> box) {
 		const auto allowed = std::make_shared<Ui::Checkbox*>();
 		const auto callback = [=](Fn<void()> close) {
+			if (!checkAllowlist()) {
+				close();
+				return;
+			}
 			_session->local().markPeerTrustedOpenWebView(_bot->id);
 			done((*allowed) && (*allowed)->checked());
 			close();
@@ -1304,6 +1316,10 @@ void WebViewInstance::confirmAppOpen(
 }
 
 void WebViewInstance::requestButton() {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	Expects(_context.action.has_value());
 
 	const auto &action = *_context.action;

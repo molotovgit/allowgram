@@ -835,10 +835,14 @@ void MessagesUi::appendMessage(const Message &data) {
 	const auto repaint = [=] {
 		repaintMessage(id);
 	};
-	entry.fromLink = std::make_shared<LambdaClickHandler>([=] {
-		_show->show(
-			PrepareShortInfoBox(peer, _show, &st::storiesShortInfoBox));
-	});
+	entry.fromLink = peer->session().canPresentPeerProfile(peer->id)
+		? std::make_shared<LambdaClickHandler>([=] {
+			if (auto box = PrepareShortInfoBox(
+					peer, _show, &st::storiesShortInfoBox)) {
+				_show->show(std::move(box));
+			}
+		})
+		: nullptr;
 	if (data.failed) {
 		setContentFailed(entry);
 	} else {

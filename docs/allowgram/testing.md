@@ -16,6 +16,12 @@ join/panel UI or call allocation. They do not simulate a successful call and are
 not compiled into the delivered application. Use complete finished reports and
 zero process exits; an early exit with fewer checks is not success.
 
+The short-info regression passes denied user/self results through the real
+window presentation boundary, not just the factory. A denied nullable box must
+leave an existing allowed-group information layer intact; explicit hide-layer
+must still close it. All short-info callers must handle nullable results before
+passing them to other UI show adapters.
+
 Run `python Telegram/build/allowgram/check_emoji_data.py` to verify that the
 production scalar table matches the pinned Telegram sequence source. The native
 request suite decodes real serialized requests and tests every listed emoji

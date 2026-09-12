@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/stories/media_stories_header.h"
+#include "main/main_session.h"
 
 #include "base/unixtime.h"
 #include "chat_helpers/compose/compose_show.h"
@@ -341,8 +342,12 @@ void Header::show(HeaderData data, rpl::producer<int> videoStreamViewers) {
 
 		_info = std::make_unique<Ui::AbstractButton>(raw);
 		_info->setClickedCallback([=] {
-			_controller->uiShow()->show(PrepareShortInfoBox(_data->peer));
+			if (auto box = PrepareShortInfoBox(_data->peer)) {
+				_controller->uiShow()->show(std::move(box));
+			}
 		});
+		_info->setPointerCursor(
+			data.peer->session().canPresentPeerProfile(data.peer->id));
 
 		_userpic = std::make_unique<Ui::UserpicButton>(
 			raw,
@@ -406,12 +411,16 @@ void Header::show(HeaderData data, rpl::producer<int> videoStreamViewers) {
 				data.repostPeer,
 				data.repostFrom);
 		const auto prefix = data.fromPeer ? data.fromPeer : data.repostPeer;
+		const auto canOpenPrefix = prefix
+			&& prefix->session().canPresentPeerProfile(prefix->id);
 		_repost->setMarkedText(
-			(prefix ? tr::link(prefixName) : prefixName),
+			(canOpenPrefix ? tr::link(prefixName) : prefixName),
 			Core::TextContext({ .session = &data.peer->session() }));
-		if (prefix) {
+		if (canOpenPrefix) {
 			_repost->setClickHandlerFilter([=](const auto &...) {
-				_controller->uiShow()->show(PrepareShortInfoBox(prefix));
+				if (auto box = PrepareShortInfoBox(prefix)) {
+					_controller->uiShow()->show(std::move(box));
+				}
 				return false;
 			});
 		}

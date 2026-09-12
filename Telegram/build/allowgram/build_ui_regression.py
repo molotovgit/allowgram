@@ -232,7 +232,7 @@ block = re.sub(r'^  TARGET_PDB = .*$', '  TARGET_PDB = ' + str(fixture / 'Allowg
 block = re.sub(r'^  OBJECT_DIR = .*$', '  OBJECT_DIR = ' + str(fixture).replace('\\', '/'), block, flags=re.M)
 (fixture / 'link.ninja').write_text('include build-Release.ninja\n\n' + block + '\n', encoding='utf-8')
 print('Linking separate documentation fixture.', flush=True)
-result = subprocess.run(['ninja', '-f', str(fixture / 'link.ninja'), str(fixture / 'Allowgram-Docs.exe').replace('\\', '/')], cwd=build, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+result = subprocess.run(['ninja', '-j', '4', '-f', str(fixture / 'link.ninja'), str(fixture / 'Allowgram-Docs.exe').replace('\\', '/')], cwd=build, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 print(redact(result.stdout.decode(errors='replace')), flush=True)
 assert hashlib.sha256(executable.read_bytes()).hexdigest() == original_hash, 'Production executable changed.'
 if result.returncode:

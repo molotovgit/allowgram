@@ -1924,12 +1924,12 @@ void ParticipantsBoxController::rowClicked(not_null<PeerListRow*> row) {
 		&& user
 		&& _additional.canRestrictParticipant(participant)) {
 		showRestricted(user);
-	} else {
+	} else if (participant->session().canPresentPeerProfile(participant->id)) {
 		Assert(_navigation != nullptr);
 		if (_role != Role::Profile) {
-			_navigation->parentController()->show(PrepareShortInfoBox(
-				participant,
-				_navigation));
+			if (auto box = PrepareShortInfoBox(participant, _navigation)) {
+				_navigation->parentController()->show(std::move(box));
+			}
 		} else {
 			_navigation->showPeerInfo(participant);
 		}
@@ -2009,9 +2009,12 @@ base::unique_qptr<Ui::PopupMenu> ParticipantsBoxController::rowContextMenu(
 				st::historyHasCustomEmoji,
 				st::historyHasCustomEmojiPosition,
 				std::move(text));
-			if (const auto n = _navigation) {
+			if (const auto n = _navigation;
+					n && by->session().canPresentPeerProfile(by->id)) {
 				button->setActionTriggered([=] {
-					n->parentController()->show(PrepareShortInfoBox(by, n));
+					if (auto box = PrepareShortInfoBox(by, n)) {
+						n->parentController()->show(std::move(box));
+					}
 				});
 			}
 			result->addSeparator();
@@ -2044,8 +2047,9 @@ base::unique_qptr<Ui::PopupMenu> ParticipantsBoxController::rowContextMenu(
 				? tr::lng_context_view_channel
 				: tr::lng_context_view_group)(tr::now),
 			crl::guard(this, [=, this] {
-				_navigation->parentController()->show(
-					PrepareShortInfoBox(participant, _navigation));
+				if (auto box = PrepareShortInfoBox(participant, _navigation)) {
+					_navigation->parentController()->show(std::move(box));
+				}
 			}),
 			(participant->isUser()
 				? &st::menuIconProfile

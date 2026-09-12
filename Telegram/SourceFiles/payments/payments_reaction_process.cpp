@@ -229,7 +229,9 @@ void ShowPaidReactionDetails(
 			? peer->shortName()
 			: tr::lng_paid_react_anonymous(tr::now);
 		const auto open = [=] {
-			controller->uiShow()->show(PrepareShortInfoBox(peer, controller));
+			if (auto box = PrepareShortInfoBox(peer, controller)) {
+				controller->uiShow()->show(std::move(box));
+			}
 		};
 		top.push_back({
 			.name = name,
@@ -238,7 +240,8 @@ void ShowPaidReactionDetails(
 				: Ui::MakeHiddenAuthorThumbnail()),
 			.barePeerId = peer ? uint64(peer->id.value) : 0,
 			.count = int(entry.count),
-			.click = peer ? open : Fn<void()>(),
+			.click = (peer && peer->session().canPresentPeerProfile(peer->id))
+				? open : Fn<void()>(),
 			.my = (entry.my == 1),
 		});
 	};

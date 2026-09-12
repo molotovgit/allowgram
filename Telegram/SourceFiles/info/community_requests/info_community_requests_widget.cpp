@@ -952,8 +952,9 @@ void Controller::rowElementClicked(
 	} else if (element == kUserLink) {
 		const auto raw = static_cast<Row*>(row.get());
 		if (const auto user = raw->requestedBy()) {
-			_navigation->uiShow()->showBox(
-				PrepareShortInfoBox(user, _navigation));
+			if (auto box = PrepareShortInfoBox(user, _navigation)) {
+				_navigation->uiShow()->showBox(std::move(box));
+			}
 		}
 	}
 }

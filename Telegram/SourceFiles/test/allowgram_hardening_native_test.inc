@@ -282,6 +282,24 @@ if (firstCreated) {
 		check(navigation->activeChatCurrent().history() == session.data().history(user), "retained self-chat callback cannot navigate");
 		navigation->showPeerInfo(user);
 		check(!Info::Memento(user).allowlistAllows(&session), "profile callback remains centrally denied");
+		const auto visibleBoxes = [&] {
+			auto count = 0;
+			for (const auto widget : bodyWidget()->findChildren<QWidget*>()) {
+				count += dynamic_cast<Ui::BoxContent*>(widget) ? 1 : 0;
+			}
+			return count;
+		};
+		navigation->show(PrepareShortInfoBox(group, navigation));
+		const auto groupBoxes = visibleBoxes();
+		check(groupBoxes > 0, "allowed group short info reaches the real presentation boundary");
+		navigation->show(PrepareShortInfoBox(user, navigation));
+		check(visibleBoxes() == groupBoxes, "retained participant short-info callback is a safe no-op");
+		navigation->show(PrepareShortInfoBox(session.user(), navigation));
+		check(visibleBoxes() == groupBoxes, "retained self short-info callback is a safe no-op");
+		navigation->uiShow()->showBox(PrepareShortInfoBox(user, navigation));
+		check(visibleBoxes() == groupBoxes, "Ui Show denied short info preserves the existing layer");
+		navigation->hideLayer(anim::type::instant);
+		check(visibleBoxes() == 0, "explicit hide-layer still closes allowed group information");
 	}
 	placeholderPtr->setSessionUserId(UserId(100));
 	placeholderPtr->createSession(UserId(100), QByteArray(), QDataStream::Qt_5_1,

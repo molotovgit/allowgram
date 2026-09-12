@@ -649,8 +649,9 @@ void Filler::addInfo() {
 	_addAction(text, [=] {
 		if (const auto strong = weak.get()) {
 			if (base::IsCtrlPressed()) {
-				controller->uiShow()->showBox(
-					PrepareShortInfoBox(infoPeer, controller));
+				if (auto box = PrepareShortInfoBox(infoPeer, controller)) {
+					controller->uiShow()->showBox(std::move(box));
+				}
 			} else {
 				controller->showPeerInfo(strong);
 			}

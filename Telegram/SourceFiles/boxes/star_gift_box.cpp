@@ -2482,7 +2482,9 @@ void ChooseStarGiftRecipient(
 					using Way = Window::SectionShow::Way;
 					window->showPeerHistory(peer, Way::Forward);
 				} else if (type == PickType::OpenProfile) {
-					window->show(PrepareShortInfoBox(peer, window));
+					if (auto box = PrepareShortInfoBox(peer, window)) {
+						window->show(std::move(box));
+					}
 				}
 			});
 		const auto controllerRaw = controller.get();

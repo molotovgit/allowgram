@@ -175,16 +175,24 @@ object_ptr<RpWidget> MakePeerTableValue(
 	}, label->lifetime());
 	userpic->setAttribute(Qt::WA_TransparentForMouseEvents);
 	label->setAttribute(Qt::WA_TransparentForMouseEvents);
+	const auto canOpenProfile = peer->session().canPresentPeerProfile(peer->id);
 	rpl::single(
 		rpl::empty_value()
 	) | rpl::then(style::PaletteChanged()) | rpl::on_next([=] {
-		label->setTextColorOverride(
-			table->st().defaultValue.palette.linkFg->c);
+		if (canOpenProfile) {
+			label->setTextColorOverride(
+				table->st().defaultValue.palette.linkFg->c);
+		}
 	}, label->lifetime());
 
-	raw->setClickedCallback([=] {
-		show->showBox(PrepareShortInfoBox(peer, show));
-	});
+	raw->setPointerCursor(canOpenProfile);
+	if (canOpenProfile) {
+		raw->setClickedCallback([=] {
+			if (auto box = PrepareShortInfoBox(peer, show)) {
+				show->showBox(std::move(box));
+			}
+		});
+	}
 
 	if (!button || !handler) {
 		return result;

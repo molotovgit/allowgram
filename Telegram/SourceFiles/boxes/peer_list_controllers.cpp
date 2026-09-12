@@ -465,6 +465,11 @@ void ChatsListBoxController::prepare() {
 	) | rpl::on_next([=] {
 		rebuildRows();
 	}, lifetime());
+
+	session().allowlistConfiguredValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		rebuildRows();
+	}, lifetime());
 }
 
 void ChatsListBoxController::rebuildRows() {
@@ -524,10 +529,16 @@ QString ChatsListBoxController::emptyBoxText() const {
 
 std::unique_ptr<PeerListRow> ChatsListBoxController::createSearchRow(
 		not_null<PeerData*> peer) {
+	if (!session().allowlistAllows(peer->id)) {
+		return nullptr;
+	}
 	return createRow(peer->owner().history(peer));
 }
 
 bool ChatsListBoxController::appendRow(not_null<History*> history) {
+	if (!session().allowlistAllows(history->peer->id)) {
+		return false;
+	}
 	if (auto row = delegate()->peerListFindRow(history->peer->id.value)) {
 		updateRowHook(static_cast<Row*>(row));
 		return false;
@@ -685,6 +696,11 @@ void ContactsBoxController::prepare() {
 	) | rpl::on_next([=] {
 		rebuildRows();
 	}, lifetime());
+
+	session().allowlistConfiguredValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		rebuildRows();
+	}, lifetime());
 }
 
 void ContactsBoxController::rebuildRows() {
@@ -717,6 +733,9 @@ void ContactsBoxController::checkForEmptyRows() {
 
 std::unique_ptr<PeerListRow> ContactsBoxController::createSearchRow(
 		not_null<PeerData*> peer) {
+	if (!session().allowlistAllows(peer->id)) {
+		return nullptr;
+	}
 	if (const auto user = peer->asUser()) {
 		return createRow(user);
 	}
@@ -806,6 +825,9 @@ void ContactsBoxController::sortByOnline() {
 }
 
 bool ContactsBoxController::appendRow(not_null<UserData*> user) {
+	if (!session().allowlistAllows(user->id)) {
+		return false;
+	}
 	if (auto row = delegate()->peerListFindRow(user->id.value)) {
 		updateRowHook(row);
 		return false;
@@ -1584,7 +1606,8 @@ std::unique_ptr<PeerListRow> ChooseCommunityChatBoxController::createSearchRow(
 
 auto ChooseCommunityChatBoxController::createRow(not_null<History*> history)
 -> std::unique_ptr<PeerListRow> {
-	if (_filter && !_filter(history)) {
+	if (!session().allowlistAllows(history->peer->id)
+		|| (_filter && !_filter(history))) {
 		return nullptr;
 	}
 	auto result = std::make_unique<PeerListRow>(history->peer);

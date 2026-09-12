@@ -1058,23 +1058,6 @@ void Filler::addDirectMessages() {
 }
 
 void Filler::addExportChat() {
-	if (!_peer->canExportChatHistory()) {
-		return;
-	}
-	const auto peer = _peer;
-	const auto navigation = _controller;
-	if (const auto topic = _thread->asTopic()) {
-		const auto topicRootId = topic->rootId();
-		_addAction(
-			tr::lng_profile_export_topic(tr::now),
-			[=] { PeerMenuExportTopic(navigation, peer, topicRootId); },
-			&st::menuIconExport);
-		return;
-	}
-	_addAction(
-		tr::lng_profile_export_chat(tr::now),
-		[=] { PeerMenuExportChat(navigation, peer); },
-		&st::menuIconExport);
 }
 
 void Filler::addTranslate() {

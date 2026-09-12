@@ -81,6 +81,9 @@ Main::Session &ListController::session() const {
 
 std::unique_ptr<PeerListRow> ListController::createRow(
 		not_null<PeerData*> peer) {
+	if (!session().allowlistAllows(peer->id)) {
+		return nullptr;
+	}
 	auto result = std::make_unique<PeerListRow>(peer);
 	if (const auto channel = peer->asChannel()) {
 		if (const auto count = channel->membersCount(); count > 1) {
@@ -128,18 +131,13 @@ void ListController::rebuild() {
 	const auto participants = &_peer->session().api().chatParticipants();
 	const auto &list = participants->similar(_peer);
 	for (const auto &peer : list.list) {
-		if (!delegate()->peerListFindRow(peer->id.value)) {
+		if (session().allowlistAllows(peer->id)
+			&& !delegate()->peerListFindRow(peer->id.value)) {
 			delegate()->peerListAppendRow(createRow(peer));
 		}
 	}
-	if (!list.more
-		|| _peer->session().premium()
-		|| !_peer->session().premiumPossible()) {
-		delete base::take(_unlock);
-		_unlockHeight = 0;
-	} else if (!_unlock) {
-		setupUnlock();
-	}
+	delete base::take(_unlock);
+	_unlockHeight = 0;
 	delegate()->peerListRefreshRows();
 }
 

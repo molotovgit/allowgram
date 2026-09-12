@@ -74,3 +74,6 @@ settings.local.json
 
 # Generated changelog page (built by CI, deployed to GitHub Pages)
 /docs/changelog/
+/aqtinstall.log
+/.private/
+/*.api-credentials.json

@@ -591,6 +591,12 @@ InnerWidget::InnerWidget(
 	refreshWithCollapsedRows(true);
 
 	setupShortcuts();
+
+	session().allowlistConfiguredValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		refreshFilterResults();
+		refresh();
+	}, lifetime());
 }
 
 bool InnerWidget::updateEntryHeight(not_null<Entry*> entry) {
@@ -4292,7 +4298,11 @@ void InnerWidget::refreshFilterResults() {
 		: TextUtilities::PrepareSearchWords(_filter);
 	_filterResults.clear();
 	const auto append = [&](not_null<IndexedList*> list) {
-		const auto results = list->filtered(words);
+		auto results = list->filtered(words);
+		results.erase(ranges::remove_if(results, [=](const auto &row) {
+			const auto history = row->key().owningHistory();
+			return history && !session().allowlistAllows(history->peer->id);
+		}), end(results));
 		auto top = filteredHeight();
 		auto i = _filterResults.insert(
 			end(_filterResults),
@@ -4330,6 +4340,10 @@ void InnerWidget::refreshFilterResults() {
 }
 
 void InnerWidget::appendToFiltered(Key key) {
+	const auto history = key.owningHistory();
+	if (history && !session().allowlistAllows(history->peer->id)) {
+		return;
+	}
 	for (const auto &row : _filterResults) {
 		if (row.key() == key) {
 			return;
@@ -4649,7 +4663,7 @@ void InnerWidget::searchReceived(
 		std::vector<not_null<HistoryItem*>> messages,
 		HistoryItem *inject,
 		SearchRequestType type,
-		int fullCount) {
+		int) {
 	_searchWaiting = false;
 	_searchLoading = false;
 
@@ -4673,6 +4687,7 @@ void InnerWidget::searchReceived(
 		? _searchState.inChat
 		: Key(_openedForum->history());
 	if (inject
+		&& session().allowlistAllows(inject->history()->peer->id)
 		&& (globalSearch
 			|| !_searchState.inChat
 			|| inject->history() == _searchState.inChat.history())) {
@@ -4685,11 +4700,13 @@ void InnerWidget::searchReceived(
 				inject,
 				[=] { repaintSearchResult(index); }));
 		trackResultsHistory(inject->history());
-		++fullCount;
 	}
 	auto &results = toPreview ? _previewResults : _searchResults;
 	for (const auto &item : messages) {
 		const auto history = item->history();
+		if (!session().allowlistAllows(history->peer->id)) {
+			continue;
+		}
 		if (toPreview || !uniquePeers || !hasHistoryInResults(history)) {
 			const auto index = int(results.size());
 			const auto repaint = toPreview
@@ -4705,13 +4722,9 @@ void InnerWidget::searchReceived(
 			}
 		}
 	}
-	if (type.migrated) {
-		_searchedMigratedCount = fullCount;
-	} else if (!withPreview || !toPreview) {
-		_searchedCount = fullCount;
-	} else {
-		_previewCount = fullCount;
-	}
+	_searchedCount = int(_searchResults.size());
+	_searchedMigratedCount = 0;
+	_previewCount = int(_previewResults.size());
 
 	refresh();
 }
@@ -4738,7 +4751,9 @@ void InnerWidget::peerSearchReceived(Api::PeerSearchResult result) {
 	auto added = base::flat_set<not_null<PeerData*>>();
 	for (const auto &sponsored : result.sponsored) {
 		const auto peer = sponsored.peer;
-		if (inlist(peer) || _sponsoredRemoved.contains(peer)) {
+		if (!session().allowlistAllows(peer->id)
+			|| inlist(peer)
+			|| _sponsoredRemoved.contains(peer)) {
 			continue;
 		}
 		_peerSearchResults.push_back(
@@ -4750,7 +4765,9 @@ void InnerWidget::peerSearchReceived(Api::PeerSearchResult result) {
 		added.emplace(peer);
 	}
 	for (const auto &peer : result.peers) {
-		if (added.contains(peer) || inlist(peer)) {
+		if (!session().allowlistAllows(peer->id)
+			|| added.contains(peer)
+			|| inlist(peer)) {
 			continue;
 		}
 		_peerSearchResults.push_back(

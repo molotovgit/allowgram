@@ -51,6 +51,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_changes.h"
 #include "data/data_user.h"
+#include "data/data_document.h"
+#include "data/data_document_media.h"
+#include <QtCore/QFile>
 #include "data/data_download_manager.h"
 #include "data/stickers/data_stickers.h"
 #include "window/window_session_controller.h"
@@ -416,7 +419,17 @@ bool Session::allowlistConfigured() const {
 
 MTP::AllowlistContentContext &Session::allowlistContent() {
 	if (!_allowlistContent) {
-		_allowlistContent = std::make_unique<MTP::AllowlistContentContext>();
+		_allowlistContent = std::make_unique<MTP::AllowlistContentContext>([=](uint64 id) {
+			const auto document = data().document(id);
+			if (const auto media = document->activeMediaView()) {
+				const auto bytes = media->bytes();
+				if (!bytes.isEmpty()) {
+					return bytes.left(1024);
+				}
+			}
+			auto file = QFile(document->filepath(true));
+			return file.open(QIODevice::ReadOnly) ? file.read(1024) : QByteArray();
+		});
 	}
 	return *_allowlistContent;
 }

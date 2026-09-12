@@ -508,6 +508,9 @@ void EmojiStatuses::set(
 		not_null<PeerData*> peer,
 		EmojiStatusId id,
 		TimeId until) {
+	if (id) {
+		return;
+	}
 	auto &api = _owner->session().api();
 	auto &requestId = _sentRequests[peer];
 	if (requestId) {

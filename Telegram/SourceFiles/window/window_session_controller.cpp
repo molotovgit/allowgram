@@ -3359,7 +3359,7 @@ bool SessionController::allowlistAllowsSection(
 		return &history->session() == &session()
 			&& session().allowlistAllows(history->peer->id);
 	}
-	return dynamic_cast<ChatHelpers::TabbedMemento*>(raw) != nullptr;
+	return false;
 }
 
 void SessionController::showSection(

@@ -233,7 +233,10 @@ int main() {
 	auto checks = 0;
 	CheckIncomingMessages(checks, failures);
 	CheckAllowlistWebViews(checks, failures);
-	auto content = MTP::AllowlistContentContext();
+	auto documentBytes = std::map<uint64, QByteArray>();
+	auto content = MTP::AllowlistContentContext([&](uint64 id) {
+		return documentBytes[id];
+	});
 	for (const auto &source : { MTPPeer(MTP_peerUser(MTP_long(42))),
 		MTPPeer(MTP_peerChat(MTP_long(42))), MTPPeer(MTP_peerChannel(MTP_long(42))) }) {
 		content.recordMessage(IncomingMessage(source, MTP_peerUser(MTP_long(43))).c_message());
@@ -352,7 +355,12 @@ int main() {
 	const auto documentSend = Packet(MTP_int(mtpc_messages_sendMedia), MTP_int(0),
 		user, documentMedia, MTP_string("plain caption"), MTP_long(1));
 	content.recordDocument(123, u"application/pdf"_q, { MTP_documentAttributeFilename(MTP_string("report.pdf")) });
+	check("cached metadata alone is not content evidence", documentSend, false);
+	documentBytes[123] = "%PDF-1.7 ordinary";
 	check("known ordinary document permitted", documentSend, true);
+	documentBytes[123] = "GIF89a renamed report.pdf";
+	check("cached renamed GIF bytes override benign metadata", documentSend, false);
+	documentBytes[123] = "%PDF-1.7 ordinary";
 	content.recordDocument(123, u"image/gif"_q, { MTP_documentAttributeFilename(MTP_string("renamed.bin")) });
 	check("cached GIF metadata denied", documentSend, false);
 	content.recordDocument(123, u"video/mp4"_q, { MTP_documentAttributeAnimated() });
@@ -363,6 +371,21 @@ int main() {
 	content.recordDocument(123, u"video/mp4"_q, { MTP_documentAttributeVideo(MTP_flags(0),
 		MTP_double(1.), MTP_int(32), MTP_int(32), MTPint(), MTPdouble(), MTPstring()) });
 	check("ordinary nonanimated video permitted", documentSend, true);
+	const auto audio = [&](const QString &title, const QString &performer) {
+		content.recordDocument(123, u"audio/mpeg"_q, { MTP_documentAttributeAudio(
+			MTP_flags(MTPDdocumentAttributeAudio::Flag::f_title | MTPDdocumentAttributeAudio::Flag::f_performer),
+			MTP_int(1), MTP_string(title), MTP_string(performer), MTPbytes()) });
+	};
+	audio(u"Ordinary title"_q, u"Performer"_q);
+	check("ordinary audio metadata permitted", documentSend, true);
+	audio(u"title \U0001F600"_q, u"Performer"_q);
+	check("audio title emoji denied", documentSend, false);
+	audio(u"Ordinary title"_q, u"performer \U0001F600"_q);
+	check("audio performer emoji denied", documentSend, false);
+	check("emoji status addition denied", Request::Serialize(MTPaccount_UpdateEmojiStatus(
+		MTP_emojiStatus(MTP_flags(0), MTP_long(123), MTPint()))), false);
+	check("emoji status removal retained", Request::Serialize(MTPaccount_UpdateEmojiStatus(
+		MTP_emojiStatusEmpty())), true);
 	check("ordinary document upload part permitted", Request::Serialize(
 		MTPupload_SaveFilePart(MTP_long(11), MTP_int(0), MTP_bytes("%PDF-1.7 plain document"))), true);
 	const auto upload = MTPInputFile(MTP_inputFile(MTP_long(11), MTP_int(1),
@@ -587,6 +610,10 @@ int main() {
 	}
 	check("bot start", Request::Serialize(MTPmessages_StartBot(
 		bot, user, MTP_long(1), MTP_string("test"))), true);
+	check("bot start parameter emoji denied", Request::Serialize(MTPmessages_StartBot(
+		bot, user, MTP_long(1), MTP_string(u"start_\U0001F600"_q))), false);
+	check("bot start parameter malformed UTF8 denied", Request::Serialize(MTPmessages_StartBot(
+		bot, user, MTP_long(1), MTP_string(QByteArray::fromHex("c0af").toStdString()))), false);
 	check("inline query allowed bot", Request::Serialize(MTPmessages_GetInlineBotResults(
 		MTP_flags(0), bot, user, MTPInputGeoPoint(), MTP_string("test"),
 		MTP_string(""))), true);

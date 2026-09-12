@@ -2565,6 +2565,7 @@ void SendFilesBox::send(
 	}
 
 	if (options.effectId || !AllowgramSendTextAllowed(fieldText())
+		|| !AllowgramSendReplyAllowed(_replyTo)
 		|| ranges::any_of(_list.files, [](const auto &file) {
 			return !AllowgramSendFileAllowed(file);
 		})) {

@@ -70,6 +70,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/confirm_box.h"
 #include "chat_helpers/bot_keyboard.h"
 #include "chat_helpers/message_field.h"
+#include "mtproto/allowlist_request_guard.h"
 #include "chat_helpers/tabbed_selector.h"
 #include "boxes/delete_messages_box.h"
 #include "boxes/send_files_box.h"
@@ -2334,6 +2335,12 @@ void ChatWidget::send() {
 }
 
 void ChatWidget::sendVoice(const ComposeControls::VoiceToSend &data) {
+	if (data.options.effectId
+		|| !AllowgramSendReplyAllowed(_composeControls->replyingToMessage())
+		|| !MTP::AllowlistUploadPrefixAllowed(data.bytes)) {
+		controller()->showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 	const auto withPaymentApproved = [=](int approved) {
 		auto copy = data;
 		copy.options.starsApproved = approved;
@@ -2431,6 +2438,10 @@ void ChatWidget::supportShareContact(Support::Contact contact) {
 void ChatWidget::sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options) {
+	if (!AllowgramSendRichContentAllowed()) {
+		controller()->showToast(tr::lng_allowgram_unclassified_content(tr::now));
+		return;
+	}
 	if (!page) {
 		return;
 	}
@@ -2549,6 +2560,11 @@ void ChatWidget::sendTextWithTags(
 		bool useCurrentWebPageDraft,
 		Api::SendOptions options,
 		Fn<void()> done) {
+	if (options.effectId || !AllowgramSendTextAllowed(textWithTags)
+		|| !AllowgramSendReplyAllowed(replyTo())) {
+		controller()->showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 	if (!options.scheduled) {
 		_cornerButtons.clearReplyReturns();
 	}

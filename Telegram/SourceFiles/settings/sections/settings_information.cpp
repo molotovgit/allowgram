@@ -220,14 +220,12 @@ public:
 private:
 	void setup();
 
-	[[nodiscard]] not_null<Ui::SlideWrap<Ui::SettingsButton>*> setupAdd();
 	void rebuild();
 
 	const not_null<Window::SessionController*> _controller;
 	const not_null<Ui::VerticalLayout*> _outer;
 	int _outerIndex = 0;
 
-	Ui::SlideWrap<Ui::SettingsButton> *_addAccount = nullptr;
 	base::flat_map<
 		not_null<::Main::Account*>,
 		base::unique_qptr<Ui::SettingsButton>> _watched;
@@ -985,12 +983,10 @@ rpl::producer<> AccountsList::closeRequests() const {
 }
 
 Ui::RpWidget *AccountsList::addAccountButton() const {
-	return _addAccount ? _addAccount->entity() : nullptr;
+	return nullptr;
 }
 
 void AccountsList::setup() {
-	_addAccount = setupAdd();
-
 	rpl::single(rpl::empty) | rpl::then(
 		Core::App().domain().accountsChanges()
 	) | rpl::on_next([=] {
@@ -1028,25 +1024,6 @@ void AccountsList::setup() {
 		}
 		rebuild();
 	}, _outer->lifetime());
-}
-
-
-not_null<Ui::SlideWrap<Ui::SettingsButton>*> AccountsList::setupAdd() {
-	const auto result = _outer->add(
-		object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
-			_outer.get(),
-			CreateButtonWithIcon(
-				_outer.get(),
-				tr::lng_menu_add_account(),
-				st::mainMenuAddAccountButton,
-				{
-					&st::settingsIconAdd,
-					IconType::Round,
-					&st::windowBgActive
-				})))->setDuration(0);
-	result->toggle(false, anim::type::instant);
-
-	return result;
 }
 
 void AccountsList::rebuild() {
@@ -1136,10 +1113,6 @@ void AccountsList::rebuild() {
 	_reorder->addPinnedInterval(
 		premiumLimit,
 		std::max(1, count - premiumLimit));
-
-	_addAccount->toggle(
-		false,
-		anim::type::instant);
 
 	_reorder->start();
 }

@@ -2198,7 +2198,8 @@ rpl::producer<Api::SendOptions> ComposeControls::sendRequests() const {
 		SendRequestType::Text
 	) | rpl::filter([=](const Api::SendOptions &options) {
 		if (options.effectId
-			|| !AllowgramSendTextAllowed(getTextWithAppliedMarkdown())) {
+			|| !AllowgramSendTextAllowed(getTextWithAppliedMarkdown())
+			|| !AllowgramSendReplyAllowed(replyingToMessage())) {
 			_show->showToast(tr::lng_allowgram_content_disabled(tr::now));
 			return false;
 		}
@@ -5650,25 +5651,7 @@ void ComposeControls::escape() {
 bool ComposeControls::pushTabbedSelectorToThirdSection(
 		not_null<Data::Thread*> thread,
 		const Window::SectionShow &params) {
-	if (!_tabbedPanel || !_regularWindow || !_features.commonTabbedPanel) {
-		return true;
-	} else if (!Data::CanSendAnyOf(
-			thread,
-			Data::TabbedPanelSendRestrictions())) {
-		Core::App().settings().setTabbedReplacedWithInfo(true);
-		_regularWindow->showPeerInfo(thread, params.withThirdColumn());
-		return false;
-	}
-	Core::App().settings().setTabbedReplacedWithInfo(false);
-	_tabbedSelectorToggle->setColorOverrides(
-		&st::historyAttachEmojiActive,
-		&st::historyRecordVoiceFgActive,
-		&st::historyRecordVoiceRippleBgActive);
-	_regularWindow->resizeForThirdSection();
-	_regularWindow->showSection(
-		std::make_shared<ChatHelpers::TabbedMemento>(),
-		params.withThirdColumn());
-	return true;
+	return false;
 }
 
 bool ComposeControls::returnTabbedSelector() {

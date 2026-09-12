@@ -20,6 +20,7 @@ namespace MTP {
 
 class AllowlistContentContext final {
 public:
+	explicit AllowlistContentContext(Fn<QByteArray(uint64)> resolveDocument = nullptr);
 	void recordDocument(uint64 id, const QString &mime,
 		const QVector<MTPDocumentAttribute> &attributes);
 	void recordMessage(const MTPDmessage &message, bool scheduled = false);
@@ -30,6 +31,8 @@ public:
 	[[nodiscard]] bool recordUploadPart(uint64 id, int part, const QByteArray &bytes);
 
 private:
+	[[nodiscard]] bool documentContentAllowed(uint64 id) const;
+	Fn<QByteArray(uint64)> _resolveDocument;
 	struct UploadProof {
 		bool allowed = false;
 		int firstPartSize = 0;
@@ -37,6 +40,7 @@ private:
 	};
 	std::map<uint64, bool> _documents;
 	std::map<std::pair<PeerId, int>, bool> _messages;
+	std::map<std::pair<PeerId, int>, uint64> _messageDocuments;
 	std::map<uint64, UploadProof> _uploads;
 
 };

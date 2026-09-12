@@ -628,9 +628,7 @@ void MainMenu::setupAccountsToggle() {
 }
 
 void MainMenu::setupSetEmojiStatus() {
-	_setEmojiStatus->overrideLinkClickHandler([=] {
-		chooseEmojiStatus();
-	});
+	_setEmojiStatus->hide();
 }
 
 void MainMenu::parentResized() {
@@ -823,14 +821,6 @@ void MainMenu::updateInnerControlsGeometry() {
 }
 
 void MainMenu::chooseEmojiStatus() {
-	if (_controller->showFrozenError()) {
-		return;
-	} else if (const auto widget = _badge->widget()) {
-		setupEmojiStatusDismiss();
-		_emojiStatusPanel->show(_controller, widget, _badge->sizeTag());
-	} else {
-		ShowPremiumPreviewBox(_controller, PremiumFeature::EmojiStatus);
-	}
 }
 
 void MainMenu::setupEmojiStatusDismiss() {

@@ -88,7 +88,6 @@ case mtpc_account_unregisterDevice:
 case mtpc_account_updateBirthday:
 case mtpc_account_updateColor:
 case mtpc_account_updateDeviceLocked:
-case mtpc_account_updateEmojiStatus:
 case mtpc_account_updateNotifySettings:
 case mtpc_account_updatePasswordSettings:
 case mtpc_account_updateProfile:

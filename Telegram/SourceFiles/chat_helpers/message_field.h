@@ -28,6 +28,7 @@ class DocumentData;
 class HistoryItem;
 class PeerData;
 class UserData;
+struct FullReplyTo;
 
 namespace Main {
 class Session;
@@ -58,6 +59,8 @@ struct PreparedFile;
 [[nodiscard]] QString PrepareMentionTag(not_null<UserData*> user);
 [[nodiscard]] bool AllowgramSendTextAllowed(const TextWithTags &text);
 [[nodiscard]] bool AllowgramSendTextAllowed(const TextWithEntities &text);
+[[nodiscard]] bool AllowgramSendReplyAllowed(const FullReplyTo &reply);
+[[nodiscard]] bool AllowgramSendRichContentAllowed();
 [[nodiscard]] bool AllowgramSendDocumentAllowed(not_null<DocumentData*> document);
 [[nodiscard]] bool AllowgramSendFileAllowed(const Ui::PreparedFile &file);
 [[nodiscard]] bool AllowgramForwardItemAllowed(not_null<HistoryItem*> item);

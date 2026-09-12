@@ -4515,6 +4515,8 @@ void OverlayWidget::show(OpenRequest request) {
 		|| (contextItem
 			&& !contextItem->history()->session().allowlistAllows(
 				contextItem->history()->peer->id))
+		|| (photo && contextItem
+			&& (!contextItem->media() || contextItem->media()->photo() != photo))
 		|| (photo && !contextItem && !contextPeer && !story)) {
 		return;
 	}

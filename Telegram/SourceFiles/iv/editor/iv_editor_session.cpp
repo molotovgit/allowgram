@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "iv/editor/iv_editor_session.h"
+#include "chat_helpers/message_field.h"
 
 #include <QtCore/QFileInfo>
 #include <QtCore/QPointer>
@@ -1678,6 +1679,10 @@ private:
 	}
 
 	void requestSubmit(Api::SendOptions options) {
+		if (!AllowgramSendRichContentAllowed()) {
+			showToast(tr::lng_allowgram_unclassified_content(tr::now));
+			return;
+		}
 		_submitOptions = std::move(options);
 		if (_composeAction) {
 			_composeAction->options = _submitOptions;

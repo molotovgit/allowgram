@@ -300,16 +300,6 @@ void Widget::showAnimated() {
 }
 
 void Widget::showStarted() {
-	if (isHidden()) {
-		recountContentMaxHeight();
-		_inner->preloadImages();
-		show();
-		_controller->enableGifPauseReason(
-			Window::GifPauseReason::InlineResults);
-		startShowAnimation();
-	} else if (_hiding) {
-		startOpacityAnimation(false);
-	}
 }
 
 void Widget::onScroll() {

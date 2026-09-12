@@ -92,6 +92,14 @@ bool AllowgramSendDocumentAllowed(not_null<DocumentData*> document) {
 		&& document->owner().session().allowlistContent().documentAllowed(document->mtpInput());
 }
 
+bool AllowgramSendReplyAllowed(const FullReplyTo &reply) {
+	return AllowgramSendTextAllowed(reply.quote);
+}
+
+bool AllowgramSendRichContentAllowed() {
+	return false;
+}
+
 bool AllowgramForwardItemAllowed(not_null<HistoryItem*> item) {
 	const auto history = item->history();
 	return IsServerMsgId(item->id) && history->session().allowlistAllows(history->peer->id)
@@ -100,13 +108,24 @@ bool AllowgramForwardItemAllowed(not_null<HistoryItem*> item) {
 }
 
 bool AllowgramSendFileAllowed(const Ui::PreparedFile &file) {
-	if (!AllowgramSendTextAllowed(file.caption) || file.isSticker()
-		|| file.isGifv() || file.sendsVideoAsGif() || file.animationJob) {
+	if (!AllowgramSendTextAllowed(file.caption)
+		|| !AllowgramSendTextAllowed(TextWithEntities{ file.displayName, {} })
+		|| file.sendsVideoAsGif() || file.animationJob) {
 		return false;
 	}
+	auto memoryImage = false;
 	if (file.information) {
+		if (file.isSticker() || file.isGifv()) {
+			return false;
+		}
 		const auto image = std::get_if<Ui::PreparedFileInformation::Image>(&file.information->media);
 		if (image && image->animated) {
+			return false;
+		}
+		memoryImage = image && !image->data.isNull();
+		const auto song = std::get_if<Ui::PreparedFileInformation::Song>(&file.information->media);
+		if (song && (!AllowgramSendTextAllowed(TextWithEntities{ song->title, {} })
+			|| !AllowgramSendTextAllowed(TextWithEntities{ song->performer, {} }))) {
 			return false;
 		}
 	}
@@ -118,7 +137,7 @@ bool AllowgramSendFileAllowed(const Ui::PreparedFile &file) {
 		}
 		prefix = source.read(1024);
 	}
-	return prefix.isEmpty() || MTP::AllowlistUploadPrefixAllowed(prefix);
+	return prefix.isEmpty() ? memoryImage : MTP::AllowlistUploadPrefixAllowed(prefix);
 }
 
 namespace {
@@ -231,7 +250,7 @@ void EditLinkBox(
 		st::markdownLinkFieldPadding);
 	text->setInstantReplaces(Ui::InstantReplaces::Default());
 	text->setInstantReplacesEnabled(
-		Core::App().settings().replaceEmojiValue(),
+		rpl::single(false),
 		Core::App().settings().systemTextReplaceValue());
 	Ui::Emoji::SuggestionsController::Init(
 		box->getDelegate()->outerContainer(),
@@ -624,7 +643,7 @@ auto InitMessageFieldHandlers(MessageFieldHandlersArgs &&args)
 	});
 	field->setInstantReplaces(Ui::InstantReplaces::Default());
 	field->setInstantReplacesEnabled(
-		Core::App().settings().replaceEmojiValue(),
+		rpl::single(false),
 		Core::App().settings().systemTextReplaceValue());
 	field->setMarkdownReplacesEnabled(rpl::single(Ui::MarkdownEnabledState{
 		Ui::MarkdownEnabled{
@@ -726,7 +745,7 @@ Fn<void(not_null<Ui::InputField*>)> FactcheckFieldIniter(
 		});
 		field->setInstantReplaces(Ui::InstantReplaces::Default());
 		field->setInstantReplacesEnabled(
-			Core::App().settings().replaceEmojiValue(),
+			rpl::single(false),
 			Core::App().settings().systemTextReplaceValue());
 		field->setMarkdownReplacesEnabled(rpl::single(
 			Ui::MarkdownEnabledState{

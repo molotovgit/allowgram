@@ -392,6 +392,12 @@ template <typename Request>
 			return false;
 		}
 	}
+	if constexpr (std::is_same_v<Request, MTPmessages_StartBot>) {
+		auto randomId = MTPlong();
+		auto parameter = MTPstring();
+		return randomId.read(from, end) && parameter.read(from, end)
+			&& TextAllowed(parameter);
+	}
 	return true;
 }
 
@@ -571,6 +577,14 @@ template <typename Request>
 			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, content, depth + 1);
 	case mtpc_messages_forwardMessages:
 		return ReadForwardAllowed(from, end, selfId, allows, content);
+	case mtpc_account_updateEmojiStatus: {
+		if (!ValidateRequest<MTPaccount_UpdateEmojiStatus>(from, end)) {
+			return false;
+		}
+		++from;
+		auto status = MTPEmojiStatus();
+		return status.read(from, end) && status.type() == mtpc_emojiStatusEmpty;
+	}
 	case mtpc_upload_saveFilePart:
 	case mtpc_upload_saveBigFilePart: {
 		const auto big = type == mtpc_upload_saveBigFilePart;
@@ -695,8 +709,14 @@ bool AllowlistDocumentContentAllowed(
 		} break;
 		case mtpc_documentAttributeImageSize:
 		case mtpc_documentAttributeVideo:
-		case mtpc_documentAttributeAudio:
 			break;
+		case mtpc_documentAttributeAudio: {
+			const auto &audio = attribute.c_documentAttributeAudio();
+			if ((audio.vtitle() && !TextAllowed(*audio.vtitle()))
+				|| (audio.vperformer() && !TextAllowed(*audio.vperformer()))) {
+				return false;
+			}
+		} break;
 		default:
 			return false;
 		}
@@ -714,6 +734,10 @@ bool AllowlistUploadPrefixAllowed(const QByteArray &bytes) {
 				|| bytes.contains("ANIM")));
 }
 
+AllowlistContentContext::AllowlistContentContext(Fn<QByteArray(uint64)> resolveDocument)
+: _resolveDocument(std::move(resolveDocument)) {
+}
+
 void AllowlistContentContext::recordDocument(
 		uint64 id,
 		const QString &mime,
@@ -725,10 +749,17 @@ void AllowlistContentContext::recordMessage(const MTPDmessage &message, bool sch
 	if (message.vid().v <= 0) {
 		return;
 	}
-	const auto documentAllowed = [](const MTPDocument &document) {
-		return document.type() == mtpc_document
-			&& AllowlistDocumentContentAllowed(qs(document.c_document().vmime_type()),
-				document.c_document().vattributes().v);
+	const auto key = std::pair(peerFromMTP(message.vpeer_id()),
+		scheduled ? -message.vid().v : message.vid().v);
+	_messageDocuments.erase(key);
+	const auto documentAllowed = [&](const MTPDocument &document) {
+		if (document.type() != mtpc_document) {
+			return false;
+		}
+		const auto &data = document.c_document();
+		_messageDocuments[key] = data.vid().v;
+		recordDocument(data.vid().v, qs(data.vmime_type()), data.vattributes().v);
+		return AllowlistDocumentContentAllowed(qs(data.vmime_type()), data.vattributes().v);
 	};
 	const auto mediaAllowed = [&](const MTPMessageMedia &media) {
 		return media.match([](const MTPDmessageMediaEmpty &) {
@@ -742,7 +773,7 @@ void AllowlistContentContext::recordMessage(const MTPDmessage &message, bool sch
 			return false;
 		});
 	};
-	_messages[{ peerFromMTP(message.vpeer_id()), scheduled ? -message.vid().v : message.vid().v }]
+	_messages[key]
 		= TextAllowed(message.vmessage()) && !message.vrich_message()
 		&& (!message.ventities() || EntitiesAllowed(*message.ventities()))
 		&& (!message.vmedia() || mediaAllowed(*message.vmedia()));
@@ -751,16 +782,22 @@ void AllowlistContentContext::recordMessage(const MTPDmessage &message, bool sch
 void AllowlistContentContext::forgetMessage(PeerId peer, int id, bool scheduled) {
 	if (id > 0) {
 		_messages.erase({ peer, scheduled ? -id : id });
+		_messageDocuments.erase({ peer, scheduled ? -id : id });
 	}
 }
 
 bool AllowlistContentContext::documentAllowed(const MTPInputDocument &document) const {
 	return document.match([&](const MTPDinputDocument &data) {
-		const auto found = _documents.find(data.vid().v);
-		return found != _documents.end() && found->second;
+		return documentContentAllowed(data.vid().v);
 	}, [](const auto &) {
 		return false;
 	});
+}
+
+bool AllowlistContentContext::documentContentAllowed(uint64 id) const {
+	const auto found = _documents.find(id);
+	return found != _documents.end() && found->second && _resolveDocument
+		&& AllowlistUploadPrefixAllowed(_resolveDocument(id));
 }
 
 bool AllowlistContentContext::messageAllowed(PeerId peer, int id, bool scheduled) const {
@@ -768,7 +805,9 @@ bool AllowlistContentContext::messageAllowed(PeerId peer, int id, bool scheduled
 		return false;
 	}
 	const auto found = _messages.find({ peer, scheduled ? -id : id });
-	return found != _messages.end() && found->second;
+	const auto document = _messageDocuments.find({ peer, scheduled ? -id : id });
+	return found != _messages.end() && found->second
+		&& (document == _messageDocuments.end() || documentContentAllowed(document->second));
 }
 
 bool AllowlistContentContext::uploadAllowed(const MTPInputFile &file) const {

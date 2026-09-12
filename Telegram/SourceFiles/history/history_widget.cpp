@@ -155,6 +155,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/tabbed_section.h"
 #include "chat_helpers/bot_keyboard.h"
 #include "chat_helpers/message_field.h"
+#include "mtproto/allowlist_request_guard.h"
 #include "chat_helpers/rich_paste_toast.h"
 #include "menu/menu_send.h"
 #include "menu/menu_timecode_action.h"
@@ -5628,6 +5629,11 @@ void HistoryWidget::sendVoice(const VoiceToSend &data) {
 	if (!canWriteMessage() || data.bytes.isEmpty() || !_history) {
 		return;
 	}
+	if (data.options.effectId || !AllowgramSendReplyAllowed(replyTo())
+		|| !MTP::AllowlistUploadPrefixAllowed(data.bytes)) {
+		controller()->showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 
 	const auto withPaymentApproved = [=](int approved) {
 		auto copy = data;
@@ -5687,6 +5693,10 @@ void HistoryWidget::send(Api::SendOptions options) {
 void HistoryWidget::sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options) {
+	if (!AllowgramSendRichContentAllowed()) {
+		controller()->showToast(tr::lng_allowgram_unclassified_content(tr::now));
+		return;
+	}
 	if (!page) {
 		return;
 	}
@@ -5807,7 +5817,8 @@ void HistoryWidget::sendTextWithTags(
 		bool useWebPageDraft,
 		Api::SendOptions options,
 		Fn<void()> done) {
-	if (!AllowgramSendTextAllowed(textWithTags) || options.effectId) {
+	if (!AllowgramSendTextAllowed(textWithTags) || options.effectId
+		|| !AllowgramSendReplyAllowed(replyTo())) {
 		controller()->showToast(tr::lng_allowgram_content_disabled(tr::now));
 		return;
 	}
@@ -7141,21 +7152,7 @@ void HistoryWidget::showMembersDropdown() {
 bool HistoryWidget::pushTabbedSelectorToThirdSection(
 		not_null<Data::Thread*> thread,
 		const Window::SectionShow &params) {
-	if (!_tabbedPanel) {
-		return true;
-	} else if (!Data::CanSendAnyOf(
-			thread,
-			Data::TabbedPanelSendRestrictions())) {
-		Core::App().settings().setTabbedReplacedWithInfo(true);
-		controller()->showPeerInfo(thread, params.withThirdColumn());
-		return false;
-	}
-	Core::App().settings().setTabbedReplacedWithInfo(false);
-	controller()->resizeForThirdSection();
-	controller()->showSection(
-		std::make_shared<ChatHelpers::TabbedMemento>(),
-		params.withThirdColumn());
-	return true;
+	return false;
 }
 
 bool HistoryWidget::returnTabbedSelector() {

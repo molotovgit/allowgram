@@ -991,9 +991,17 @@ WebViewInstance::WebViewInstance(WebViewDescriptor &&descriptor)
 , _context(ResolveContext(_bot, std::move(descriptor.context)))
 , _button(std::move(descriptor.button))
 , _source(std::move(descriptor.source))
+, _hadController(_context.controller.get() != nullptr)
+, _contextThread(_context.dialogsEntryState.key.thread())
+, _hadThread(_contextThread.get() != nullptr)
 , _api(&_session->mtp()) {
 	Expects(_parentShow != nullptr);
 
+	base::timer_each(kAllowlistCheckTimeout) | rpl::on_next([=] {
+		if (!allowlistAllowed()) {
+			crl::on_main(this, [=] { close(); });
+		}
+	}, _lifetime);
 	resolve();
 }
 
@@ -1016,11 +1024,42 @@ WebViewSource WebViewInstance::source() const {
 }
 
 void WebViewInstance::activate() {
+	if (!checkAllowlist()) {
+		return;
+	}
 	if (_panel) {
 		_panel->requestActivate();
 	} else {
 		PendingActivation = this;
 	}
+}
+
+bool WebViewInstance::matches(
+		const WebViewContext &context,
+		const WebViewButton &button) const {
+	return _button == button
+		&& _context.controller.get() == context.controller.get()
+		&& _context.action == context.action
+		&& _context.dialogsEntryState == context.dialogsEntryState
+		&& _context.fullscreen == context.fullscreen;
+}
+
+bool WebViewInstance::allowlistAllowed() const {
+	return (!_hadController || _context.controller.get())
+		&& (!_hadThread || _contextThread.get())
+		&& AllowedContext(_session, _bot, _context);
+}
+
+bool WebViewInstance::checkAllowlist() {
+	if (allowlistAllowed()) {
+		return true;
+	}
+	crl::on_main(this, [=] { close(); });
+	return false;
+}
+
+bool WebViewInstance::botAllowBridge() {
+	return checkAllowlist();
 }
 
 void WebViewInstance::requestFullBot() {
@@ -1044,6 +1083,9 @@ void WebViewInstance::requestFullBot() {
 }
 
 void WebViewInstance::resolve() {
+	if (!checkAllowlist()) {
+		return;
+	}
 	requestFullBot();
 	v::match(_source, [&](WebViewSourceButton data) {
 		confirmOpen([=] {
@@ -1100,24 +1142,11 @@ void WebViewInstance::resolve() {
 }
 
 bool WebViewInstance::openAppFromBotMenuLink() {
-	const auto url = QString::fromUtf8(_button.url);
-	const auto local = Core::TryConvertUrlToLocal(url);
-	const auto prefix = u"tg://resolve?"_q;
-	if (!local.startsWith(prefix)) {
+	const auto local = Core::TryConvertUrlToLocal(QString::fromUtf8(_button.url));
+	if (!local.startsWith(u"tg://"_q, Qt::CaseInsensitive)) {
 		return false;
 	}
-	const auto params = qthelp::url_parse_params(
-		local.mid(prefix.size()),
-		qthelp::UrlParamNameTransform::ToLower);
-	const auto domainParam = params.value(u"domain"_q);
-	const auto appnameParam = params.value(u"appname"_q);
-	const auto webChannelPreviewLink = (domainParam == u"s"_q)
-		&& !appnameParam.isEmpty();
-	const auto appname = webChannelPreviewLink ? QString() : appnameParam;
-	if (appname.isEmpty()) {
-		return false;
-	}
-	resolveApp(appname, params.value(u"startapp"_q), ConfirmType::Once);
+	crl::on_main(this, [=] { botHandleLocalUri(local, false); });
 	return true;
 }
 
@@ -1125,19 +1154,29 @@ void WebViewInstance::resolveApp(
 		const QString &appname,
 		const QString &startparam,
 		ConfirmType confirmType) {
-	const auto already = _session->data().findBotApp(_bot->id, appname);
+	if (!checkAllowlist() || appname.isEmpty()) {
+		return;
+	}
+	_appName = appname;
 	_requestId = _api.request(MTPmessages_GetBotApp(
 		MTP_inputBotAppShortName(
 			_bot->inputUser(),
 			MTP_string(appname)),
-		MTP_long(already ? already->hash : 0)
+		MTP_long(0)
 	)).done([=](const MTPmessages_BotApp &result) {
 		_requestId = 0;
 		const auto &data = result.data();
+		if (!checkAllowlist() || data.vapp().type() != mtpc_botApp
+			|| !MTP::AllowlistBotAppMatches(
+				peerToUser(_bot->id), peerToUser(_bot->id), appname,
+				qs(data.vapp().c_botApp().vshort_name()), true)) {
+			close();
+			return;
+		}
 		const auto received = _session->data().processBotApp(
 			_bot->id,
 			data.vapp());
-		_app = received ? received : already;
+		_app = received;
 		_appStartParam = startparam;
 		if (!_app) {
 			_parentShow->showToast(tr::lng_username_app_not_found(tr::now));
@@ -1156,9 +1195,7 @@ void WebViewInstance::resolveApp(
 		const auto done = crl::guard(this, [=](Result value, auto) {
 			if (value == Result::Cancelled) {
 				close();
-			} else if (value != Result::Unsupported) {
-				requestApp(true);
-			} else if (confirm) {
+			} else if (confirm || writeAccess) {
 				confirmAppOpen(writeAccess, [=](bool allowWrite) {
 					requestApp(allowWrite);
 				}, forceConfirmation);
@@ -1174,6 +1211,10 @@ void WebViewInstance::resolveApp(
 }
 
 void WebViewInstance::confirmOpen(Fn<void()> done, bool forceConfirmation) {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	if (!forceConfirmation
 		&& (_bot->isVerified()
 			|| _session->local().isPeerTrustedOpenWebView(_bot->id))) {

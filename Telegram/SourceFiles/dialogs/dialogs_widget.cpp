@@ -3653,12 +3653,14 @@ void Widget::searchReceived(
 			const auto peerId = PeerFromMessage(message);
 			const auto lastDate = DateFromMessage(message);
 			if (const auto peer = session().data().peerLoaded(peerId)) {
-				if (lastDate) {
+				if (lastDate && session().allowlistAllows(peerId)) {
 					const auto item = session().data().addNewMessage(
 						message,
 						MessageFlags(),
 						NewMessageType::Existing);
-					result.push_back(item);
+					if (item) {
+						result.push_back(item);
+					}
 				}
 				process->lastPeer = peer;
 			} else {
@@ -3697,7 +3699,7 @@ void Widget::searchReceived(
 		const auto rateUpdated = nextRate
 			&& (nextRate->v != process->nextRate);
 		const auto finished = (type.peer || type.migrated || type.posts)
-			? list.empty()
+			? data.vmessages().v.empty()
 			: !rateUpdated;
 		if (rateUpdated) {
 			process->nextRate = nextRate->v;
@@ -3728,7 +3730,7 @@ void Widget::searchReceived(
 			}
 		}
 		auto list = processList(data.vmessages());
-		if (list.empty()) {
+		if (data.vmessages().v.empty()) {
 			process->full = true;
 		}
 		fullCount = data.vcount().v;

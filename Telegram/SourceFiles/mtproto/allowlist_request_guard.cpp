@@ -83,6 +83,24 @@ struct PeerRequestLayout {
 	bool replyBeforePeer = false;
 };
 
+[[nodiscard]] bool MediaAllowed(
+		const MTPInputMedia &media,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows) {
+	return media.match([&](const MTPDinputMediaStory &data) {
+		return allows(Destination(data.vpeer(), selfId));
+	}, [&](const MTPDinputMediaPaidMedia &data) {
+		for (const auto &nested : data.vextended_media().v) {
+			if (!MediaAllowed(nested, selfId, allows)) {
+				return false;
+			}
+		}
+		return true;
+	}, [](const auto &) {
+		return true;
+	});
+}
+
 template <typename Request>
 [[nodiscard]] bool ReadPeerAllowed(
 		const mtpPrime *from,
@@ -116,6 +134,30 @@ template <typename Request>
 	if (hasReply && !layout.replyBeforePeer && !readReply()) {
 		return false;
 	}
+	const auto readMedia = [&] {
+		auto media = MTPInputMedia();
+		return media.read(from, end) && MediaAllowed(media, selfId, allows);
+	};
+	if constexpr (std::is_same_v<Request, MTPmessages_SendMedia>
+		|| std::is_same_v<Request, MTPmessages_UploadMedia>) {
+		return readMedia();
+	} else if constexpr (std::is_same_v<Request, MTPmessages_EditMessage>) {
+		auto id = MTPint();
+		auto message = MTPstring();
+		return id.read(from, end)
+			&& (!(flags.v & (1U << 11)) || message.read(from, end))
+			&& (!(flags.v & (1U << 14)) || readMedia());
+	} else if constexpr (std::is_same_v<Request, MTPmessages_SendMultiMedia>) {
+		auto media = MTPVector<MTPInputSingleMedia>();
+		if (!media.read(from, end)) {
+			return false;
+		}
+		for (const auto &single : media.v) {
+			if (!MediaAllowed(single.data().vmedia(), selfId, allows)) {
+				return false;
+			}
+		}
+	}
 	return true;
 }
 
@@ -135,6 +177,7 @@ template <typename Request>
 	auto destination = MTPInputPeer();
 	if (!flags.read(from, end)
 		|| !source.read(from, end)
+		|| !allows(Destination(source, selfId))
 		|| !ids.read(from, end)
 		|| !randomIds.read(from, end)
 		|| !destination.read(from, end)
@@ -214,8 +257,10 @@ template <typename Request>
 		return true;
 	case mtpc_invokeWithoutUpdates:
 		return BodyAllowed(from + 1, end, selfId, allows, depth + 1);
-	case mtpc_invokeAfterMsg:
+	case mtpc_account_initTakeoutSession:
 	case mtpc_invokeWithTakeout:
+		return false;
+	case mtpc_invokeAfterMsg:
 		return (end - from > 3)
 			&& BodyAllowed(from + 3, end, selfId, allows, depth + 1);
 	case mtpc_invokeWithLayer:

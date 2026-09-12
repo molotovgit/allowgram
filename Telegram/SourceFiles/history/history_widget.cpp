@@ -3040,6 +3040,9 @@ void HistoryWidget::showHistory(
 		PeerId peerId,
 		MsgId showAtMsgId,
 		const Window::SectionShow &params) {
+	if (peerId && !session().allowlistAllows(peerId)) {
+		return;
+	}
 	_pinnedClickedId = FullMsgId();
 	_minPinnedId = std::nullopt;
 	_showAtMsgParams = {};

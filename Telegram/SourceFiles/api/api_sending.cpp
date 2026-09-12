@@ -1305,8 +1305,7 @@ void AddConfirmedLocalPlaceholder(const ConfirmedLocalFile &local) {
 void SendConfirmedFile(
 		not_null<Main::Session*> session,
 		const std::shared_ptr<FilePrepareResult> &file) {
-	auto candidate = Ui::PreparedFile();
-	candidate.path = file->filepath;
+	auto candidate = Ui::PreparedFile(file->filepath);
 	candidate.content = file->content;
 	candidate.caption = file->caption;
 	const auto documentAllowed = file->document.match([](const MTPDdocument &data) {

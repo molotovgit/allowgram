@@ -2093,288 +2093,31 @@ void WebViewInstance::botSharePhone(Fn<void(bool shared)> callback) {
 
 void WebViewInstance::botInvokeCustomMethod(
 		Ui::BotWebView::CustomMethodRequest request) {
-	const auto callback = request.callback;
-	_session->api().request(MTPbots_InvokeWebViewCustomMethod(
-		_bot->inputUser(),
-		MTP_string(request.method),
-		MTP_dataJSON(MTP_bytes(request.params))
-	)).done([=](const MTPDataJSON &result) {
-		callback(result.data().vdata().v);
-	}).fail([=](const MTP::Error &error) {
-		callback(base::make_unexpected(error.type()));
-	}).send();
+	request.callback(base::make_unexpected(u"UNSUPPORTED"_q));
 }
 
 void WebViewInstance::botSendPreparedMessage(
 		Ui::BotWebView::SendPreparedMessageRequest request) {
-	const auto bot = _bot;
-	const auto id = request.id;
-	const auto panel = _panel.get();
-	const auto weak = base::make_weak(panel);
-	const auto callback = request.callback;
-	if (!panel) {
-		callback(u"UNKNOWN_ERROR"_q);
-		return;
-	}
-	const auto show = uiShow();
-	_api.request(MTPmessages_GetPreparedInlineMessage(
-		bot->inputUser(),
-		MTP_string(request.id)
-	)).done([=](const MTPmessages_PreparedInlineMessage &result) {
-		const auto panel = weak.get();
-		const auto &data = result.data();
-		bot->owner().processUsers(data.vusers());
-		const auto parsed = std::shared_ptr<Result>(Result::Create(
-			&bot->session(),
-			data.vquery_id().v,
-			data.vresult()));
-		if (!parsed || !panel) {
-			callback(u"UNKNOWN_ERROR"_q);
-			return;
-		}
-		const auto types = PeerTypesFromMTP(data.vpeer_types());
-		const auto history = bot->owner().history(bot->session().user());
-		const auto item = parsed->makeMessage(history, {
-			.id = bot->owner().nextNonHistoryEntryId(),
-			.flags = MessageFlag::FakeHistoryItem,
-			.from = bot->session().userPeerId(),
-			.date = base::unixtime::now(),
-			.viaBotId = peerToUser(bot->id),
-		});
-		struct State {
-			base::weak_qptr<Ui::BoxContent> preview;
-			base::weak_qptr<Ui::BoxContent> choose;
-			rpl::event_stream<not_null<Data::Thread*>> recipient;
-			Fn<void(Api::SendOptions)> send;
-			SendPaymentHelper sendPayment;
-			bool sent = false;
-		};
-		const auto state = std::make_shared<State>();
-		auto recipient = state->recipient.events();
-		const auto send = [=](
-				std::vector<not_null<Data::Thread*>> list,
-				Api::SendOptions options) {
-			if (state->sent) {
-				return;
-			}
-			state->sent = true;
-			const auto failed = std::make_shared<int>();
-			const auto count = int(list.size());
-			const auto weak1 = state->preview;
-			const auto weak2 = state->choose;
-			const auto close = [=] {
-				if (const auto strong = weak1.get()) {
-					strong->closeBox();
-				}
-				if (const auto strong = weak2.get()) {
-					strong->closeBox();
-				}
-			};
-			const auto done = [=](bool success) {
-				if (*failed < 0) {
-					return;
-				}
-				if (success) {
-					*failed = -1;
-					if (const auto strong2 = weak2.get()) {
-						strong2->showToast({ tr::lng_share_done(tr::now) });
-					} else if (const auto strong1 = weak1.get()) {
-						strong1->showToast({ tr::lng_share_done(tr::now) });
-					}
-					base::call_delayed(Ui::Toast::kDefaultDuration, close);
-					callback(QString());
-				} else if (++*failed == count) {
-					close();
-					callback(u"MESSAGE_SEND_FAILED"_q);
-				}
-			};
-			for (const auto &thread : list) {
-				bot->session().api().sendInlineResult(
-					bot,
-					parsed.get(),
-					Api::SendAction(thread, options),
-					std::nullopt,
-					done);
-			}
-		};
-		auto box = Box(PreparedPreviewBox, item, std::move(recipient), [=] {
-			if (state->sent) {
-				return;
-			}
-			const auto chosen = [=](not_null<Data::Thread*> thread) {
-				if (!Data::CanSend(thread, ChatRestriction::SendInline)) {
-					panel->showToast({
-						tr::lng_restricted_send_inline_all(tr::now),
-					});
-					return false;
-				}
-				state->recipient.fire_copy(thread);
-				return true;
-			};
-			auto box = Window::PrepareChooseRecipientBox(
-				&bot->session(),
-				chosen,
-				tr::lng_inline_switch_choose(),
-				nullptr,
-				types,
-				send);
-			state->choose = box.data();
-			panel->showBox(std::move(box));
-		}, [=](not_null<Data::Thread*> thread) {
-			const auto weak = base::make_weak(thread);
-			state->send = [=](Api::SendOptions options) {
-				const auto strong = weak.get();
-				if (!strong) {
-					state->send = nullptr;
-					return;
-				}
-				const auto withPaymentApproved = [=](int stars) {
-					if (const auto onstack = state->send) {
-						auto copy = options;
-						copy.starsApproved = stars;
-						onstack(copy);
-					}
-				};
-				const auto checked = state->sendPayment.check(
-					show,
-					strong->peer(),
-					options,
-					1,
-					withPaymentApproved);
-				if (!checked) {
-					return;
-				}
-				[[maybe_unused]] const auto ongoing = base::take(state->send);
-				send({ strong }, options);
-			};
-			state->send({});
-		});
-		box->boxClosing() | rpl::on_next([=] {
-			if (!state->sent) {
-				callback("USER_DECLINED");
-			}
-		}, box->lifetime());
-		state->preview = box.data();
-		panel->showBox(std::move(box));
-	}).fail([=] {
-		callback(u"MESSAGE_EXPIRED"_q);
-	}).send();
+	request.callback(u"UNSUPPORTED"_q);
 }
 
 void WebViewInstance::botRequestChat(
 		Ui::BotWebView::RequestChatRequest request) {
-	const auto bot = _bot;
-	const auto callback = request.callback;
-	const auto requestId = request.requestId;
-	if (!_panel) {
-		callback(u"UNKNOWN_ERROR"_q);
-		return;
-	}
-	const auto show = uiShow();
-	_api.request(MTPbots_GetRequestedWebViewButton(
-		bot->inputUser(),
-		MTP_string(requestId)
-	)).done([show, bot, callback, requestId](
-			const MTPKeyboardButton &result) {
-		result.match([&](const MTPDkeyboardButton &button) {
-			button.vtype().match([&](const MTPDbuttonTypeRequestPeer &data) {
-				if (!*show) {
-					callback(u"UNKNOWN_ERROR"_q);
-					return;
-				}
-				const auto buttonId = data.vbutton_id();
-				const auto sendPeers = [=](
-						std::vector<not_null<PeerData*>> peers) {
-					using Flag = MTPmessages_SendBotRequestedPeer::Flag;
-					bot->session().api().request(
-						MTPmessages_SendBotRequestedPeer(
-							MTP_flags(Flag::f_webapp_req_id),
-							bot->input(),
-							MTPint(),
-							MTP_string(requestId),
-							buttonId,
-							MTP_vector_from_range(
-								peers | ranges::views::transform([](
-										not_null<PeerData*> peer) {
-									return MTPInputPeer(peer->input());
-								})))
-					).done([=](const MTPUpdates &result) {
-						bot->session().api().applyUpdates(result);
-						callback(QString());
-					}).fail([callback](const MTP::Error &error) {
-						callback(error.type());
-					}).send();
-				};
-				data.vpeer_type().match([&](
-						const MTPDrequestPeerTypeCreateBot &createData) {
-					ShowCreateManagedBotBox({
-						.show = show,
-						.manager = bot,
-						.suggestedName = qs(
-							createData.vsuggested_name().value_or_empty()),
-						.suggestedUsername = qs(
-							createData.vsuggested_username()
-								.value_or_empty()),
-						.done = [=](not_null<UserData*> createdBot) {
-							sendPeers({ createdBot });
-							show->showBox(Ui::MakeInformBox({
-								.text = tr::lng_managed_bot_created_text(
-									tr::now,
-									lt_parent_name,
-									bot->name()),
-								.title = tr::lng_managed_bot_created_title(
-									tr::now,
-									lt_name,
-									createdBot->name()),
-							}));
-						},
-						.cancelled = [=] {
-							callback(u"USER_DECLINED"_q);
-						},
-					});
-				}, [&](const auto &) {
-					const auto query = RequestPeerQueryFromTL(data);
-					ShowChoosePeerBox(show, bot, query, sendPeers, [=] {
-						callback(u"USER_DECLINED"_q);
-					});
-				});
-			}, [&](const auto &) {
-				callback(u"UNSUPPORTED_BUTTON_TYPE"_q);
-			});
-		});
-	}).fail([callback](const MTP::Error &error) {
-		callback(error.type());
-	}).send();
+	request.callback(u"UNSUPPORTED"_q);
 }
 
 void WebViewInstance::botSetEmojiStatus(
 		Ui::BotWebView::SetEmojiStatusRequest request) {
-	const auto bot = _bot;
-	const auto panel = _panel.get();
-	const auto callback = request.callback;
-	const auto duration = request.duration;
-	if (!panel) {
-		callback(u"UNKNOWN_ERROR"_q);
-		return;
-	}
-	_session->data().customEmojiManager().resolve(
-		request.customEmojiId
-	) | rpl::on_next_error([=](not_null<DocumentData*> document) {
-		const auto sticker = document->sticker();
-		if (!sticker || sticker->setType != Data::StickersType::Emoji) {
-			callback(u"SUGGESTED_EMOJI_INVALID"_q);
-			return;
-		}
-		const auto done = [=](bool success) {
-			callback(success ? QString() : u"USER_DECLINED"_q);
-		};
-		panel->showBox(
-			Box(ConfirmEmojiStatusBox, bot, document, duration, done));
-	}, [=] { callback(u"SUGGESTED_EMOJI_INVALID"_q); }, panel->lifetime());
+	request.callback(u"UNSUPPORTED"_q);
 }
 
 void WebViewInstance::botDownloadFile(
 		Ui::BotWebView::DownloadFileRequest request) {
+	if (!checkAllowlist()) {
+		request.callback(false);
+		return;
+	}
+
 	const auto callback = request.callback;
 	if (_confirmingDownload || !_panel) {
 		callback(false);

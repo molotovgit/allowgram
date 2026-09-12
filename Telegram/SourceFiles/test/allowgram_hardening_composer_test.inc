@@ -40,7 +40,10 @@ const auto beforeRich = submissions;
 sendRichDraft(page, {});
 check(_field->getTextWithTags().text == plain, "opaque rich rejection retains compose text");
 check(submissions == beforeRich, "opaque rich rejection produces zero API send submissions");
-replyToMessage(quoted, { .quote = { u"ordinary selected quote"_q, {} }, .quoteOffset = quoted->originalText().text.indexOf(u"ordinary selected quote"_q) });
+replyToMessage(quoted, {
+	.quote = { u"ordinary selected quote"_q, {} },
+	.quoteOffset = int(quoted->originalText().text.indexOf(u"ordinary selected quote"_q)),
+});
 const auto beforePlain = submissions;
 sendTextWithTags(_field->getTextWithTags(), false, {}, nullptr);
 check(submissions > beforePlain, "ordinary quote reaches the real send pipeline with networking disabled");

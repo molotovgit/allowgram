@@ -58,5 +58,46 @@
     "objectsOver50MiB": 0,
     "classificationDocument": "publication-checks.md"
   },
-  "scopeNote": "These checks record the preflight revision above. Raw logs, captures, local paths and private credentials remain outside the public repository. Final screenshot and remote checks are recorded after they occur."
+  "scopeNote": "History counts record the preflight revision above. Screenshot and link results include the final images. Final ref-bound secret checks and remote read-back are recorded separately in the private publication audit. No raw captures, local paths or credentials are published.",
+  "screenshots": [
+    {
+      "path": "docs/allowgram/images/allow-list-overview.png",
+      "sha256": "7edb6cf5f618b5729ee096638b274bb91f3f70c0a56800605b692386fd611ecd",
+      "dimensions": [
+        800,
+        598
+      ],
+      "metadataRemoved": true,
+      "visuallyReviewed": true,
+      "personalDataVisible": false
+    },
+    {
+      "path": "docs/allowgram/images/allow-list-multiple.png",
+      "sha256": "8cf3a82d8d86c43fba26306217bc2dcf51e61288613241c979d2e403d5ab118a",
+      "dimensions": [
+        800,
+        598
+      ],
+      "metadataRemoved": true,
+      "visuallyReviewed": true,
+      "personalDataVisible": false
+    },
+    {
+      "path": "docs/allowgram/images/allow-list-validation.png",
+      "sha256": "365f6677eaf155f3f00e11fccce2be786065bf1134d738a521e1579dafcd2dc8",
+      "dimensions": [
+        800,
+        598
+      ],
+      "metadataRemoved": true,
+      "visuallyReviewed": true,
+      "personalDataVisible": false
+    }
+  ],
+  "documentation": {
+    "localLinksChecked": 78,
+    "issues": 0,
+    "manualWorkflows": 1,
+    "screenshotProvenance": "screenshots.md"
+  }
 }

@@ -1821,6 +1821,10 @@ auto WebViewInstance::nonPanelPaymentFormFactory(
 
 void WebViewInstance::botHandleMenuButton(
 		Ui::BotWebView::MenuButton button) {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	Expects(_panel != nullptr);
 
 	using Button = Ui::BotWebView::MenuButton;
@@ -1905,6 +1909,10 @@ void WebViewInstance::botHandleMenuButton(
 }
 
 bool WebViewInstance::botValidateExternalLink(QString uri) {
+	if (!checkAllowlist()) {
+		return false;
+	}
+
 	const auto lower = uri.toLower();
 	const auto allowed = _session->appConfig().get<std::vector<QString>>(
 		"web_app_allowed_protocols",
@@ -1918,6 +1926,10 @@ bool WebViewInstance::botValidateExternalLink(QString uri) {
 }
 
 void WebViewInstance::botOpenIvLink(QString uri) {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	const auto window = _context.controller.get();
 	if (window) {
 		Core::App().iv().openWithIvPreferred(window, uri);
@@ -1927,6 +1939,10 @@ void WebViewInstance::botOpenIvLink(QString uri) {
 }
 
 void WebViewInstance::botSendData(QByteArray data) {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	Expects(_context.action.has_value());
 
 	const auto button = std::get_if<WebViewSourceButton>(&_source);
@@ -1951,6 +1967,10 @@ void WebViewInstance::botSendData(QByteArray data) {
 void WebViewInstance::botSwitchInlineQuery(
 		std::vector<QString> chatTypes,
 		QString query) {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	const auto controller = _context.controller.get();
 	const auto types = PeerTypesFromNames(chatTypes);
 	if (!_bot
@@ -1967,29 +1987,43 @@ void WebViewInstance::botSwitchInlineQuery(
 		}
 	} else {
 		const auto bot = _bot;
-		const auto done = [=](not_null<Data::Thread*> thread) {
-			controller->switchInlineQuery(thread, bot, query);
-		};
+		const auto done = crl::guard(this, [=](not_null<Data::Thread*> thread) {
+			if (checkAllowlist() && &thread->session() == _session
+				&& _session->allowlistAllows(thread->peer()->id)) {
+				controller->switchInlineQuery(thread, bot, query);
+			}
+		});
 		ShowChooseBox(
 			controller,
 			types,
 			done,
 			tr::lng_inline_switch_choose());
+		return;
 	}
 	botClose();
 }
 
 void WebViewInstance::botCheckWriteAccess(Fn<void(bool allowed)> callback) {
+	if (!checkAllowlist()) {
+		callback(false);
+		return;
+	}
+
 	_api.request(MTPbots_CanSendMessage(
 		_bot->inputUser()
 	)).done([=](const MTPBool &result) {
-		callback(mtpIsTrue(result));
+		callback(checkAllowlist() && mtpIsTrue(result));
 	}).fail([=] {
 		callback(false);
 	}).send();
 }
 
 void WebViewInstance::botAllowWriteAccess(Fn<void(bool allowed)> callback) {
+	if (!checkAllowlist()) {
+		callback(false);
+		return;
+	}
+
 	_session->api().request(MTPbots_AllowSendMessage(
 		_bot->inputUser()
 	)).done([session = _session, callback](const MTPUpdates &result) {
@@ -2003,45 +2037,40 @@ void WebViewInstance::botAllowWriteAccess(Fn<void(bool allowed)> callback) {
 bool WebViewInstance::botStorageWrite(
 		QString key,
 		std::optional<QString> value) {
+	if (!checkAllowlist()) {
+		return false;
+	}
+
 	return _session->attachWebView().storage().write(_bot->id, key, value);
 }
 
 std::optional<QString> WebViewInstance::botStorageRead(QString key) {
+	if (!checkAllowlist()) {
+		return std::nullopt;
+	}
+
 	return _session->attachWebView().storage().read(_bot->id, key);
 }
 
 void WebViewInstance::botStorageClear() {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	_session->attachWebView().storage().clear(_bot->id);
 }
 
 void WebViewInstance::botRequestEmojiStatusAccess(
 		Fn<void(bool allowed)> callback) {
-	if (_bot->botInfo->canManageEmojiStatus) {
-		callback(true);
-	} else if (const auto panel = _panel.get()) {
-		const auto bot = _bot;
-		panel->showBox(Box(ConfirmEmojiStatusAccessBox, bot, [=](bool ok) {
-			if (!ok) {
-				callback(false);
-				return;
-			}
-			const auto session = &bot->session();
-			bot->botInfo->canManageEmojiStatus = true;
-			session->api().request(MTPbots_ToggleUserEmojiStatusPermission(
-				bot->inputUser(),
-				MTP_bool(true)
-			)).done([=] {
-				callback(true);
-			}).fail([=] {
-				callback(false);
-			}).send();
-		}));
-	} else {
-		callback(false);
-	}
+	callback(false);
 }
 
 void WebViewInstance::botSharePhone(Fn<void(bool shared)> callback) {
+	if (!checkAllowlist()) {
+		callback(false);
+		return;
+	}
+
 	const auto history = _bot->owner().history(_bot);
 	if (_bot->isBlocked()) {
 		const auto done = crl::guard(this, [=](bool success) {

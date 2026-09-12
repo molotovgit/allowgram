@@ -220,6 +220,8 @@ struct WebViewButton {
 	bool fromAttachMenu = false;
 	bool fromMainMenu = false;
 	bool fromSwitch = false;
+
+	friend inline bool operator==(const WebViewButton &, const WebViewButton &) = default;
 };
 
 struct WebViewContext {
@@ -251,11 +253,16 @@ public:
 
 	void activate();
 	void close();
+	[[nodiscard]] bool matches(
+		const WebViewContext &context,
+		const WebViewButton &button) const;
 
 	[[nodiscard]] std::shared_ptr<Main::SessionShow> uiShow();
 
 private:
 	void resolve();
+	[[nodiscard]] bool allowlistAllowed() const;
+	[[nodiscard]] bool checkAllowlist();
 	void requestFullBot();
 
 	bool openAppFromBotMenuLink();
@@ -296,6 +303,7 @@ private:
 		Fn<void(Payments::CheckoutResult)> reactivate)
 	-> Fn<void(Payments::NonPanelPaymentForm)>;
 
+	bool botAllowBridge() override;
 	Webview::ThemeParams botThemeParams() override;
 	Ui::Text::MarkedContext botTextContext() override;
 	auto botDownloads(bool forceCheck = false)
@@ -342,6 +350,9 @@ private:
 	const WebViewContext _context;
 	const WebViewButton _button;
 	const WebViewSource _source;
+	const bool _hadController = false;
+	const base::weak_ptr<Data::Thread> _contextThread;
+	const bool _hadThread = false;
 
 	// Requests that only drive this instance's own UI go through _api, so
 	// that they are cancelled when the instance is destroyed. Requests that
@@ -353,6 +364,7 @@ private:
 	std::optional<ShowArgs> _botFullWaitingArgs;
 
 	BotAppData *_app = nullptr;
+	QString _appName;
 	QString _appStartParam;
 	bool _dataSent = false;
 	bool _confirmingDownload = false;

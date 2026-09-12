@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "calls/calls_instance.h"
+#include "main/allowlist_policy.h"
 
 #include "calls/calls_call.h"
 #include "calls/group/calls_group_common.h"
@@ -203,6 +204,9 @@ Instance::~Instance() {
 void Instance::startOutgoingCall(
 		not_null<UserData*> user,
 		StartOutgoingCallArgs args) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	if (activateCurrentCall()
 		|| (!args.isConfirmed && activateUnconfirmedCall(user))) {
 		return;
@@ -229,6 +233,9 @@ void Instance::startOrJoinGroupCall(
 		std::shared_ptr<Ui::Show> show,
 		not_null<PeerData*> peer,
 		StartGroupCallArgs args) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	confirmLeaveCurrent(show, peer, args, [=](StartGroupCallArgs args) {
 		using JoinConfirm = Calls::StartGroupCallArgs::JoinConfirm;
 		const auto context = (args.confirm == JoinConfirm::Always)
@@ -252,6 +259,9 @@ void Instance::startOrJoinGroupCall(
 }
 
 void Instance::startOrJoinConferenceCall(StartConferenceInfo args) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	Expects(args.call || args.show);
 
 	const auto migrationInfo = (args.migrating
@@ -376,6 +386,9 @@ void Instance::confirmLeaveCurrent(
 void Instance::showStartWithRtmp(
 		std::shared_ptr<Ui::Show> show,
 		not_null<PeerData*> peer) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	_startWithRtmp->start(peer, show, [=](Group::JoinInfo info) {
 		confirmLeaveCurrent(show, peer, {}, [=](auto) {
 			_startWithRtmp->close();
@@ -595,6 +608,9 @@ void Instance::refreshServerConfig(not_null<Main::Session*> session) {
 void Instance::handleUpdate(
 		not_null<Main::Session*> session,
 		const MTPUpdate &update) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	update.match([&](const MTPDupdatePhoneCall &data) {
 		handleCallUpdate(session, data.vphone_call());
 	}, [&](const MTPDupdatePhoneCallSignalingData &data) {
@@ -1175,7 +1191,8 @@ void Instance::declineOutgoingConferenceInvite(
 void Instance::showConferenceInvite(
 		not_null<UserData*> user,
 		MsgId conferenceInviteMsgId) {
-	if (!user->session().allowlistAllows(user->id)) {
+	if (!Main::Allowlist::CanUseCalls()
+		|| !user->session().allowlistAllows(user->id)) {
 		return;
 	}
 	const auto item = user->owner().message(user, conferenceInviteMsgId);

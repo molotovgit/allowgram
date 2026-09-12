@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_item_helpers.h"
+#include "main/allowlist_policy.h"
 #include "chat_helpers/message_field.h"
 
 #include "api/api_reactions_notify_settings.h"
@@ -1251,6 +1252,9 @@ std::optional<bool> PeerHasThisCall(
 [[nodiscard]] ClickHandlerPtr GroupCallClickHandler(
 		not_null<PeerData*> peer,
 		CallId callId) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return nullptr;
+	}
 	return std::make_shared<LambdaClickHandler>([=] {
 		const auto call = peer->groupCall();
 		if (call && call->id() == callId) {

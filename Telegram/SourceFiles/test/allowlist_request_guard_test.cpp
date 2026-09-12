@@ -287,6 +287,39 @@ int main() {
 	checkWith("joining an existing allowed channel retained", Request::Serialize(
 		MTPchannels_JoinChannel(MTP_inputChannel(MTP_long(42), MTP_long(1)))),
 		true, existingConversation);
+	const auto callProtocol = MTP_phoneCallProtocol(MTP_flags(0),
+		MTP_int(65), MTP_int(100),
+		MTP_vector<MTPstring>({ MTP_string("synthetic") }));
+	const auto phoneCall = MTP_inputPhoneCall(MTP_long(1), MTP_long(1));
+	const auto groupCall = MTP_inputGroupCall(MTP_long(1), MTP_long(1));
+	for (const auto video : { false, true }) {
+		const auto request = MTPphone_RequestCall(MTP_flags(video
+			? MTPphone_RequestCall::Flag::f_video : MTPphone_RequestCall::Flags()),
+			bot, MTP_int(1), MTP_bytes("synthetic"), callProtocol);
+		check("valid voice/video call initiation denied", Request::Serialize(request), false);
+		check("wrapped voice/video call initiation denied",
+			Packet(MTP_int(mtpc_invokeWithoutUpdates), request), false);
+	}
+	check("valid incoming call acceptance denied", Request::Serialize(
+		MTPphone_AcceptCall(phoneCall, MTP_bytes("synthetic"), callProtocol)), false);
+	check("valid call confirmation denied", Request::Serialize(
+		MTPphone_ConfirmCall(phoneCall, MTP_bytes("synthetic"), MTP_long(1),
+			callProtocol)), false);
+	for (const auto &peer : { group, channel }) {
+		const auto request = MTPphone_CreateGroupCall(MTP_flags(0), peer,
+			MTP_int(1), MTPstring(), MTPint());
+		check("valid group/channel call creation denied", Request::Serialize(request), false);
+		check("wrapped group/channel call creation denied",
+			Packet(MTP_int(mtpc_invokeWithoutUpdates), request), false);
+	}
+	check("valid group call join denied", Request::Serialize(MTPphone_JoinGroupCall(
+		MTP_flags(0), groupCall, user, MTPstring(), MTPint256(), MTPbytes(),
+		MTP_dataJSON(MTP_string("{}")))), false);
+	check("valid group call presentation denied", Request::Serialize(
+		MTPphone_JoinGroupCallPresentation(groupCall, MTP_dataJSON(MTP_string("{}")))), false);
+	check("valid conference call creation denied", Request::Serialize(
+		MTPphone_CreateConferenceCall(MTP_flags(0), MTP_int(1), MTPint256(),
+			MTPbytes(), MTPDataJSON())), false);
 	auto emojiData = QFile(QFileInfo(QString::fromUtf8(__FILE__)).dir()
 		.absoluteFilePath(u"../../lib_ui/emoji.txt"_q));
 	if (!emojiData.open(QIODevice::ReadOnly)) {

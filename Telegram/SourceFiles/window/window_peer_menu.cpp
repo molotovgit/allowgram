@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_peer_menu.h"
+#include "main/allowlist_policy.h"
 
 #include "base/call_delayed.h"
 #include "menu/menu_check_item.h"
@@ -4325,6 +4326,9 @@ bool FillVideoChatMenu(
 		not_null<SessionController*> controller,
 		Dialogs::EntryState request,
 		const PeerMenuCallback &addAction) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return false;
+	}
 	const auto peer = request.key.peer();
 	if (!peer || peer->isUser()) {
 		return false;

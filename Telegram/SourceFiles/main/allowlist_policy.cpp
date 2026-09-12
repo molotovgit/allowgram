@@ -109,6 +109,10 @@ bool CanCreateConversations() {
 	return false;
 }
 
+bool CanUseCalls() {
+	return false;
+}
+
 bool ContainsEmoji(std::u32string_view text) {
 	struct Range {
 		char32_t first;

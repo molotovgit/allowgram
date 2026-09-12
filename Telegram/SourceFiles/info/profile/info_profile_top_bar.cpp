@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_top_bar.h"
+#include "main/allowlist_policy.h"
 
 #include "api/api_peer_colors.h"
 #include "api/api_peer_photo.h"
@@ -1098,6 +1099,7 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 		return;
 	}
 	if (!isSide
+		&& Main::Allowlist::CanUseCalls()
 		&& user
 		&& !user->sharedMediaInfo()
 		&& !user->isInaccessible()
@@ -1163,8 +1165,9 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 	if (chechMax()) {
 		return;
 	}
-	if (peer->groupCall()
-		|| (!peer->isUser() && peer->canManageGroupCall())) {
+	if (Main::Allowlist::CanUseCalls()
+		&& (peer->groupCall()
+			|| (!peer->isUser() && peer->canManageGroupCall()))) {
 		const auto broadcast = peer->isBroadcast();
 		const auto text = broadcast
 			? tr::lng_profile_action_short_live_stream(tr::now)

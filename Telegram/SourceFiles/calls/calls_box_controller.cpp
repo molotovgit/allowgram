@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "calls/calls_box_controller.h"
+#include "main/allowlist_policy.h"
 
 #include "lang/lang_keys.h"
 #include "ui/effects/ripple_animation.h"
@@ -843,6 +844,9 @@ void ClearCallsBox(
 void ShowCallsBox(
 		not_null<::Window::SessionController*> window,
 		bool highlightStartCall) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	struct State {
 		State(not_null<::Window::SessionController*> window)
 		: callsController(window)

@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_top_bar_widget.h"
+#include "main/allowlist_policy.h"
 
 #include "history/history.h"
 #include "history/view/history_view_send_action.h"
@@ -1399,6 +1400,7 @@ void TopBarWidget::updateControlsVisibility() {
 		return false;
 	}();
 	_call->setVisible(historyMode
+		&& Main::Allowlist::CanUseCalls()
 		&& callsEnabled
 		&& !_chooseForReportReason);
 	const auto groupCallsEnabled = [&] {
@@ -1413,6 +1415,7 @@ void TopBarWidget::updateControlsVisibility() {
 		return false;
 	}();
 	_groupCall->setVisible(historyMode
+		&& Main::Allowlist::CanUseCalls()
 		&& groupCallsEnabled
 		&& !_chooseForReportReason);
 

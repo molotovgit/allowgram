@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_group_call_bar.h"
+#include "main/allowlist_policy.h"
 
 #include "data/data_channel.h"
 #include "data/data_user.h"
@@ -421,6 +422,9 @@ rpl::producer<Ui::GroupCallBarContent> GroupCallBarContentByPeer(
 		not_null<PeerData*> peer,
 		int userpicSize,
 		bool showInForum) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return rpl::single(Ui::GroupCallBarContent{ .shown = false });
+	}
 	const auto channel = peer->asChannel();
 	return rpl::combine(
 		peer->session().changes().peerFlagsValue(

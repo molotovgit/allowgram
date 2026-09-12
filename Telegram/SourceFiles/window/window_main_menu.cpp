@@ -684,12 +684,6 @@ void MainMenu::setupMenu() {
 		)->setClickedCallback([=] {
 			controller->show(PrepareContactsBox(controller));
 		});
-		addAction(
-			tr::lng_menu_calls(),
-			{ &st::menuIconPhone }
-		)->setClickedCallback([=] {
-			::Calls::ShowCallsBox(controller);
-		});
 	} else {
 		addAction(
 			tr::lng_profile_add_contact(),

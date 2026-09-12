@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_call.h"
+#include "main/allowlist_policy.h"
 
 #include "lang/lang_keys.h"
 #include "ui/chat/chat_style.h"
@@ -67,18 +68,20 @@ QSize Call::countOptimalSize() {
 	const auto video = _video;
 	const auto contextId = _parent->data()->fullId();
 	const auto id = _parent->data()->id;
-	_link = std::make_shared<LambdaClickHandler>([=](ClickContext context) {
-		if (conference) {
-			const auto my = context.other.value<ClickHandlerContext>();
-			const auto weak = my.sessionWindow;
-			if (const auto strong = weak.get()) {
-				QSize();
-				strong->resolveConferenceCall(id, contextId);
+	if (Main::Allowlist::CanUseCalls()) {
+		_link = std::make_shared<LambdaClickHandler>([=](ClickContext context) {
+			if (conference) {
+				const auto my = context.other.value<ClickHandlerContext>();
+				const auto weak = my.sessionWindow;
+				if (const auto strong = weak.get()) {
+					QSize();
+					strong->resolveConferenceCall(id, contextId);
+				}
+			} else if (user) {
+				Core::App().calls().startOutgoingCall(user, { video });
 			}
-		} else if (user) {
-			Core::App().calls().startOutgoingCall(user, { video });
-		}
-	});
+		});
+	}
 	auto maxWidth = st::historyCallWidth;
 	auto minHeight = st::historyCallHeight;
 	if (!isBubbleTop()) {
@@ -123,7 +126,9 @@ void Call::draw(Painter &p, const PaintContext &context) const {
 		: _conference
 		? stm->historyCallGroupIcon
 		: stm->historyCallIcon;
-	icon.paint(p, paintw - st::historyCallIconPosition.x() - icon.width(), st::historyCallIconPosition.y() - topMinus, paintw);
+	if (Main::Allowlist::CanUseCalls()) {
+		icon.paint(p, paintw - st::historyCallIconPosition.x() - icon.width(), st::historyCallIconPosition.y() - topMinus, paintw);
+	}
 }
 
 TextState Call::textState(QPoint point, StateRequest request) const {

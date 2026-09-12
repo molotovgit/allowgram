@@ -1025,6 +1025,9 @@ void SessionNavigation::resolveConferenceCall(
 		QString slug,
 		MsgId inviteMsgId,
 		FullMsgId contextId) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	_conferenceCallResolveContextId = contextId;
 	if (_conferenceCallSlug == slug
 		&& _conferenceCallInviteMsgId == inviteMsgId) {

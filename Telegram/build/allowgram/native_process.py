@@ -37,4 +37,3 @@ def stop_owned(process, executable, identity):
         raise RuntimeError("Refusing to stop changed process identity.")
     process.kill()
     process.wait()
-

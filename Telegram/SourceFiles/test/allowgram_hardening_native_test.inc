@@ -129,6 +129,12 @@ if (firstCreated) {
 			MTPFactCheck(), MTPint(), MTPlong(), MTPSuggestedPost(), MTPint(), MTPstring(), MTPRichMessage());
 		const auto item = session.data().addNewMessage(incoming, {}, NewMessageType::Existing);
 		check(item && item->media() && item->media()->photo(), "ordinary photo message ingested by production model");
+		const auto history = session.data().history(user);
+		history->clearFolder();
+		history->addOlderSlice({ incoming });
+		history->addOlderSlice({});
+		history->addNewerSlice({});
+		check(history->loadedAtTop() && history->loadedAtBottom(), "synthetic conversation is fully loaded before compose navigation");
 		if (item && item->media() && item->media()->photo()) {
 			const auto photo = item->media()->photo();
 			auto viewer = Media::View::OverlayWidget();

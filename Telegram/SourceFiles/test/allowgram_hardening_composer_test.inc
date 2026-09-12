@@ -9,6 +9,10 @@ const auto check = [&](bool pass, const char *name) {
 	}
 };
 auto submissions = 0;
+check(_historyInited && _list && _forwardPanel && _keyboard, "real composer is initialized before send callbacks");
+if (!_historyInited || !_list || !_forwardPanel || !_keyboard) {
+	return;
+}
 auto observation = rpl::lifetime();
 session().api().sendActions() | rpl::on_next([&] { ++submissions; }, observation);
 for (const auto &text : { u"pasted \U0001F600"_q, u"family \U0001F468\u200D\U0001F469\u200D\U0001F467"_q, u"keycap 1\uFE0F\u20E3"_q }) {

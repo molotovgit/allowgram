@@ -26,6 +26,7 @@ void CheckInvalid(std::string_view value, bool users, Error expected) {
 
 int main() {
 	using namespace Main::Allowlist;
+	Check(!CanCreateConversations(), "Conversation creation must be disabled");
 	for (const auto text : { U"\U0001F600", U"\u2764\uFE0F", U"\u263A\uFE0E",
 		U"\U0001F468\u200D\U0001F469\u200D\U0001F467", U"\U0001F1FA\U0001F1FF",
 		U"\U0001F44D\U0001F3FD", U"1\uFE0F\u20E3", U"#\u20E3", U"*\uFE0F\u20E3",

@@ -42,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_peer_photo.h"
 #include "api/api_self_destruct.h"
 #include "main/main_session.h"
+#include "main/allowlist_policy.h"
 #include "styles/style_add_contact_box.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat_helpers.h"
@@ -555,6 +556,12 @@ GroupInfoBox::GroupInfoBox(
 }
 
 void GroupInfoBox::prepare() {
+	if (!Main::Allowlist::CanCreateConversations()) {
+		setTitle(tr::lng_allowgram_creation_disabled());
+		addButton(tr::lng_close(), [=] { closeBox(); });
+		setDimensions(st::boxWidth, 0);
+		return;
+	}
 	setMouseTracking(true);
 
 	_photo.create(
@@ -661,11 +668,16 @@ void GroupInfoBox::prepare() {
 }
 
 void GroupInfoBox::setInnerFocus() {
-	_title->setFocusFast();
+	if (_title) {
+		_title->setFocusFast();
+	}
 }
 
 void GroupInfoBox::resizeEvent(QResizeEvent *e) {
 	BoxContent::resizeEvent(e);
+	if (!_photo || !_title) {
+		return;
+	}
 
 	_photo->moveToLeft(
 		st::boxPadding.left() + st::newGroupInfoPadding.left(),
@@ -703,6 +715,9 @@ void GroupInfoBox::resizeEvent(QResizeEvent *e) {
 }
 
 void GroupInfoBox::submitName() {
+	if (!Main::Allowlist::CanCreateConversations()) {
+		return;
+	}
 	if (_title->getLastText().trimmed().isEmpty()) {
 		_title->setFocus();
 		_title->showError();
@@ -724,7 +739,7 @@ void GroupInfoBox::createGroup(
 		base::weak_qptr<Ui::BoxContent> selectUsersBox,
 		const QString &title,
 		const std::vector<not_null<PeerData*>> &users) {
-	if (_creationRequestId) {
+	if (!Main::Allowlist::CanCreateConversations() || _creationRequestId) {
 		return;
 	}
 	using TLUsers = MTPInputUser;
@@ -777,7 +792,9 @@ void GroupInfoBox::createGroup(
 }
 
 void GroupInfoBox::submit() {
-	if (_creationRequestId || _creatingInviteLink) {
+	if (!Main::Allowlist::CanCreateConversations()
+		|| _creationRequestId
+		|| _creatingInviteLink) {
 		return;
 	}
 
@@ -822,6 +839,9 @@ void GroupInfoBox::submit() {
 void GroupInfoBox::createChannel(
 		const QString &title,
 		const QString &description) {
+	if (!Main::Allowlist::CanCreateConversations()) {
+		return;
+	}
 	Expects(!_creationRequestId);
 
 	using Flag = MTPchannels_CreateChannel::Flag;

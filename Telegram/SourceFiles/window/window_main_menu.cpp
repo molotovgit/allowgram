@@ -678,24 +678,6 @@ void MainMenu::setupMenu() {
 			object_ptr<Ui::PlainShadow>(_menu),
 			{ 0, st::mainMenuSkip, 0, st::mainMenuSkip });
 
-		AddMyChannelsBox(addAction(
-			tr::lng_create_group_title(),
-			{ &st::menuIconGroups }
-		), controller, true)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewGroup();
-			}
-		});
-
-		AddMyChannelsBox(addAction(
-			tr::lng_create_channel_title(),
-			{ &st::menuIconChannel }
-		), controller, false)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewChannel();
-			}
-		});
-
 		addAction(
 			tr::lng_menu_contacts(),
 			{ &st::menuIconUserShow }

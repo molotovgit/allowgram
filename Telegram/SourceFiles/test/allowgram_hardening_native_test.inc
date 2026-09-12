@@ -106,9 +106,25 @@ if (firstCreated) {
 			}
 		}
 		check(menuNames.contains(u"Settings"_q), "actual main menu retains Settings positive control");
+		check(menuNames.contains(u"Contacts"_q), "actual main menu retains Contacts positive control");
+		check(!menuNames.contains(u"New Group"_q), "actual main menu has no New Group action");
+		check(!menuNames.contains(u"New Channel"_q), "actual main menu has no New Channel action");
 		check(!menuNames.contains(u"Saved Messages"_q), "actual main menu has no Saved Messages action");
 		check(!menuNames.contains(u"Add Account"_q), "actual main menu has no Add Account action");
 		menu.reset();
+		const auto creationBoxes = [&] {
+			auto count = 0;
+			for (const auto widget : bodyWidget()->findChildren<QWidget*>()) {
+				count += dynamic_cast<GroupInfoBox*>(widget) ? 1 : 0;
+			}
+			return count;
+		};
+		navigation->showNewGroup();
+		check(creationBoxes() == 0, "hidden New Group navigation creates no dialog");
+		navigation->hideLayer(anim::type::instant);
+		navigation->showNewChannel();
+		check(creationBoxes() == 0, "hidden New Channel navigation creates no dialog");
+		navigation->hideLayer(anim::type::instant);
 		auto pixels = QImage(32, 32, QImage::Format_RGB32);
 		pixels.fill(Qt::blue);
 		auto imageBytes = QByteArray();

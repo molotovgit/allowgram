@@ -107,6 +107,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_app_config.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
+#include "main/allowlist_policy.h"
 #include "main/main_session_settings.h"
 #include "lang/lang_keys.h"
 #include "apiwrap.h"
@@ -3485,10 +3486,16 @@ void SessionController::showAddContact() {
 }
 
 void SessionController::showNewGroup() {
+	if (!Main::Allowlist::CanCreateConversations()) {
+		return;
+	}
 	_window->show(Box<GroupInfoBox>(this, GroupInfoBox::Type::Group));
 }
 
 void SessionController::showNewChannel() {
+	if (!Main::Allowlist::CanCreateConversations()) {
+		return;
+	}
 	_window->show(Box<GroupInfoBox>(this, GroupInfoBox::Type::Channel));
 }
 

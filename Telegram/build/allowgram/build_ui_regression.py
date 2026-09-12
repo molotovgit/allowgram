@@ -111,6 +111,7 @@ if args.hardening:
         'media/view/media_view_overlay_widget.h',
         'window/window_main_menu.h', 'ui/widgets/buttons.h',
         'data/data_emoji_statuses.h',
+        'boxes/add_contact_box.h',
     ]
     json_includes = '\n'.join('#include <QtCore/' + name + '>' for name in (
         'QTimer', 'QFile', 'QJsonDocument', 'QJsonArray', 'QJsonObject', 'QBuffer'))

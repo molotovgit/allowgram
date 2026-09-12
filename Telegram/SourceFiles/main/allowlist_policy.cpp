@@ -105,6 +105,10 @@ bool CanStartUserSession(int authorizedAccounts) {
 	return authorizedAccounts == 0;
 }
 
+bool CanCreateConversations() {
+	return false;
+}
+
 bool ContainsEmoji(std::u32string_view text) {
 	struct Range {
 		char32_t first;

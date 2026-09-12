@@ -8798,6 +8798,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_content_disabled" = "Allowgram cannot send emoji, stickers or GIF animations. Remove this content and try again. Your draft has been kept.";
 "lng_allowgram_unclassified_content" = "Allowgram cannot safely check this content. Send plain text or an ordinary photo, video or document instead. Your draft has been kept.";
 "lng_allowgram_media_disabled_title" = "Stickers and emoji are disabled";
+"lng_allowgram_creation_disabled" = "Creating groups and channels is disabled in Allowgram";
 
 "lng_allowlist_write_restricted" = "This chat is not on your allow-list. Access is disabled.";
 

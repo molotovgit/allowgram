@@ -261,6 +261,32 @@ int main() {
 		checkWith(name, request, expected, allows);
 	};
 	check("allowed text", Text(user), true);
+	const auto existingConversation = Fn<bool(PeerId)>([](PeerId peer) {
+		return peer == PeerId(ChatId(42)) || peer == PeerId(ChannelId(42));
+	});
+	const auto createGroup = MTPmessages_CreateChat(MTP_flags(0),
+		MTP_vector<MTPInputUser>({ bot }), MTP_string("New group"), MTPint());
+	check("valid new group creation denied", Request::Serialize(createGroup), false);
+	check("wrapped new group creation denied", Packet(
+		MTP_int(mtpc_invokeWithoutUpdates), createGroup), false);
+	for (const auto flags : { MTPchannels_CreateChannel::Flag::f_broadcast,
+		MTPchannels_CreateChannel::Flag::f_megagroup,
+		MTPchannels_CreateChannel::Flag::f_forum }) {
+		const auto createChannel = MTPchannels_CreateChannel(MTP_flags(flags),
+			MTP_string("New conversation"), MTP_string("Description"),
+			MTPInputGeoPoint(), MTPstring(), MTPint());
+		check("valid new channel or group creation denied",
+			Request::Serialize(createChannel), false);
+		check("wrapped new channel creation denied", Packet(
+			MTP_int(mtpc_invokeWithoutUpdates), createChannel), false);
+	}
+	checkWith("existing allowed group text retained", Text(group), true,
+		existingConversation);
+	checkWith("existing allowed channel text retained", Text(channel), true,
+		existingConversation);
+	checkWith("joining an existing allowed channel retained", Request::Serialize(
+		MTPchannels_JoinChannel(MTP_inputChannel(MTP_long(42), MTP_long(1)))),
+		true, existingConversation);
 	auto emojiData = QFile(QFileInfo(QString::fromUtf8(__FILE__)).dir()
 		.absoluteFilePath(u"../../lib_ui/emoji.txt"_q));
 	if (!emojiData.open(QIODevice::ReadOnly)) {

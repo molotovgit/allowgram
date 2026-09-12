@@ -40,7 +40,7 @@ The signed channel form is `-(1000000000000 + raw_channel_id)`. Use `channel:` w
 
 ![Allowgram with two user rows and two group or channel rows, each with Remove controls](images/allow-list-multiple.png)
 
-*Multiple rows use the same controls; the scrollbar reveals the rest of the form. Neutral example values are written out in the table above so they can be copied accurately.*
+*The corrected form shows two user rows and two group/channel rows with fully readable IDs and Save below them. Longer lists use normal scrolling. Copyable format examples are in the table above.*
 
 ## Validate and save
 
@@ -57,7 +57,7 @@ Select **Save and continue**. The client validates the combined fields, removes 
 
 ![Allowgram showing an Invalid ID error after a username is entered in a numeric user-ID row](images/allow-list-validation.png)
 
-*The real parser rejects `@example_bot`. Correct the entry, scroll to **Save and continue**, and try again. This fixture demonstrates validation only; it does not save a policy to a signed-in account.*
+*The real parser rejects `@example_bot`; its complete error and Save button are visible here. Correct the entry and try again, scrolling if needed. This fixture demonstrates validation only; it does not save a policy to a signed-in account.*
 
 After a successful save, the setup lock closes and only permitted conversations become available. Saving an ID does not join a private group, create membership or override Telegram's posting permissions. A permitted chat may still need to be opened or loaded through Telegram before it appears.
 

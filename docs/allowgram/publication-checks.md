@@ -7,10 +7,9 @@ the earlier record is preserved in [7.2.8.3 verification](verification-7.2.8.3.j
 The archival equality gate remains active. A reviewed UI/test/version delta
 replaces equality between today's application and the older release.
 
-
 [Back to Allowgram](../../README.md) · [Machine-readable results](verification-results.json)
 
-The preflight revision and exact counts are recorded in the results file. These
+The original preflight revision and counts are in the 7.2.8.3 record. These
 are observed local checks; they are not an independent security audit or a
 claim that all possible policy bypasses have been ruled out.
 

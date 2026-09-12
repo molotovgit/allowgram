@@ -50,6 +50,8 @@ const auto inspect = [&](IdRow *row, const QString &state) {
 		{ "viewportHeight", viewport.height() },
 		{ "documentHeight", documentHeight },
 		{ "caretHeight", caret.height() },
+		{ "caretTop", caret.top() },
+		{ "caretBottom", caret.bottom() },
 		{ "editableCenter", editable.center().y() },
 		{ "removeCenter", button ? button->geometry().center().y() : -1 },
 	});
@@ -61,15 +63,15 @@ resize(qEnvironmentVariableIntValue("ALLOWGRAM_UI_WIDTH"),
 	qEnvironmentVariableIntValue("ALLOWGRAM_UI_HEIGHT"));
 show();
 settle();
-auto reference = Ui::InputField(this, st::defaultInputField,
+const auto reference = Ui::CreateChild<Ui::InputField>(this, st::defaultInputField,
 	Ui::InputField::Mode::SingleLine, rpl::single(u"Reference"_q), u"123456789"_q);
-reference.resizeToWidth(_users.front()->field()->width());
-reference.show();
+reference->resizeToWidth(_users.front()->field()->width());
+reference->show();
 settle();
-check(reference.rawTextEdit()->viewport()->height()
-	>= std::ceil(reference.rawTextEdit()->document()->size().height()),
+check(reference->rawTextEdit()->viewport()->height()
+	>= std::ceil(reference->rawTextEdit()->document()->size().height()),
 	"upstream default field fits the same font");
-reference.hide();
+delete reference;
 inspect(_users.front(), u"empty"_q);
 _users.front()->field()->setFocus();
 inspect(_users.front(), u"focused"_q);

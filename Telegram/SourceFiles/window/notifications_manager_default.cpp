@@ -230,6 +230,12 @@ void Manager::showNextFromQueue() {
 	do {
 		auto queued = _queuedNotifications.front();
 		_queuedNotifications.pop_front();
+		const auto &session = queued.history->session();
+		if (!session.allowlistAllows(queued.history->peer->id)
+			|| (queued.monoforumPeerId
+				&& !session.allowlistAllows(queued.monoforumPeerId))) {
+			continue;
+		}
 
 		subscribeToSession(&queued.history->session());
 		_notifications.push_back(std::make_unique<Notification>(

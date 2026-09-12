@@ -1450,6 +1450,8 @@ PRIVATE
     layout/layout_document_generic_preview.h
     layout/layout_item_base.cpp
     layout/layout_item_base.h
+    main/allowlist_policy.cpp
+    main/allowlist_policy.h
     main/main_account.cpp
     main/main_account.h
     main/main_app_config.cpp
@@ -1609,6 +1611,10 @@ PRIVATE
     menu/menu_sponsored.h
     menu/menu_ttl_validator.cpp
     menu/menu_ttl_validator.h
+    mtproto/allowlist_request_guard.cpp
+    mtproto/allowlist_request_guard.h
+    mtproto/allowlist_safe_requests.inc
+    mtproto/allowlist_peer_requests.inc
     mtproto/config_loader.cpp
     mtproto/config_loader.h
     mtproto/connection_abstract.cpp
@@ -2116,6 +2122,8 @@ PRIVATE
     window/section_widget.h
     window/window_adaptive.cpp
     window/window_adaptive.h
+    window/window_allowlist.cpp
+    window/window_allowlist.h
     window/window_chat_preview.cpp
     window/window_chat_preview.h
     window/window_chat_switch_process.cpp

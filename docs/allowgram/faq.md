@@ -34,6 +34,12 @@ Saved Messages is disabled in 7.2.8.5, even when your own ID is listed. Channel 
 
 These are 7.2.8.5 client restrictions, not list configuration errors. They also cover allowlisted members, typed/pasted Unicode emoji, custom emoji, stickers and GIF animations. See [hardening scope and limits](../allowgram-7.2.8.5.md). Existing account data and received history are not deleted.
 
+### Why are creation, Calls and My Profile missing?
+
+Version 7.2.8.6 also removes New Group, New Channel, Calls and My Profile.
+Contacts, Settings and existing allowed conversations remain available.
+See [7.2.8.6 scope](../allowgram-7.2.8.6.md).
+
 ### Is there a public installer here?
 
 Not in this source-publication task. See [installation](installation.md) for the actual distribution status and [build instructions](build.md) for local builds. No public CI build success or signed binary is claimed.

@@ -2,7 +2,7 @@
 
 [Back to Allowgram](../../README.md)
 
-The application source contains the 7.2.8.5 hardening changes. Build and package acceptance is recorded separately for each exact source commit. This publication has not run a GitHub-hosted build. The [manual workflow](../../.github/workflows/allowgram-windows.yml) is opt-in and does not publish a GitHub Release automatically.
+The application source contains the 7.2.8.6 feature removals and earlier hardening changes. Build and package acceptance is recorded separately for each exact source commit. This publication has not run a GitHub-hosted build. The [manual workflow](../../.github/workflows/allowgram-windows.yml) is opt-in and does not publish a GitHub Release automatically.
 
 ## Checkout and prerequisites
 

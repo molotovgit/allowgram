@@ -6,6 +6,12 @@ Allowgram enforces an account-specific policy inside this client. It is not a Te
 
 ## Policy flow
 
+Version 7.2.8.6 adds shared conversation-creation and call permissions, removes
+their visible entry points, and closes short-info profile presentation. User
+profiles are denied for self as well as others; own-account Settings and minimum
+identity metadata are not profile browsing. Existing permitted group/channel
+information and messaging remain available. See [7.2.8.6 scope](../allowgram-7.2.8.6.md).
+
 Version 7.2.8.5 adds a shared profile-presentation gate, a new-login model guard,
 explicit self-chat exclusion and outgoing content classification. Client sends
 require safe final text/entities and inspectable media. Uploaded file prefixes

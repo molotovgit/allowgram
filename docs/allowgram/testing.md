@@ -2,7 +2,19 @@
 
 [Back to Allowgram](../../README.md)
 
-## 7.2.8.5 hardening checks
+## 7.2.8.6 hardening checks
+
+The native suite additionally checks the actual sidebar and sender/conversation
+context menus, direct creation and short-info factories, retained Calls routes,
+incoming and outgoing call gates, own Settings/Contacts and allowed group/DM
+navigation. All prior hardening checks remain. Complete serialized creation/call
+constructors and wrappers are negative controls; existing allowed group/channel
+text and channel joining are positive controls.
+
+Call-entry probes in the disposable overlay stop before device permissions,
+join/panel UI or call allocation. They do not simulate a successful call and are
+not compiled into the delivered application. Use complete finished reports and
+zero process exits; an early exit with fewer checks is not success.
 
 Run `python Telegram/build/allowgram/check_emoji_data.py` to verify that the
 production scalar table matches the pinned Telegram sequence source. The native

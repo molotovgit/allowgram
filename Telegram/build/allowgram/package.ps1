@@ -74,8 +74,10 @@ allowlist with Telegram user and group identifiers before using the client.
 Only allowed conversations appear in the chat list, archive, search and
 notifications. Excluded conversations produce no message previews, unread
 badges, sounds or incoming-call alerts. Calls, aggregate stories,
-payments and business automation are disabled. Saved Messages, other-user
-profiles and adding another account are disabled. Emoji (including typed or
+payments and business automation are disabled. Creating groups/channels,
+Saved Messages, all user profile views (including My Profile) and adding
+another account are disabled. Contacts, Settings and existing allowed
+conversations remain available. Emoji (including typed or
 pasted Unicode), stickers, GIFs and message effects cannot be sent. Ordinary
 text and nonanimated attachments remain available; opaque media is refused.
 Channel comments need the linked discussion group ID.

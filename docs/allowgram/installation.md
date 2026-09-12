@@ -8,10 +8,10 @@ This publication contains source code. It does not upload an installer, portable
 
 ## If you already have an Allowgram package
 
-The 7.2.8.5 installer targets **Windows 10 version 1903 or later, or Windows 11, on x64**. Run `Allowgram-Setup-7.2.8.5-x64.exe` only after checking its accompanying validation receipt. The installer is per-user and unsigned. Windows SmartScreen or an unknown-publisher prompt may appear; verify the source of the file and its checksum before choosing to proceed. Do not disable Windows security settings.
+The 7.2.8.6 installer targets **Windows 10 version 1903 or later, or Windows 11, on x64**. Run `Allowgram-Setup-7.2.8.6-x64.exe` only after checking its accompanying validation receipt. The installer is per-user and unsigned. Windows SmartScreen or an unknown-publisher prompt may appear; verify the source of the file and its checksum before choosing to proceed. Do not disable Windows security settings.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath .\Allowgram-Setup-7.2.8.5-x64.exe
+Get-FileHash -Algorithm SHA256 -LiteralPath .\Allowgram-Setup-7.2.8.6-x64.exe
 ```
 
 Compare the result with the `SHA256SUMS.txt` delivered through the same trusted release channel. A matching checksum checks file integrity; it is not a code signature or independent assurance of the publisher's identity.

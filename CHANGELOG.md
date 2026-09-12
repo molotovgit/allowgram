@@ -1,5 +1,12 @@
 # Allowgram changelog
 
+## 7.2.8.6
+
+- Remove New Group/New Channel and guard direct creation dialogs and navigation; existing permitted conversations remain usable.
+- Remove Calls history, voice/video/group-call controls and incoming-call presentation; retain the deny-unknown transport restrictions.
+- Remove My Profile and View profile actions, including own-user views, and close the short-info profile route.
+- Preserve Contacts, own-account Settings, initial login, allowed messaging, Mini App gates and all earlier content restrictions. See [scope and verification](docs/allowgram-7.2.8.6.md).
+
 ## 7.2.8.5
 
 - Block other-user profile presentation and Saved Messages, independently of the saved allow-list.

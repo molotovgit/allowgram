@@ -1611,6 +1611,7 @@ PRIVATE
     menu/menu_sponsored.h
     menu/menu_ttl_validator.cpp
     menu/menu_ttl_validator.h
+    mtproto/allowlist_message_guard.h
     mtproto/allowlist_request_guard.cpp
     mtproto/allowlist_request_guard.h
     mtproto/allowlist_safe_requests.inc

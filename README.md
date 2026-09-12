@@ -1,99 +1,50 @@
-# [Telegram Desktop][telegram_desktop] – Official Messenger
+<p align="center"><img src="Telegram/Resources/art/allowgram/logo_256.png" width="112" alt="Allowgram logo"></p>
 
-This is the complete source code and the build instructions for the official [Telegram][telegram] messenger desktop client, based on the [Telegram API][telegram_api] and the [MTProto][telegram_proto] secure protocol.
+# Allowgram
 
-[![Version](https://badge.fury.io/gh/telegramdesktop%2Ftdesktop.svg)](https://github.com/telegramdesktop/tdesktop/releases)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Windows./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/MacOS./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Linux./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Built with Depot](https://img.shields.io/badge/Built%20with-Depot.dev-46A75A)](https://depot.dev)
+**A Telegram Desktop-derived Windows client that shows only the conversations you allow.**
 
-[![Preview of Telegram Desktop][preview_image]][preview_image_url]
+Sign in through Telegram's normal phone-number and verification flow, then set up an explicit list of user, bot, group and channel IDs. Allowgram hides excluded conversations and their notifications and blocks client requests to excluded destinations. Mini Apps can open only for bots explicitly included in the list.
 
-The source code is published under GPLv3 with OpenSSL exception, the license is available [here][license].
+Allowgram is an unofficial, independent modification maintained by [molotovgit](https://github.com/molotovgit). It is not affiliated with or endorsed by Telegram. Telegram Desktop and its contributors remain the authors of the upstream client.
 
-## Supported systems
+## Start here
 
-The latest version is available for
+- [Installation and package verification](docs/allowgram/installation.md)
+- [Set up your allow-list](docs/allowgram/allow-list.md)
+- [Use allowed-bot Mini Apps](docs/allowgram/mini-apps.md)
+- [Build from source](docs/allowgram/build.md)
+- [Frequently asked questions](docs/allowgram/faq.md)
 
-* [Windows 7 and above (64 bit)](https://telegram.org/dl/desktop/win64) ([portable](https://telegram.org/dl/desktop/win64_portable))
-* [Windows 7 and above (32 bit)](https://telegram.org/dl/desktop/win) ([portable](https://telegram.org/dl/desktop/win_portable))
-* [macOS 10.13 and above](https://telegram.org/dl/desktop/mac)
-* [Linux static build for 64 bit](https://telegram.org/dl/desktop/linux)
-* [Snap](https://snapcraft.io/telegram-desktop)
-* [Flatpak](https://flathub.org/apps/details/org.telegram.desktop)
+This repository publishes source. **No public installer or GitHub Release is provided by this publication.** Version 7.2.8.3 was built and delivered privately to the owner; a public binary release requires a separate distribution step. Do not substitute an upstream Telegram installer: it does not contain Allowgram's restrictions.
 
-## Old system versions
+## What the client enforces
 
-Version **4.9.9** was the last that supports older systems
+| Capability | Behavior in 7.2.8.3 |
+| --- | --- |
+| Repeatable setup rows | **+ Add user** and **+ Add group/channel** add rows; **Remove** deletes extra rows. Up to 10,000 distinct IDs total. |
+| Conversation visibility | Excluded chat rows, search results, archive entries, message previews, unread badges and notifications are suppressed. |
+| Outgoing operations | Destination checks cover supported text, media, forwarding, edits, reactions and other supported requests. Unknown request types fail closed. |
+| Allowed groups | Messages from participants are visible inside an allowed group. This does not allow those participants' DMs or authorize their bots' Mini Apps. |
+| Bot Mini Apps | The server-resolved bot must be explicitly allowed. Conversation, reply and send-as contexts are also checked. Links resolve their own target; account switches close app windows. |
+| Persistent account policy | The list is stored with the account's encrypted local settings. There is no in-session editor in this version. |
 
-* [macOS 10.12](https://updates.tdesktop.com/tmac/tsetup.4.9.9.dmg)
-* [Linux with glibc < 2.28 static build](https://updates.tdesktop.com/tlinux/tsetup.4.9.9.tar.xz)
+The list is **a client-side restriction**, not a Telegram server rule or device-management policy. Telegram can still receive excluded messages for the account. Other Telegram clients, existing sessions, scheduled server-side actions and someone replacing this application remain outside its control. Read the [security boundaries and disabled features](docs/allowgram/security.md) before relying on it.
 
-Version **2.4.4** was the last that supports older systems
+## Verification
 
-* [OS X 10.10 and 10.11](https://updates.tdesktop.com/tosx/tsetup-osx.2.4.4.dmg)
-* [Linux static build for 32 bit](https://updates.tdesktop.com/tlinux32/tsetup32.2.4.4.tar.xz)
+The 7.2.8.3 release passed **451 native request/message/Mini App checks**, **80 ID-parser checks** and **six schema audits**, plus a Windows x64 Release build, fresh-profile startup, isolated installation/uninstallation and package integrity checks. The owner subsequently reported that the delivered installer worked. That is owner-reported live success, not a claim that every dashboard, excluded-bot case or permission flow was individually exercised. See [testing and evidence](docs/allowgram/testing.md).
 
-Version **1.8.15** was the last that supports older systems
+## Source and provenance
 
-* [Windows XP and Vista](https://updates.tdesktop.com/tsetup/tsetup.1.8.15.exe) ([portable](https://updates.tdesktop.com/tsetup/tportable.1.8.15.zip))
-* [OS X 10.8 and 10.9](https://updates.tdesktop.com/tmac/tsetup.1.8.15.dmg)
-* [OS X 10.6 and 10.7](https://updates.tdesktop.com/tmac32/tsetup32.1.8.15.dmg)
+- [Architecture and boundaries](docs/allowgram/security.md)
+- [Changelog](CHANGELOG.md)
+- [Original history and atomic commit map](docs/allowgram/history.md)
+- [Contribution guidance](CONTRIBUTING.md)
+- [Upstream README and third-party notices](README.telegram.md)
 
-## Third-party
+The original release history is retained on `archive/release-7.2.8.3`. `main` presents the owner's changes as smaller commits and reproduces the original application tree before the documentation additions. Upstream ancestry and attribution remain intact.
 
-* Qt 6 ([LGPL](http://doc.qt.io/qt-6/lgpl.html)) and Qt 5.15 ([LGPL](http://doc.qt.io/qt-5/lgpl.html)) slightly patched
-* OpenSSL 3.2.1 ([Apache License 2.0](https://openssl-library.org/source/license/apache-license-2.0.txt))
-* WebRTC ([New BSD License](https://github.com/desktop-app/tg_owt/blob/master/LICENSE))
-* zlib ([zlib License](http://www.zlib.net/zlib_license.html))
-* LZMA SDK 9.20 ([public domain](http://www.7-zip.org/sdk.html))
-* liblzma ([public domain](http://tukaani.org/xz/))
-* Google Breakpad ([License](https://chromium.googlesource.com/breakpad/breakpad/+/master/LICENSE))
-* Google Crashpad ([Apache License 2.0](https://chromium.googlesource.com/crashpad/crashpad/+/master/LICENSE))
-* GYP ([BSD License](https://github.com/bnoordhuis/gyp/blob/master/LICENSE))
-* Ninja ([Apache License 2.0](https://github.com/ninja-build/ninja/blob/master/COPYING))
-* OpenAL Soft ([LGPL](https://github.com/kcat/openal-soft/blob/master/COPYING))
-* Opus codec ([BSD License](http://www.opus-codec.org/license/))
-* FFmpeg ([LGPL](https://www.ffmpeg.org/legal.html))
-* Guideline Support Library ([MIT License](https://github.com/Microsoft/GSL/blob/master/LICENSE))
-* Range-v3 ([Boost License](https://github.com/ericniebler/range-v3/blob/master/LICENSE.txt))
-* Open Sans font ([Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0.html))
-* Vazirmatn font ([SIL Open Font License 1.1](https://github.com/rastikerdar/vazirmatn/blob/master/OFL.txt))
-* Emoji alpha codes ([MIT License](https://github.com/emojione/emojione/blob/master/extras/alpha-codes/LICENSE.md))
-* xxHash ([BSD License](https://github.com/Cyan4973/xxHash/blob/dev/LICENSE))
-* QR Code generator ([MIT License](https://github.com/nayuki/QR-Code-generator#license))
-* CMake ([New BSD License](https://github.com/Kitware/CMake/blob/master/Copyright.txt))
-* Hunspell ([LGPL](https://github.com/hunspell/hunspell/blob/master/COPYING.LESSER))
-* Ada ([Apache License 2.0](https://github.com/ada-url/ada/blob/main/LICENSE-APACHE))
+## License
 
-## Build instructions
-
-* [Windows (32-bit and 64-bit)][win]
-* [macOS][mac]
-* [GNU/Linux using Docker][linux]
-
-[//]: # (LINKS)
-[telegram]: https://telegram.org
-[telegram_desktop]: https://desktop.telegram.org
-[telegram_api]: https://core.telegram.org
-[telegram_proto]: https://core.telegram.org/mtproto
-[license]: LICENSE
-[win]: docs/building-win.md
-[mac]: docs/building-mac.md
-[linux]: docs/building-linux.md
-[preview_image]: https://github.com/telegramdesktop/tdesktop/blob/dev/docs/assets/preview.png "Preview of Telegram Desktop"
-[preview_image_url]: https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/docs/assets/preview.png
-
-## Thanks to
-
-<a href="https://depot.dev">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg">
-    <img alt="Depot" src="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg" width="150">
-  </picture>
-</a>
-
-CI infrastructure sponsored by [Depot](https://depot.dev) — fast GitHub Actions runners.
-
+GPL-3.0-or-later with the existing OpenSSL linking exception: see [LICENSE](LICENSE) and [LEGAL](LEGAL). Third-party components retain their own licenses. This repository preserves the source layout, copyright notices and pinned submodule references.

@@ -72,6 +72,7 @@ AllowlistLockWidget::IdRow::IdRow(
 	Ui::InputField::Mode::SingleLine,
 	users ? tr::lng_allowgram_users() : tr::lng_allowgram_groups()))
 , _remove(Ui::CreateChild<Ui::LinkButton>(this, QString())) {
+	_field->setDocumentMargin(st::allowlistInput.border);
 	_field->setInputMethodHints(Qt::ImhNoAutoUppercase
 		| Qt::ImhNoPredictiveText);
 	_field->submits() | rpl::on_next([=] {

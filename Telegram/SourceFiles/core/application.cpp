@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_abstract_structure.h"
 #include "data/data_channel.h"
 #include "data/data_forum.h"
+#include "data/data_document.h"
 #include "data/data_message_reactions.h"
 #include "data/data_session.h"
 #include "data/data_download_manager.h"
@@ -40,6 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/platform_specific.h"
 #include "platform/platform_integration.h"
 #include "history/history.h"
+#include "history/history_item.h"
 #include "apiwrap.h"
 #include "api/api_updates.h"
 #include "calls/calls_instance.h"
@@ -460,6 +462,20 @@ void Application::run() {
 
 	_openInMediaViewRequests.events(
 	) | rpl::on_next([=](Media::View::OpenRequest &&request) {
+		const auto controller = request.controller();
+		if (!controller || !controller->session().allowlistConfigured()
+			|| request.story() || request.call()) {
+			return;
+		}
+		const auto item = request.item();
+		const auto peer = item ? item->history()->peer.get() : request.peer();
+		if ((peer
+			&& (&peer->session() != &controller->session()
+				|| !controller->session().allowlistAllows(peer->id)))
+			|| (!peer && !request.cloudTheme()
+				&& (!request.document() || !request.document()->isTheme()))) {
+			return;
+		}
 		if (_mediaView) {
 			_mediaView->show(std::move(request));
 		}
@@ -1487,6 +1503,10 @@ Window::Controller *Application::separateWindowFor(
 not_null<Window::Controller*> Application::ensureSeparateWindowFor(
 		Window::SeparateId id,
 		MsgId showAtMsgId) {
+	if (id.thread
+		&& !id.thread->session().allowlistAllows(id.thread->peer()->id)) {
+		id = Window::SeparateId(not_null(id.account));
+	}
 	const auto activate = [&](not_null<Window::Controller*> window) {
 		window->activate();
 		return window;

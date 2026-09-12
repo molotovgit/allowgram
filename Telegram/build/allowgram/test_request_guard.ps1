@@ -1,10 +1,13 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$QtDirectory,
-    [string]$Repository = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
+    [string]$Repository
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Repository) {
+    $Repository = Join-Path $PSScriptRoot '../../..'
+}
 $Repository = (Resolve-Path -LiteralPath $Repository).Path
 $QtDirectory = (Resolve-Path -LiteralPath $QtDirectory).Path
 $build = Join-Path $Repository 'out/allowgram-guard-tests'
@@ -25,6 +28,7 @@ $includes = @(
 $sources = @(
     "$Repository/Telegram/SourceFiles/test/allowlist_request_guard_test.cpp",
     "$Repository/Telegram/SourceFiles/mtproto/allowlist_request_guard.cpp",
+    "$Repository/Telegram/SourceFiles/data/data_peer_id.cpp",
     "$scheme.cpp",
     "$Repository/Telegram/SourceFiles/mtproto/details/mtproto_serialized_request.cpp",
     "$Repository/Telegram/lib_tl/tl/tl_basic_types.cpp",
@@ -35,7 +39,7 @@ Push-Location -LiteralPath $build
 try {
     foreach ($source in $sources) {
         $forcedIncludes = @()
-        if ([IO.Path]::GetFileName($source) -eq 'mtproto_serialized_request.cpp') {
+        if ([IO.Path]::GetFileName($source) -in @('mtproto_serialized_request.cpp', 'data_peer_id.cpp')) {
             $forcedIncludes = @('/FIscheme.h')
         }
         cl.exe /nologo /c /std:c++20 /EHsc /MD /O1 /Gy /bigobj /Zc:__cplusplus /permissive- /utf-8 /W3 /DQT_NO_DEBUG @includes @forcedIncludes $source
@@ -43,12 +47,12 @@ try {
     }
     $objects = $sources | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) + '.obj' }
     link.exe /nologo /OUT:allowlist_request_guard_test.exe /OPT:REF @objects "$QtDirectory/lib/Qt6Core.lib"
-    if ($LASTEXITCODE -ne 0) { throw 'Request guard regression test linking failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Allow-list message/request regression test linking failed.' }
     $previousPath = $env:PATH
     try {
         $env:PATH = "$QtDirectory/bin;$env:PATH"
         & ./allowlist_request_guard_test.exe
-        if ($LASTEXITCODE -ne 0) { throw 'Request guard regression checks failed.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Allow-list message/request regression checks failed.' }
     } finally {
         $env:PATH = $previousPath
     }

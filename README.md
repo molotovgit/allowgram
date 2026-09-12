@@ -18,6 +18,10 @@ Allowgram is an unofficial, independent modification maintained by [molotovgit](
 
 This repository publishes source. **No public installer or GitHub Release is provided by this publication.** Version 7.2.8.3 was built and delivered privately to the owner; a public binary release requires a separate distribution step. Do not substitute an upstream Telegram installer: it does not contain Allowgram's restrictions.
 
+[![Allowgram allow-list setup with add-row and save controls](docs/allowgram/images/allow-list-overview.png)](docs/allowgram/allow-list.md)
+
+*Actual Allowgram controls in an isolated documentation fixture. [Follow the illustrated setup guide](docs/allowgram/allow-list.md).*
+
 ## What the client enforces
 
 | Capability | Behavior in 7.2.8.3 |

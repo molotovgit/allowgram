@@ -1,0 +1,103 @@
+{
+  "product": "Allowgram",
+  "version": "7.2.8.3",
+  "originalReleaseCommit": "52063613d25b281a9e5f9c360e42b48ef070922e",
+  "publicationPreflightCommit": "7b8be152fdd55c5aa357cb0ea6e273d762f27294",
+  "applicationTreeUnchanged": true,
+  "publicationCheckoutTests": [
+    {
+      "test": "Native request, message and Mini App guards",
+      "checks": 451,
+      "failures": 0,
+      "exitCode": 0
+    },
+    {
+      "test": "ID parser",
+      "checks": 80,
+      "failures": 0,
+      "exitCode": 0
+    },
+    {
+      "test": "Pinned schema audit",
+      "checks": 6,
+      "failures": 0,
+      "exitCode": 0
+    }
+  ],
+  "releaseChecksPreviouslyPassed": [
+    "Windows x64 Release build",
+    "Fresh unauthenticated startup",
+    "Portable startup",
+    "Isolated installation/startup/uninstallation with separate validation identity",
+    "Source/portable/installer integrity and checksum checks"
+  ],
+  "liveStatus": "Owner reported the delivered installer worked. Individual dashboard or excluded-bot outcomes are not asserted.",
+  "history": {
+    "upstreamAncestryComplete": true,
+    "originalBoundariesTreeEquivalent": 6,
+    "atomicApplicationCommits": 164,
+    "authorAndCommitter": "molotovgit <275727637+molotovgit@users.noreply.github.com>",
+    "recursiveSubmodulesChecked": 39,
+    "gitFsckExitCode": 0
+  },
+  "securityPreflight": {
+    "scanner": "Gitleaks 8.30.1",
+    "scannerArchiveSha256": "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e",
+    "unfilteredHistoryAlerts": 13,
+    "newHistoryAlertsRelativeToUpstream": 0,
+    "unfilteredTrackedWorktreeAlerts": 5,
+    "trackedWorktreeAlertsMatchUpstreamLines": true,
+    "reachableObjectCountsAtScan": {
+      "commit": 26443,
+      "tree": 158063,
+      "blob": 140441
+    },
+    "scannedBytesAtScan": 5573928997,
+    "knownPrivateCredentialMatches": 0,
+    "privateMachinePathMatches": 0,
+    "objectsOver50MiB": 0,
+    "classificationDocument": "publication-checks.md"
+  },
+  "scopeNote": "History counts record the preflight revision above. Screenshot and link results include the final images. Final ref-bound secret checks and remote read-back are recorded separately in the private publication audit. No raw captures, local paths or credentials are published.",
+  "screenshots": [
+    {
+      "path": "docs/allowgram/images/allow-list-overview.png",
+      "sha256": "7edb6cf5f618b5729ee096638b274bb91f3f70c0a56800605b692386fd611ecd",
+      "dimensions": [
+        800,
+        598
+      ],
+      "metadataRemoved": true,
+      "visuallyReviewed": true,
+      "personalDataVisible": false
+    },
+    {
+      "path": "docs/allowgram/images/allow-list-multiple.png",
+      "sha256": "8cf3a82d8d86c43fba26306217bc2dcf51e61288613241c979d2e403d5ab118a",
+      "dimensions": [
+        800,
+        598
+      ],
+      "metadataRemoved": true,
+      "visuallyReviewed": true,
+      "personalDataVisible": false
+    },
+    {
+      "path": "docs/allowgram/images/allow-list-validation.png",
+      "sha256": "365f6677eaf155f3f00e11fccce2be786065bf1134d738a521e1579dafcd2dc8",
+      "dimensions": [
+        800,
+        598
+      ],
+      "metadataRemoved": true,
+      "visuallyReviewed": true,
+      "personalDataVisible": false
+    }
+  ],
+  "documentation": {
+    "localLinksChecked": 80,
+    "issues": 0,
+    "manualWorkflows": 1,
+    "screenshotProvenance": "screenshots.md"
+  }
+}

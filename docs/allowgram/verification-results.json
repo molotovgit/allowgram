@@ -1,103 +1,51 @@
 {
   "product": "Allowgram",
-  "version": "7.2.8.3",
-  "originalReleaseCommit": "52063613d25b281a9e5f9c360e42b48ef070922e",
-  "publicationPreflightCommit": "7b8be152fdd55c5aa357cb0ea6e273d762f27294",
-  "applicationTreeUnchanged": true,
-  "publicationCheckoutTests": [
-    {
-      "test": "Native request, message and Mini App guards",
-      "checks": 451,
-      "failures": 0,
-      "exitCode": 0
+  "version": "7.2.8.4",
+  "sourceCommit": "f91e77fdf07bdc6032d0085b11ea9135faa7c20b",
+  "artifacts": {
+    "Allowgram-7.2.8.4-x64.zip": {
+      "sha256": "8469e7474b3a442976d5a4ae9c77705d9c0c92fa93cdb1c355f432e1aefa9bcb",
+      "bytes": 74199158
     },
-    {
-      "test": "ID parser",
-      "checks": 80,
-      "failures": 0,
-      "exitCode": 0
+    "Allowgram-Setup-7.2.8.4-x64.exe": {
+      "sha256": "f62eacb211fdc444b159bb5482cfc2eb94f1edbfcdc0f5543d61df98634d0179",
+      "bytes": 55174832
     },
-    {
-      "test": "Pinned schema audit",
-      "checks": 6,
-      "failures": 0,
-      "exitCode": 0
+    "Allowgram-source.zip": {
+      "sha256": "2799fd3ea556c83275c9c145dc730fdbe5a1ce415fd1c9dca0ea50492a7c76eb",
+      "bytes": 84975977
     }
-  ],
-  "releaseChecksPreviouslyPassed": [
-    "Windows x64 Release build",
-    "Fresh unauthenticated startup",
-    "Portable startup",
-    "Isolated installation/startup/uninstallation with separate validation identity",
-    "Source/portable/installer integrity and checksum checks"
-  ],
-  "liveStatus": "Owner reported the delivered installer worked. Individual dashboard or excluded-bot outcomes are not asserted.",
-  "history": {
-    "upstreamAncestryComplete": true,
-    "originalBoundariesTreeEquivalent": 6,
-    "atomicApplicationCommits": 164,
-    "authorAndCommitter": "molotovgit <275727637+molotovgit@users.noreply.github.com>",
-    "recursiveSubmodulesChecked": 39,
-    "gitFsckExitCode": 0
   },
-  "securityPreflight": {
-    "scanner": "Gitleaks 8.30.1",
-    "scannerArchiveSha256": "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e",
-    "unfilteredHistoryAlerts": 13,
-    "newHistoryAlertsRelativeToUpstream": 0,
-    "unfilteredTrackedWorktreeAlerts": 5,
-    "trackedWorktreeAlertsMatchUpstreamLines": true,
-    "reachableObjectCountsAtScan": {
-      "commit": 26443,
-      "tree": 158063,
-      "blob": 140441
-    },
-    "scannedBytesAtScan": 5573928997,
-    "knownPrivateCredentialMatches": 0,
-    "privateMachinePathMatches": 0,
-    "objectsOver50MiB": 0,
-    "classificationDocument": "publication-checks.md"
-  },
-  "scopeNote": "History counts record the preflight revision above. Screenshot and link results include the final images. Final ref-bound secret checks and remote read-back are recorded separately in the private publication audit. No raw captures, local paths or credentials are published.",
-  "screenshots": [
-    {
-      "path": "docs/allowgram/images/allow-list-overview.png",
-      "sha256": "7edb6cf5f618b5729ee096638b274bb91f3f70c0a56800605b692386fd611ecd",
-      "dimensions": [
-        800,
-        598
-      ],
-      "metadataRemoved": true,
-      "visuallyReviewed": true,
-      "personalDataVisible": false
-    },
-    {
-      "path": "docs/allowgram/images/allow-list-multiple.png",
-      "sha256": "8cf3a82d8d86c43fba26306217bc2dcf51e61288613241c979d2e403d5ab118a",
-      "dimensions": [
-        800,
-        598
-      ],
-      "metadataRemoved": true,
-      "visuallyReviewed": true,
-      "personalDataVisible": false
-    },
-    {
-      "path": "docs/allowgram/images/allow-list-validation.png",
-      "sha256": "365f6677eaf155f3f00e11fccce2be786065bf1134d738a521e1579dafcd2dc8",
-      "dimensions": [
-        800,
-        598
-      ],
-      "metadataRemoved": true,
-      "visuallyReviewed": true,
-      "personalDataVisible": false
-    }
+  "nativeUiChecks": 1284,
+  "nativeUiFailures": 0,
+  "nativeUiCases": 12,
+  "styleScales": [
+    100,
+    125,
+    150,
+    200
   ],
-  "documentation": {
-    "localLinksChecked": 80,
-    "issues": 0,
-    "manualWorkflows": 1,
-    "screenshotProvenance": "screenshots.md"
-  }
+  "requestMessageMiniAppChecks": 451,
+  "parserChecks": 80,
+  "schemaTests": 6,
+  "releaseBuildPassed": true,
+  "isolatedStartupInstallUninstallPortablePassed": true,
+  "oldReleaseAndInstalledAppPreserved": true,
+  "unsigned": true,
+  "liveAccountTesting": false,
+  "baselineNote": "The original 100% geometry run failed 27 layout checks (12px viewport vs 19px document; Remove 12px high). Its early harness also failed teardown; final verified runs require normal exit zero.",
+  "historicalVerification": "verification-7.2.8.3.json",
+  "uiMeasurements": "ui-layout-results.json",
+  "applicationDeltaFromInitialPublication": [
+    "Telegram/SourceFiles/window/window.style",
+    "Telegram/SourceFiles/window/window_allowlist.cpp",
+    "Telegram/SourceFiles/test/allowlist_layout_test.inc",
+    "Telegram/build/allowgram/build_ui_regression.py",
+    "Telegram/build/allowgram/test_ui_layout.py",
+    "Telegram/build/allowgram/revision"
+  ],
+  "archivalRelease": "52063613d25b281a9e5f9c360e42b48ef070922e",
+  "publishedHistoryRewritten": false,
+  "authorAndCommitter": "molotovgit <275727637+molotovgit@users.noreply.github.com>",
+  "publicBinaryRelease": false
 }

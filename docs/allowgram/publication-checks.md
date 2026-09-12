@@ -1,5 +1,13 @@
 # Public source verification
 
+The initial-publication figures below are historical evidence for 7.2.8.3.
+Version 7.2.8.4 extends the published branch without rewriting it. Its current
+UI/build/package results are in [release verification](verification-results.json);
+the earlier record is preserved in [7.2.8.3 verification](verification-7.2.8.3.json).
+The archival equality gate remains active. A reviewed UI/test/version delta
+replaces equality between today's application and the older release.
+
+
 [Back to Allowgram](../../README.md) · [Machine-readable results](verification-results.json)
 
 The preflight revision and exact counts are recorded in the results file. These

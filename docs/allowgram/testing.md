@@ -56,6 +56,14 @@ the test now uses normal Qt ownership. The 150% caret check also caught a
 one-pixel rounding edge, fixed in the production row with a document inset
 based on its native border width. Neither failure was waived to get a pass.
 
+The rebuilt Windows x64 executable passed fresh startup. The same payload passed
+isolated installation/startup/uninstallation under a distinct validation AppId,
+and the portable ZIP passed startup using its own account-directory marker.
+The source archive contains 15,748 manifest members; archive integrity, private
+API exclusion, payload equality and all three distribution checksums passed.
+The installed owner app and delivered 7.2.8.3 files retained their hashes.
+See [release verification](verification-results.json).
+
 ## Historical 7.2.8.3 results
 
 These are local Windows release results, not a claim that GitHub Actions has run:
@@ -103,4 +111,4 @@ For the owner's reported bot, the named launch controls are Open Dashboard, Open
 
 ## Publication checks
 
-The publication process checks local Markdown/image paths, screenshot metadata and content, owner commit identity, exact application-tree equivalence, complete upstream ancestry, all intended reachable history, known-private material, archive refs, remote SHAs and a fresh recursive clone. Publication evidence is added only after the corresponding check has actually run. Raw local logs and desktop captures are not committed because they may contain machine paths or private data.
+The publication process checks local Markdown/image paths, screenshot metadata and content, owner commit identity, archival application-tree equivalence and the reviewed current UI/test/version delta, complete upstream ancestry, all intended reachable history, known-private material, archive refs, remote SHAs and a fresh recursive clone. Publication evidence is added only after the corresponding check has actually run. Raw local logs and desktop captures are not committed because they may contain machine paths or private data.

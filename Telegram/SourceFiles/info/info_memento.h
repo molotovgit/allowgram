@@ -76,6 +76,8 @@ public:
 		return _removeRequests.events();
 	}
 
+	[[nodiscard]] bool allowlistAllows(not_null<Main::Session*> session) const;
+
 	int stackSize() const {
 		return int(_stack.size());
 	}
@@ -145,6 +147,8 @@ public:
 	object_ptr<Ui::LayerWidget> createLayer(
 		not_null<Window::SessionController*> controller,
 		const QRect &geometry) override;
+
+	[[nodiscard]] bool allowlistAllows(not_null<Main::Session*> session) const;
 
 	bool instant() const override {
 		return true;

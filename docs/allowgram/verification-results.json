@@ -1,0 +1,62 @@
+{
+  "product": "Allowgram",
+  "version": "7.2.8.3",
+  "originalReleaseCommit": "52063613d25b281a9e5f9c360e42b48ef070922e",
+  "publicationPreflightCommit": "7b8be152fdd55c5aa357cb0ea6e273d762f27294",
+  "applicationTreeUnchanged": true,
+  "publicationCheckoutTests": [
+    {
+      "test": "Native request, message and Mini App guards",
+      "checks": 451,
+      "failures": 0,
+      "exitCode": 0
+    },
+    {
+      "test": "ID parser",
+      "checks": 80,
+      "failures": 0,
+      "exitCode": 0
+    },
+    {
+      "test": "Pinned schema audit",
+      "checks": 6,
+      "failures": 0,
+      "exitCode": 0
+    }
+  ],
+  "releaseChecksPreviouslyPassed": [
+    "Windows x64 Release build",
+    "Fresh unauthenticated startup",
+    "Portable startup",
+    "Isolated installation/startup/uninstallation with separate validation identity",
+    "Source/portable/installer integrity and checksum checks"
+  ],
+  "liveStatus": "Owner reported the delivered installer worked. Individual dashboard or excluded-bot outcomes are not asserted.",
+  "history": {
+    "upstreamAncestryComplete": true,
+    "originalBoundariesTreeEquivalent": 6,
+    "atomicApplicationCommits": 164,
+    "authorAndCommitter": "molotovgit <275727637+molotovgit@users.noreply.github.com>",
+    "recursiveSubmodulesChecked": 39,
+    "gitFsckExitCode": 0
+  },
+  "securityPreflight": {
+    "scanner": "Gitleaks 8.30.1",
+    "scannerArchiveSha256": "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e",
+    "unfilteredHistoryAlerts": 13,
+    "newHistoryAlertsRelativeToUpstream": 0,
+    "unfilteredTrackedWorktreeAlerts": 5,
+    "trackedWorktreeAlertsMatchUpstreamLines": true,
+    "reachableObjectCountsAtScan": {
+      "commit": 26443,
+      "tree": 158063,
+      "blob": 140441
+    },
+    "scannedBytesAtScan": 5573928997,
+    "knownPrivateCredentialMatches": 0,
+    "privateMachinePathMatches": 0,
+    "objectsOver50MiB": 0,
+    "classificationDocument": "publication-checks.md"
+  },
+  "scopeNote": "These checks record the preflight revision above. Raw logs, captures, local paths and private credentials remain outside the public repository. Final screenshot and remote checks are recorded after they occur."
+}

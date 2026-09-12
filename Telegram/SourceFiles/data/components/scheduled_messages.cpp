@@ -228,6 +228,9 @@ void ScheduledMessages::sendNowSimpleMessage(
 	// views count, etc.
 
 	const auto history = local->history();
+	if (!history->session().allowlistAllows(history->peer->id)) {
+		return;
+	}
 	auto action = Api::SendAction(history);
 	action.replyTo = local->replyTo();
 	const auto replyHeader = NewMessageReplyHeader(action);

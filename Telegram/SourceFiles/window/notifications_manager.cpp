@@ -158,9 +158,27 @@ base::options::toggle HideReplyButtonOption({
 	return {};
 }
 
+[[nodiscard]] bool AllowNotification(
+		not_null<Main::Session*> session,
+		PeerId peerId,
+		PeerId monoforumPeerId) {
+	return session->allowlistAllows(peerId)
+		&& (!monoforumPeerId || session->allowlistAllows(monoforumPeerId));
+}
+
+[[nodiscard]] bool AllowNotification(not_null<Data::Thread*> thread) {
+	return AllowNotification(
+		&thread->session(),
+		thread->peer()->id,
+		thread->monoforumPeerId());
+}
+
 [[nodiscard]] std::optional<DocumentId> MaybeSoundFor(
 		not_null<Data::Thread*> thread,
 		PeerData *from) {
+	if (!AllowNotification(thread)) {
+		return std::nullopt;
+	}
 	const auto notifySettings = &thread->owner().notifySettings();
 	const auto threadUnknown = notifySettings->muteUnknown(thread);
 	const auto threadAlert = !threadUnknown
@@ -316,6 +334,7 @@ System::SkipState System::skipNotification(
 	const auto messageType = (type == Data::ItemNotificationType::Message);
 	const auto thread = item->maybeNotificationThread();
 	if (!thread
+		|| !AllowNotification(thread)
 		|| !thread->currentNotification()
 		|| (messageType && item->skipNotification())
 		|| (type == Data::ItemNotificationType::Reaction
@@ -332,6 +351,9 @@ System::SkipState System::computeSkipState(
 	const auto type = notification.type;
 	const auto item = notification.item;
 	const auto thread = item->notificationThread();
+	if (!AllowNotification(thread)) {
+		return { SkipState::Skip };
+	}
 	const auto notifySettings = &thread->owner().notifySettings();
 	const auto messageType = (type == Data::ItemNotificationType::Message);
 	const auto withSilent = [&](
@@ -798,6 +820,12 @@ void System::showNext() {
 		auto notifyThread = (Data::Thread*)nullptr;
 		for (auto i = _waiters.begin(); i != _waiters.end();) {
 			const auto thread = i->first;
+			if (!AllowNotification(thread)) {
+				thread->clearNotifications();
+				_whenMaps.remove(thread);
+				i = _waiters.erase(i);
+				continue;
+			}
 			auto current = thread->currentNotification();
 			if (current && current->item->id != i->second.key.messageId) {
 				auto j = _whenMaps.find(thread);
@@ -1273,61 +1301,76 @@ QString Manager::accountNameSeparator() {
 	return QString::fromUtf8(" \xE2\x9E\x9C ");
 }
 
+void Manager::showNotification(NotificationFields fields) {
+	const auto thread = fields.item->maybeNotificationThread();
+	if (thread && AllowNotification(thread)) {
+		doShowNotification(std::move(fields));
+	}
+}
+
 void Manager::notificationActivated(
 		NotificationId id,
 		ActivateOptions &&options) {
-	onBeforeNotificationActivated(id);
-	if (const auto session = system()->findSession(id.contextId.sessionId)) {
-		const auto history = session->data().history(
-			id.contextId.peerId);
-		const auto item = history->owner().message(
-			history->peer,
-			id.msgId);
-		const auto topic = item ? item->topic() : nullptr;
-		const auto sublist = item ? item->savedSublist() : nullptr;
-		if (!options.draft.text.isEmpty()) {
-			const auto topicRootId = topic
-				? topic->rootId()
-				: id.contextId.topicRootId;
-			const auto monoforumPeerId = (sublist && sublist->parentChat())
-				? sublist->sublistPeer()->id
-				: id.contextId.monoforumPeerId;
-			const auto replyToId = (id.msgId > 0
-				&& !history->peer->isUser()
-				&& id.msgId != topicRootId)
-				? FullMsgId(history->peer->id, id.msgId)
-				: FullMsgId();
-			const auto length = int(options.draft.text.size());
-			auto draft = std::make_unique<Data::Draft>(
-				std::move(options.draft),
-				FullReplyTo{
-					.messageId = replyToId,
-					.topicRootId = topicRootId,
-					.monoforumPeerId = monoforumPeerId,
-				},
-				SuggestOptions(),
-				MessageCursor{
-					length,
-					length,
-					Ui::kQFixedMax,
-				},
-				Data::WebPageDraft());
-			history->setLocalDraft(std::move(draft));
-		}
-		const auto openSeparated = options.allowNewWindow
-			&& base::IsCtrlPressed();
-		const auto window = openNotificationMessage(
-			history,
-			id.msgId,
-			openSeparated);
-		onAfterNotificationActivated(id, window);
+	const auto session = system()->findSession(id.contextId.sessionId);
+	if (!session || !AllowNotification(
+			session,
+			id.contextId.peerId,
+			id.contextId.monoforumPeerId)) {
+		return;
 	}
+	onBeforeNotificationActivated(id);
+	const auto history = session->data().history(
+		id.contextId.peerId);
+	const auto item = history->owner().message(
+		history->peer,
+		id.msgId);
+	const auto topic = item ? item->topic() : nullptr;
+	const auto sublist = item ? item->savedSublist() : nullptr;
+	if (!options.draft.text.isEmpty()) {
+		const auto topicRootId = topic
+			? topic->rootId()
+			: id.contextId.topicRootId;
+		const auto monoforumPeerId = (sublist && sublist->parentChat())
+			? sublist->sublistPeer()->id
+			: id.contextId.monoforumPeerId;
+		const auto replyToId = (id.msgId > 0
+			&& !history->peer->isUser()
+			&& id.msgId != topicRootId)
+			? FullMsgId(history->peer->id, id.msgId)
+			: FullMsgId();
+		const auto length = int(options.draft.text.size());
+		auto draft = std::make_unique<Data::Draft>(
+			std::move(options.draft),
+			FullReplyTo{
+				.messageId = replyToId,
+				.topicRootId = topicRootId,
+				.monoforumPeerId = monoforumPeerId,
+			},
+			SuggestOptions(),
+			MessageCursor{
+				length,
+				length,
+				Ui::kQFixedMax,
+			},
+			Data::WebPageDraft());
+		history->setLocalDraft(std::move(draft));
+	}
+	const auto openSeparated = options.allowNewWindow
+		&& base::IsCtrlPressed();
+	const auto window = openNotificationMessage(
+		history,
+		id.msgId,
+		openSeparated);
+	onAfterNotificationActivated(id, window);
 }
 
 Window::SessionController *Manager::openNotificationMessage(
 		not_null<History*> history,
 		MsgId messageId,
 		bool openSeparated) {
+	if (!history->session().allowlistAllows(history->peer->id)) {
+		return nullptr;
+	}
 	if (Core::App().passcodeLocked()) {
 		const auto window = history->session().tryResolveWindow();
 		if (window) {
@@ -1420,7 +1463,10 @@ void Manager::notificationReplied(
 	}
 
 	const auto session = system()->findSession(id.contextId.sessionId);
-	if (!session) {
+	if (!session || !AllowNotification(
+			session,
+			id.contextId.peerId,
+			id.contextId.monoforumPeerId)) {
 		return;
 	}
 	const auto history = session->data().history(id.contextId.peerId);
@@ -1476,7 +1522,10 @@ void Manager::notificationActionActivated(
 		return;
 	}
 	const auto session = system()->findSession(id.contextId.sessionId);
-	if (!session) {
+	if (!session || !AllowNotification(
+			session,
+			id.contextId.peerId,
+			id.contextId.monoforumPeerId)) {
 		return;
 	}
 	const auto history = session->data().history(id.contextId.peerId);

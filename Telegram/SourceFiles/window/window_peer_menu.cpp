@@ -612,6 +612,10 @@ void Filler::addSupportInfo() {
 void Filler::addInfo() {
 	const auto sublist = _thread ? _thread->asSublist() : nullptr;
 	const auto infoPeer = sublist ? sublist->sublistPeer().get() : _peer;
+	if (!infoPeer
+		|| !infoPeer->session().canPresentPeerProfile(infoPeer->id)) {
+		return;
+	}
 	if (infoPeer
 		&& (infoPeer->isSelf()
 			|| infoPeer->isRepliesChat()
@@ -4387,18 +4391,22 @@ void FillSenderUserpicMenu(
 		: channel
 		? tr::lng_context_view_channel(tr::now)
 		: tr::lng_context_view_profile(tr::now);
-	addAction(viewProfileText, [=] {
-		controller->showPeerInfo(peer, Window::SectionShow::Way::Forward);
-	}, channel ? &st::menuIconInfo : &st::menuIconProfile);
+	if (peer->session().canPresentPeerProfile(peer->id)) {
+		addAction(viewProfileText, [=] {
+			controller->showPeerInfo(peer, Window::SectionShow::Way::Forward);
+		}, channel ? &st::menuIconInfo : &st::menuIconProfile);
+	}
 
 	const auto showHistoryText = group
 		? tr::lng_context_open_group(tr::now)
 		: channel
 		? tr::lng_context_open_channel(tr::now)
 		: tr::lng_profile_send_message(tr::now);
-	addAction(showHistoryText, [=] {
-		controller->showPeerHistory(peer, Window::SectionShow::Way::Forward);
-	}, channel ? &st::menuIconChannel : &st::menuIconChatBubble);
+	if (peer->session().allowlistAllows(peer->id)) {
+		addAction(showHistoryText, [=] {
+			controller->showPeerHistory(peer, Window::SectionShow::Way::Forward);
+		}, channel ? &st::menuIconChannel : &st::menuIconChatBubble);
+	}
 
 	const auto username = peer->username();
 	const auto mention = !username.isEmpty() || peer->isUser();

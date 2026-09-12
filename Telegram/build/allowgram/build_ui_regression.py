@@ -27,6 +27,14 @@ def redact(text):
     return text
 
 
+generation = subprocess.run(['ninja', '-f', 'build-Release.ninja',
+                             'Telegram/gen/lang_auto.timestamp'], cwd=build,
+                            capture_output=True, text=True)
+print(redact(generation.stdout + generation.stderr), flush=True)
+if generation.returncode:
+    raise SystemExit(generation.returncode)
+
+
 main = (root / 'Telegram/SourceFiles/mainwindow.cpp').read_text(encoding='utf-8')
 old = '\t_intro = std::move(created);'
 assert main.count(old) == 1
@@ -112,9 +120,17 @@ if args.hardening:
         'window/window_main_menu.h', 'ui/widgets/buttons.h',
         'data/data_emoji_statuses.h',
         'boxes/add_contact_box.h',
+        'boxes/peers/prepare_short_info_box.h', 'boxes/peer_list_controllers.h',
+        'info/settings/info_settings_widget.h', 'info/stories/info_stories_widget.h',
+        'settings/sections/settings_main.h', 'base/unixtime.h',
+        'window/window_peer_menu.h', 'calls/calls_instance.h',
+        'calls/calls_box_controller.h', 'calls/group/calls_group_common.h',
+        'chat_helpers/compose/compose_show.h', 'dialogs/dialogs_key.h',
+        'ui/widgets/popup_menu.h', 'ui/widgets/menu/menu_add_action_callback_factory.h',
     ]
     json_includes = '\n'.join('#include <QtCore/' + name + '>' for name in (
-        'QTimer', 'QFile', 'QJsonDocument', 'QJsonArray', 'QJsonObject', 'QBuffer'))
+        'QTimer', 'QFile', 'QJsonDocument', 'QJsonArray', 'QJsonObject', 'QBuffer',
+        'QCoreApplication', 'QVariant'))
     main = (root / 'Telegram/SourceFiles/mainwindow.cpp').read_text(encoding='utf-8')
     main = json_includes + '\n' + '\n'.join('#include "' + name + '"' for name in includes) + '\n' + main
     anchor = '\t_intro = std::move(created);'
@@ -147,6 +163,28 @@ if args.hardening:
     assert instance.count(anchor) == 1
     instance = instance.replace(anchor, 'if (true) {')
     extra_sources.append(('mtp_instance', 'mtproto/mtp_instance.cpp', instance))
+    calls = (root / 'Telegram/SourceFiles/calls/calls_instance.cpp').read_text(encoding='utf-8')
+    for anchor, property_name in (
+        ('\tusing Type = Platform::PermissionType;', 'allowgramCallPermissions'),
+        ('\tconfirmLeaveCurrent(show, peer, args, [=](StartGroupCallArgs args) {', 'allowgramGroupStart'),
+        ('\tExpects(args.call || args.show);', 'allowgramConferenceStart'),
+        ('\t_startWithRtmp->start(peer, show, [=](Group::JoinInfo info) {', 'allowgramRtmpStart'),
+        ('\t\t\tcreateCall(user, Call::Type::Incoming, { phoneCall.is_video() });', 'allowgramIncomingCall'),
+    ):
+        assert calls.count(anchor) == 1
+        probe = ('\tQCoreApplication::instance()->setProperty(' + chr(34) + property_name
+                 + chr(34) + ', 1);\n\treturn;\n')
+        calls = calls.replace(anchor, probe + anchor)
+    extra_sources.append(('calls_instance', 'calls/calls_instance.cpp', json_includes + '\n' + calls))
+    top_bar = (root / 'Telegram/SourceFiles/history/view/history_view_top_bar_widget.cpp').read_text(encoding='utf-8')
+    start = top_bar.index('void TopBarWidget::updateControlsVisibility() {')
+    end = top_bar.index('\n}', start)
+    observation = ('\n\tQCoreApplication::instance()->setProperty(' + chr(34)
+                   + 'allowgramCallButtonSeen' + chr(34) + ', true);'
+                   + '\n\tQCoreApplication::instance()->setProperty(' + chr(34)
+                   + 'allowgramCallButtonVisible' + chr(34) + ', !_call->isHidden());\n')
+    top_bar = top_bar[:end] + observation + top_bar[end:]
+    extra_sources.append(('top_bar', 'history/view/history_view_top_bar_widget.cpp', json_includes + '\n' + top_bar))
     for name, relative, source in extra_sources:
         (fixture / (name + '.cpp')).write_text(source, encoding='utf-8')
 
@@ -209,6 +247,7 @@ assert (fixture / 'Allowgram-Docs.exe').is_file()
     'layoutUnmodified': True,
     'hardeningFixture': args.hardening,
     'mtprotoNetworkDisabled': args.hardening,
+    'callDeviceAndPanelSideEffectsSuppressed': args.hardening,
     'overlay': (['synthetic account/model construction', 'real composer callbacks',
                  'MTProto TCP/HTTP connection and request delivery disabled'] if args.hardening else
                 ['unsigned-in construction', 'neutral scene values and parser-only validation'])

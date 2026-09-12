@@ -47,7 +47,11 @@ if (firstCreated) {
 	clearAllowlistLock();
 	check(!_allowlistLock, "production setup completion reveals the main client");
 	const auto user = session.data().processUser(makeUser(42, false));
-	const auto group = session.data().peer(peerFromChat(ChatId(42)));
+	const auto group = session.data().processChat(MTP_chat(
+		MTP_flags(MTPDchat::Flag::f_creator), MTP_long(42),
+		MTP_string("Synthetic group"), MTP_chatPhotoEmpty(), MTP_int(2),
+		MTP_int(1700000000), MTP_int(1), MTPInputChannel(),
+		MTPChatAdminRights(), MTPChatBannedRights()));
 	check(session.allowlistAllows(user->id), "allowed DM navigation policy retained");
 	check(!session.allowlistAllows(session.userPeerId()), "explicitly allowlisted self-chat still denied");
 	const auto selfHistory = session.data().history(session.user());
@@ -109,6 +113,8 @@ if (firstCreated) {
 		check(menuNames.contains(u"Contacts"_q), "actual main menu retains Contacts positive control");
 		check(!menuNames.contains(u"New Group"_q), "actual main menu has no New Group action");
 		check(!menuNames.contains(u"New Channel"_q), "actual main menu has no New Channel action");
+		check(!menuNames.contains(u"Calls"_q), "actual main menu has no Calls action");
+		check(!menuNames.contains(u"My Profile"_q), "actual main menu has no My Profile action");
 		check(!menuNames.contains(u"Saved Messages"_q), "actual main menu has no Saved Messages action");
 		check(!menuNames.contains(u"Add Account"_q), "actual main menu has no Add Account action");
 		menu.reset();
@@ -125,6 +131,94 @@ if (firstCreated) {
 		navigation->showNewChannel();
 		check(creationBoxes() == 0, "hidden New Channel navigation creates no dialog");
 		navigation->hideLayer(anim::type::instant);
+		for (const auto type : { GroupInfoBox::Type::Group, GroupInfoBox::Type::Channel }) {
+			auto box = Box<GroupInfoBox>(navigation, type);
+			const auto raw = box.data();
+			navigation->show(std::move(box));
+			auto inputs = 0;
+			for (const auto widget : raw->findChildren<QWidget*>()) {
+				inputs += dynamic_cast<Ui::InputField*>(widget) ? 1 : 0;
+			}
+			check(inputs == 0, "direct creation dialog has no usable creation fields");
+			navigation->hideLayer(anim::type::instant);
+		}
+		const auto senderMenu = [&](not_null<PeerData*> peer) {
+			auto popup = Ui::PopupMenu(bodyWidget());
+			Window::FillSenderUserpicMenu(navigation, peer, nullptr, nullptr,
+				Dialogs::Key(), Ui::Menu::CreateAddActionCallback(&popup));
+			auto names = QStringList();
+			for (const auto action : popup.actions()) {
+				names.push_back(action->text());
+			}
+			return names;
+		};
+		check(!senderMenu(user).contains(u"View profile"_q), "other-user sender context menu omits View profile");
+		check(!senderMenu(session.user()).contains(u"View profile"_q), "self sender context menu omits View profile");
+		check(senderMenu(user).contains(u"Send Message"_q), "allowed-user sender menu retains messaging");
+		check(!senderMenu(session.user()).contains(u"Send Message"_q), "self sender menu cannot offer Saved Messages");
+		check(senderMenu(group).contains(u"View group info"_q), "allowed group sender menu retains conversation information");
+		for (const auto peer : { user, session.user() }) {
+			auto popup = Ui::PopupMenu(bodyWidget());
+			Window::FillDialogsEntryMenu(navigation,
+				{ .key = session.data().history(peer) },
+				Ui::Menu::CreateAddActionCallback(&popup));
+			auto hasProfile = false;
+			for (const auto action : popup.actions()) {
+				hasProfile |= action->text() == u"View profile"_q;
+			}
+			check(!hasProfile, "actual self/other conversation context menu omits View profile");
+		}
+		check(!PrepareShortInfoBox(user, navigation), "Ctrl-short-info factory denies another user");
+		check(!PrepareShortInfoBox(session.user(), navigation), "Ctrl-short-info factory denies self profile");
+		check(bool(PrepareShortInfoBox(group, navigation)), "short-info factory retains allowed group information");
+		auto selfProfile = Info::Memento(session.user());
+		check(!selfProfile.createWidget(bodyWidget(), navigation, Window::Column::Second, QRect()), "direct self-profile widget is denied");
+		auto selfStories = Info::Stories::Make(session.user());
+		check(!navigation->allowlistAllowsSection(selfStories.get()), "retained My Profile stories navigation is denied");
+		check(!selfStories->createWidget(bodyWidget(), navigation, Window::Column::Third, QRect()), "cached My Profile right-column factory is denied");
+		auto ownSettings = Info::Settings::Memento(session.user(), ::Settings::MainId());
+		check(ownSettings.allowlistAllows(&session), "own-account settings permission remains usable");
+		navigation->showSettings({ anim::type::instant, anim::activation::background });
+		auto settingsWidgets = 0;
+		for (const auto widget : bodyWidget()->findChildren<QWidget*>()) {
+			settingsWidgets += dynamic_cast<Info::Settings::Widget*>(widget) ? 1 : 0;
+		}
+		check(settingsWidgets > 0, "own-account Settings opens its production widget");
+		check(bool(PrepareContactsBox(navigation)), "Contacts production box remains available");
+		Calls::ShowCallsBox(navigation);
+		Calls::ShowCallsBox(navigation, true);
+		auto callBoxes = 0;
+		for (const auto widget : bodyWidget()->findChildren<QWidget*>()) {
+			callBoxes += dynamic_cast<Ui::BoxContent*>(widget) ? 1 : 0;
+		}
+		check(callBoxes == 0, "retained Calls navigation creates no history box");
+		navigation->hideLayer(anim::type::instant);
+		auto callMenu = Ui::PopupMenu(bodyWidget());
+		Window::FillVideoChatMenu(navigation, { .key = session.data().history(group) },
+			Ui::Menu::CreateAddActionCallback(&callMenu));
+		check(callMenu.actions().empty(), "allowed group call menu has no initiating actions");
+		const auto application = QCoreApplication::instance();
+		for (const auto video : { false, true }) {
+			application->setProperty("allowgramCallPermissions", 0);
+			Core::App().calls().startOutgoingCall(user, { .video = video, .isConfirmed = true });
+			check(application->property("allowgramCallPermissions").toInt() == 0, "hidden voice/video initiation stops before device permission");
+		}
+		application->setProperty("allowgramGroupStart", 0);
+		Core::App().calls().startOrJoinGroupCall(navigation->uiShow(), group, {});
+		check(application->property("allowgramGroupStart").toInt() == 0, "hidden group call initiation stops before join UI");
+		application->setProperty("allowgramConferenceStart", 0);
+		Core::App().calls().startOrJoinConferenceCall({ .show = navigation->uiShow() });
+		check(application->property("allowgramConferenceStart").toInt() == 0, "hidden conference initiation stops before model allocation");
+		application->setProperty("allowgramRtmpStart", 0);
+		Core::App().calls().showStartWithRtmp(navigation->uiShow(), group);
+		check(application->property("allowgramRtmpStart").toInt() == 0, "hidden RTMP call initiation stops before stream UI");
+		application->setProperty("allowgramIncomingCall", 0);
+		Core::App().calls().handleUpdate(&session, MTP_updatePhoneCall(
+			MTP_phoneCallRequested(MTP_flags(0), MTP_long(1), MTP_long(1),
+				MTP_int(base::unixtime::now()), MTP_long(42), MTP_long(99),
+				MTP_bytes("synthetic"), MTP_phoneCallProtocol(MTP_flags(0),
+					MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("synthetic") })))));
+		check(application->property("allowgramIncomingCall").toInt() == 0, "allowed-user incoming call stops before panel or ringing");
 		auto pixels = QImage(32, 32, QImage::Format_RGB32);
 		pixels.fill(Qt::blue);
 		auto imageBytes = QByteArray();
@@ -158,6 +252,8 @@ if (firstCreated) {
 			auto viewer = Media::View::OverlayWidget();
 			viewer.show(Media::View::OpenRequest(navigation, photo, user));
 			check(viewer.isHidden(), "direct allowlisted user profile-photo request denied");
+			viewer.show(Media::View::OpenRequest(navigation, photo, session.user()));
+			check(viewer.isHidden(), "direct own profile-photo request denied");
 			viewer.show(Media::View::OpenRequest(navigation, photo, nullptr, MsgId(), PeerId()));
 			check(viewer.isHidden(), "context-free photo request denied");
 			viewer.show(Media::View::OpenRequest(navigation, session.data().photo(501), item, MsgId(), PeerId()));
@@ -170,6 +266,15 @@ if (firstCreated) {
 		auto picker = ChatHelpers::TabbedMemento();
 		check(!navigation->allowlistAllowsSection(&picker), "cached picker section navigation denied");
 		check(!picker.createWidget(bodyWidget(), navigation, Window::Column::Third, QRect()), "direct picker widget factory denied");
+		navigation->showPeerHistory(user,
+			{ anim::type::instant, anim::activation::background }, ShowAtTheEndMsgId);
+		const auto groupHistory = session.data().history(group);
+		groupHistory->clearFolder();
+		groupHistory->addOlderSlice({});
+		groupHistory->addNewerSlice({});
+		navigation->showPeerHistory(group,
+			{ anim::type::instant, anim::activation::background }, ShowAtTheEndMsgId);
+		check(navigation->activeChatCurrent().history() == groupHistory, "existing allowed group chat actually navigates");
 		navigation->showPeerHistory(user,
 			{ anim::type::instant, anim::activation::background }, ShowAtTheEndMsgId);
 		check(navigation->activeChatCurrent().history() == session.data().history(user), "allowed DM actually navigates");

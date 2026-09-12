@@ -2035,7 +2035,8 @@ base::unique_qptr<Ui::PopupMenu> ParticipantsBoxController::rowContextMenu(
 			}
 		}
 	});
-	if (_navigation) {
+	if (_navigation
+		&& participant->session().canPresentPeerProfile(participant->id)) {
 		result->addAction(
 			(participant->isUser()
 				? tr::lng_context_view_profile

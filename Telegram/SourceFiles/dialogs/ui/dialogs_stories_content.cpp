@@ -242,9 +242,11 @@ void FillSourceMenu(
 			: channel
 			? tr::lng_context_view_channel(tr::now)
 			: tr::lng_context_view_profile(tr::now);
-		add(viewProfileText, [=] {
-			controller->showPeerInfo(peer);
-		}, channel ? &st::menuIconInfo : &st::menuIconProfile);
+		if (peer->session().canPresentPeerProfile(peer->id)) {
+			add(viewProfileText, [=] {
+				controller->showPeerInfo(peer);
+			}, channel ? &st::menuIconInfo : &st::menuIconProfile);
+		}
 		if (!peer->hasActiveVideoStream() && peer->hasUnreadStories()) {
 			Media::Stories::AddStealthModeMenu(add, peer, controller);
 		}

@@ -1368,6 +1368,8 @@ void TopBarWidget::updateControlsVisibility() {
 				_activeChat.key.peer()->asChannel()))
 		: false;
 	const auto hasInfo = !_activeChat.key.folder()
+		&& _activeChat.key.peer()
+		&& _controller->session().canPresentPeerProfile(_activeChat.key.peer()->id)
 		&& (section == Section::History
 			? true
 			: (section == Section::Replies)

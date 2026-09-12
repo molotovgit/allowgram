@@ -297,17 +297,19 @@ base::unique_qptr<Ui::PopupMenu> ExceptionsController::rowContextMenu(
 		parent,
 		st::popupMenuWithIcons);
 
-	result->addAction(
-		(peer->isUser()
-			? tr::lng_context_view_profile
-			: peer->isBroadcast()
-			? tr::lng_context_view_channel
-			: tr::lng_context_view_group)(tr::now),
-		crl::guard(_window, [window = _window.get(), peer] {
-			window->showPeerInfo(peer);
-		}),
-		(peer->isUser() ? &st::menuIconProfile : &st::menuIconInfo));
-	result->addSeparator();
+	if (peer->session().canPresentPeerProfile(peer->id)) {
+		result->addAction(
+			(peer->isUser()
+				? tr::lng_context_view_profile
+				: peer->isBroadcast()
+				? tr::lng_context_view_channel
+				: tr::lng_context_view_group)(tr::now),
+			crl::guard(_window, [window = _window.get(), peer] {
+				window->showPeerInfo(peer);
+			}),
+			(peer->isUser() ? &st::menuIconProfile : &st::menuIconInfo));
+		result->addSeparator();
+	}
 
 	MuteMenu::FillMuteMenu(
 		result.get(),

@@ -457,6 +457,9 @@ object_ptr<Ui::BoxContent> PrepareShortInfoBox(
 		Fn<bool()> videoPaused,
 		Fn<void(Ui::Menu::MenuCallback)> menuFiller,
 		const style::ShortInfoBox *stOverride) {
+	if (!peer->session().canPresentPeerProfile(peer->id)) {
+		return nullptr;
+	}
 	const auto type = peer->isSelf()
 		? PeerShortInfoType::Self
 		: peer->isUser()

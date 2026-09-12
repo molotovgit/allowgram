@@ -52,6 +52,8 @@ check(_tabbedSelectorToggle->isHidden(), "production composer picker is hidden")
 toggleTabbedSelectorMode();
 check(_tabbedSelectorToggle->isHidden(), "keyboard-equivalent picker callback does not restore toggle");
 check(_field->width() > 0, "composer retains positive input width");
+check(QCoreApplication::instance()->property("allowgramCallButtonSeen").toBool(), "native top-bar visibility observation ran");
+check(!QCoreApplication::instance()->property("allowgramCallButtonVisible").toBool(), "allowed DM top bar has no call initiating button");
 auto candidate = Ui::PreparedFile(QString());
 candidate.content = "%PDF-1.7 ordinary late upload";
 check(AllowgramSendFileAllowed(candidate), "byte-only late upload candidate does not assert");

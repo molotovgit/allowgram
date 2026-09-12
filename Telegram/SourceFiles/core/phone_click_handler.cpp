@@ -331,29 +331,22 @@ void PhoneClickHandler::onClick(ClickContext context) const {
 			TextForMimeData::Simple(phone.trimmed()));
 	}, &st::menuIconCopy);
 
-	auto resolvePhoneAction = base::make_unique_q<ResolvePhoneAction>(
-		menu->menu(),
-		menu->st(),
-		phone,
-		controller);
-
 	if (Trim(phone) != Trim(controller->session().user()->phone())) {
+		const auto contact = controller->session().data().userByPhone(Trim(phone));
+		const auto firstName = contact ? contact->firstName : QString();
+		const auto lastName = contact ? contact->lastName : QString();
 		menu->addAction(
 			tr::lng_info_add_as_contact(tr::now),
-			[=, raw = base::make_weak(resolvePhoneAction.get())] {
+			[=] {
 				controller->show(
 					Box<AddContactBox>(
 						&controller->session(),
-						raw ? raw->firstName() : QString(),
-						raw ? raw->lastName() : QString(),
+						firstName,
+						lastName,
 						Trim(phone)));
 			},
 			&st::menuIconInvite);
 	}
-
-	menu->addSeparator(&st::popupMenuExpandedSeparator.menu.separator);
-
-	menu->addAction(std::move(resolvePhoneAction));
 
 	menu->popup(pos);
 }

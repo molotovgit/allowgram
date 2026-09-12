@@ -53,6 +53,9 @@ object_ptr<ContentWidget> Memento::createWidget(
 		QWidget *parent,
 		not_null<Controller*> controller,
 		const QRect &geometry) {
+	if (!allowlistAllows(&controller->session())) {
+		return nullptr;
+	}
 	auto result = object_ptr<Widget>(parent, controller);
 	result->setInternalState(geometry, this);
 	return result;

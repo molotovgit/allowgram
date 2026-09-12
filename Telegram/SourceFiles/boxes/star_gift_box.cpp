@@ -1868,10 +1868,12 @@ void GiftBox(
 		tr::lng_context_send_message(tr::now),
 		[=] { pick(peer, PickType::SendMessage); },
 		&st::menuIconChatBubble);
-	result->addAction(
-		tr::lng_context_view_profile(tr::now),
-		[=] { pick(peer, PickType::OpenProfile); },
-		&st::menuIconProfile);
+	if (peer->session().canPresentPeerProfile(peer->id)) {
+		result->addAction(
+			tr::lng_context_view_profile(tr::now),
+			[=] { pick(peer, PickType::OpenProfile); },
+			&st::menuIconProfile);
+	}
 	return result;
 }
 

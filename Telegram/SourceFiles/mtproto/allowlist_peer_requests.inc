@@ -1,3 +1,10 @@
+	case mtpc_messages_getRichMessage:
+		return ReadPeerAllowed<MTPmessages_GetRichMessage>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{});
 	case mtpc_messages_setTyping:
 		return ReadPeerAllowed<MTPmessages_SetTyping>(
 			from,

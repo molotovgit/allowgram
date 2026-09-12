@@ -117,9 +117,7 @@ void PostsSearch::pushStateUpdate(const Entry &entry) {
 		}
 		return;
 	}
-	const auto empty = entry.pages.empty()
-		|| (entry.pages.size() == 1 && entry.pages.front().empty());
-	if (!empty || (entry.loaded && !_query->isEmpty())) {
+	if (!entry.pages.empty() || (entry.loaded && !_query->isEmpty())) {
 		if (!entry.pages.empty()) {
 			++entry.pagesPushed;
 		}
@@ -202,12 +200,14 @@ void PostsSearch::requestSearch(const QString &query) {
 				const auto peerId = PeerFromMessage(message);
 				const auto lastDate = DateFromMessage(message);
 				if (const auto peer = owner->peerLoaded(peerId)) {
-					if (lastDate) {
+					if (lastDate && _session->allowlistAllows(peerId)) {
 						const auto item = owner->addNewMessage(
 							message,
 							MessageFlags(),
 							NewMessageType::Existing);
-						result.push_back(item);
+						if (item) {
+							result.push_back(item);
+						}
 					}
 					entry.offsetPeer = peer;
 				} else {
@@ -218,13 +218,11 @@ void PostsSearch::requestSearch(const QString &query) {
 			}
 			return result;
 		};
-		auto totalCount = 0;
 		auto messages = result.match([&](const MTPDmessages_messages &data) {
 			owner->processUsers(data.vusers());
 			owner->processChats(data.vchats());
 			entry.loaded = true;
 			auto list = processList(data.vmessages());
-			totalCount = list.size();
 			return list;
 		}, [&](const MTPDmessages_messagesSlice &data) {
 			owner->processUsers(data.vusers());
@@ -233,14 +231,13 @@ void PostsSearch::requestSearch(const QString &query) {
 			const auto nextRate = data.vnext_rate();
 			const auto rateUpdated = nextRate
 				&& (nextRate->v != entry.offsetRate);
-			const auto finished = list.empty();
+			const auto finished = data.vmessages().v.empty();
 			if (rateUpdated) {
 				entry.offsetRate = nextRate->v;
 			}
 			if (finished) {
 				entry.loaded = true;
 			}
-			totalCount = data.vcount().v;
 			if (const auto flood = data.vsearch_flood()) {
 				setFloodStateFrom(flood->data());
 			}
@@ -252,10 +249,9 @@ void PostsSearch::requestSearch(const QString &query) {
 			owner->processUsers(data.vusers());
 			owner->processChats(data.vchats());
 			auto list = processList(data.vmessages());
-			if (list.empty()) {
+			if (data.vmessages().v.empty()) {
 				entry.loaded = true;
 			}
-			totalCount = data.vcount().v;
 			return list;
 		}, [&](const MTPDmessages_messagesNotModified &) {
 			LOG(("API Error: received messages.messagesNotModified! "
@@ -272,8 +268,7 @@ void PostsSearch::requestSearch(const QString &query) {
 			size_type(),
 			ranges::plus(),
 			&std::vector<not_null<HistoryItem*>>::size));
-		const auto full = entry.loaded ? count : std::max(count, totalCount);
-		entry.totalCount = full;
+		entry.totalCount = count;
 		if (_query == query) {
 			pushStateUpdate(entry);
 		}

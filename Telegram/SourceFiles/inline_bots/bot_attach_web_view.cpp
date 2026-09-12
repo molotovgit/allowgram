@@ -2126,7 +2126,7 @@ void WebViewInstance::botDownloadFile(
 	_confirmingDownload = true;
 	const auto done = crl::guard(this, [=](QString path) {
 		_confirmingDownload = false;
-		if (path.isEmpty()) {
+		if (path.isEmpty() || !checkAllowlist()) {
 			callback(false);
 			return;
 		}
@@ -2142,6 +2142,10 @@ void WebViewInstance::botDownloadFile(
 		MTP_string(request.name),
 		MTP_string(request.url)
 	)).done([=] {
+		if (!checkAllowlist() || !_panel) {
+			done(QString());
+			return;
+		}
 		_panel->showBox(Box(DownloadFileBox, DownloadBoxArgs{
 			.session = _session,
 			.bot = _bot->name(),
@@ -2225,6 +2229,9 @@ void WebViewInstance::botVerifyAge(int age) {
 }
 
 void WebViewInstance::botOpenPrivacyPolicy() {
+	if (!checkAllowlist()) {
+		return;
+	}
 	const auto bot = _bot;
 	const auto weak = _context.controller;
 	const auto command = u"privacy"_q;
@@ -2262,6 +2269,9 @@ void WebViewInstance::botOpenPrivacyPolicy() {
 		return true;
 	};
 	const auto openUrl = [=](const QString &url) {
+		if (botHandleLocalUri(url, true)) {
+			return;
+		}
 		Core::App().iv().openWithIvPreferred(
 			_session,
 			url,

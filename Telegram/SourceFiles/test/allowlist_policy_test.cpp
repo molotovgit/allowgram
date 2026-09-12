@@ -36,6 +36,11 @@ int main() {
 		{ Kind::Chat, 789 },
 		{ Kind::Channel, 42 },
 	}, "Typed IDs or deduplication incorrect");
+	const auto multiline = Parse(
+		"123\r\n456\r\n789",
+		"-123\r\n-456\r\n-1000000000789");
+	Check(multiline.error == Error::None, "Multiline fields rejected");
+	Check(multiline.entries.size() == 6, "Multiline fields lost IDs");
 	const auto collision = Parse("42", "chat:42 channel:42");
 	Check(collision.entries.size() == 3, "Different peer types were collapsed");
 	Check(Parse("", "-100123").entries == std::vector<Entry>{

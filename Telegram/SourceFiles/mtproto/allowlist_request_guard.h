@@ -14,6 +14,7 @@ namespace MTP {
 [[nodiscard]] bool AllowlistRequestAllowed(
 	const details::SerializedRequest &request,
 	UserId selfId,
-	const Fn<bool(PeerId)> &allows);
+	const Fn<bool(PeerId)> &allows,
+	const Fn<bool(UserId)> &knownBot = nullptr);
 
 } // namespace MTP

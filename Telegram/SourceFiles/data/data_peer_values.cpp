@@ -178,6 +178,17 @@ inline auto DefaultRestrictionValue(
 		not_null<Thread*> thread,
 		ChatRestrictions rights,
 		bool forbidInForums) {
+	if (!thread->session().allowlistConfigured()) {
+		return thread->session().allowlistConfiguredValue(
+		) | rpl::map([=](bool configured) {
+			return configured
+				? CanSendAnyOfValue(thread, rights, forbidInForums)
+				: rpl::single(false);
+		}) | rpl::flatten_latest();
+	}
+	if (!thread->session().allowlistAllows(thread->peer()->id)) {
+		return rpl::single(false);
+	}
 	if (const auto topic = thread->asTopic()) {
 		using Flag = ChannelDataFlag;
 		const auto mask = Flag()
@@ -220,6 +231,17 @@ inline auto DefaultRestrictionValue(
 		not_null<PeerData*> peer,
 		ChatRestrictions rights,
 		bool forbidInForums) {
+	if (!peer->session().allowlistConfigured()) {
+		return peer->session().allowlistConfiguredValue(
+		) | rpl::map([=](bool configured) {
+			return configured
+				? CanSendAnyOfValue(peer, rights, forbidInForums)
+				: rpl::single(false);
+		}) | rpl::flatten_latest();
+	}
+	if (!peer->session().allowlistAllows(peer->id)) {
+		return rpl::single(false);
+	}
 	if (const auto user = peer->asUser()) {
 		if (user->isRepliesChat() || user->isVerifyCodes()) {
 			return rpl::single(false);

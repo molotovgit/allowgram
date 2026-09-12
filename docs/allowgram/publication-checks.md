@@ -64,6 +64,9 @@ permissions. Original release/deploy workflows stay outside the active workflow
 directory. This source publication does not dispatch a workflow or publish
 installers, caches or a GitHub Release.
 
-Documentation paths, images and remote refs must be checked again after the
-final screenshot additions. The record above does not claim an unperformed
-capture or remote push succeeded.
+Three final PNG window crops were visually reviewed, stripped of metadata and
+checked with the documentation links. Their hashes and capture scope are in
+[the results](verification-results.json) and [screenshot provenance](screenshots.md).
+Final secret checks bind to the exact refs selected for publication; remote
+visibility, commit attribution and branch SHAs are read back after a push.
+Local preflight evidence alone is not a claim that a remote operation succeeded.

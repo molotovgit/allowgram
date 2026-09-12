@@ -20,6 +20,15 @@ receipts, native UI/build/startup/package results and untested routes. Historica
 
 ## Repeat the native form regression
 
+For the synthetic hardening fixture, build with `--hardening` and run
+`python Telegram/build/allowgram/test_native_hardening.py --executable <fixture>/Allowgram-Docs.exe --output <fresh-results>`.
+This separate executable uses production account, navigation, media-viewer and
+composer components with synthetic data. Disposable overlays prevent MTProto
+connections and request delivery; they are not included in the shipped client.
+The native runners require noninteractive Windows session 0 to avoid affecting
+the owner's desktop. They direct no OS keys and take no screenshots. Fixture
+timeouts or nonzero teardown exits are failures, regardless of check counts.
+
 After building the Windows client, use the same x64 MSVC environment to build
 a separate test executable. The configured Ninja Release objects and generated
 styles must match the checked-out application source.
@@ -111,7 +120,9 @@ cl.exe /nologo /std:c++20 /EHsc /utf-8 /W4 /WX /ITelegram/SourceFiles `
 python Telegram/SourceFiles/test/allowlist_request_schema_test.py
 ```
 
-Install Qt Base 6.8.3 for MSVC x64 separately, then pass its directory:
+Pass the installed matching Qt directory. The helper also supports static Qt;
+the local Windows build uses the existing Qt 6.11.2 installation, without
+rebuilding dependencies. For example, with a Qt 6.8.3 shared installation:
 
 ```powershell
 & Telegram/build/allowgram/test_request_guard.ps1 -QtDirectory 'C:\Qt\6.8.3\msvc2022_64'

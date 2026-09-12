@@ -4,11 +4,13 @@ import json
 import os
 from pathlib import Path
 import subprocess
+from native_process import process_identity, require_session_zero, stop_owned
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--executable', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
+require_session_zero()
 executable = args.executable.resolve(strict=True)
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=False)
@@ -18,8 +20,9 @@ for scale in (100, 125, 150, 200):
         profile = output / f'{scale}-{label}'
         profile.mkdir()
         (profile / 'roaming').mkdir()
+        (profile / 'local').mkdir()
         report = profile / 'geometry.json'
-        env = dict(os.environ, APPDATA=str(profile / 'roaming'),
+        env = dict(os.environ, APPDATA=str(profile / 'roaming'), LOCALAPPDATA=str(profile / 'local'),
                    ALLOWGRAM_UI_REPORT=str(report), ALLOWGRAM_UI_SCALE=str(scale),
                    ALLOWGRAM_UI_WIDTH=str(round(width * scale / 100)),
                    ALLOWGRAM_UI_HEIGHT=str(round(height * scale / 100)),
@@ -29,17 +32,19 @@ for scale in (100, 125, 150, 200):
         startup.wShowWindow = 0
         process = subprocess.Popen([str(executable), '-many', '-noupdate', '-workdir', str(profile)],
                                    cwd=profile, env=env, startupinfo=startup)
+        identity = process_identity(process, executable)
         try:
             code = process.wait(timeout=45)
         except subprocess.TimeoutExpired:
-            process.kill()  # Only the owned, freshly launched test process.
-            process.wait()
+            stop_owned(process, executable, identity)
             raise RuntimeError(f'Test timed out: {profile.name}') from None
         if not report.is_file():
             raise RuntimeError(f'No geometry report: {profile.name}, exit {code}')
         data = json.loads(report.read_text())
         data['case'] = profile.name
         data['processExitCode'] = code
+        data['processIdentity'] = identity
+        data['windowsSession'] = 0
         results.append(data)
         print(f'{profile.name}: {len(data["checks"])} checks, {data["failures"]} failures, exit {code}', flush=True)
         for check in data['checks']:

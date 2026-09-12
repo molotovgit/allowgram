@@ -8,6 +8,9 @@ import argparse
 parser = argparse.ArgumentParser(description="Build a disposable real-widget regression/capture executable from a configured Windows Ninja Release build. Run in its MSVC environment.")
 parser.add_argument('--repository', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
+parser.add_argument('--hardening', action='store_true')
+parser.add_argument('--test-repository', type=Path)
+parser.add_argument('--compile-only', action='store_true')
 args = parser.parse_args()
 root = args.repository.resolve()
 build = root / 'out'
@@ -88,13 +91,71 @@ application = application.replace('autoRegisterUrlScheme();', '')
 application = application.replace('Platform::NewVersionLaunched(old);', '')
 (fixture / 'application.cpp').write_text(application, encoding='utf-8')
 
+extra_sources = []
+if args.hardening:
+    (fixture / 'test').mkdir(exist_ok=True)
+    test_root = (args.test_repository or root).resolve()
+    for name in ('allowgram_hardening_native_test.inc', 'allowgram_hardening_composer_test.inc'):
+        (fixture / 'test' / name).write_text((test_root / 'Telegram/SourceFiles/test' / name).read_text(encoding='utf-8'), encoding='utf-8')
+    includes = [
+        'main/main_account.h', 'main/main_domain.h', 'main/main_session.h',
+        'main/main_session_settings.h', 'storage/storage_domain.h',
+        'mtproto/mtproto_config.h', 'info/info_memento.h',
+        'info/profile/info_profile_widget.h', 'data/data_session.h',
+        'data/data_user.h', 'chat_helpers/message_field.h',
+        'ui/chat/attach/attach_prepare.h',
+        'api/api_common.h', 'apiwrap.h', 'history/history.h',
+        'data/data_document.h', 'data/data_document_media.h',
+        'chat_helpers/tabbed_section.h',
+        'history/history_item.h', 'data/data_media_types.h', 'data/data_photo.h',
+        'media/view/media_view_overlay_widget.h',
+        'window/window_main_menu.h', 'ui/widgets/buttons.h',
+        'data/data_emoji_statuses.h',
+    ]
+    json_includes = '\n'.join('#include <QtCore/' + name + '>' for name in (
+        'QTimer', 'QFile', 'QJsonDocument', 'QJsonArray', 'QJsonObject', 'QBuffer'))
+    main = (root / 'Telegram/SourceFiles/mainwindow.cpp').read_text(encoding='utf-8')
+    main = json_includes + '\n' + '\n'.join('#include "' + name + '"' for name in includes) + '\n' + main
+    anchor = '\t_intro = std::move(created);'
+    assert main.count(anchor) == 1
+    main = main.replace(anchor, anchor + '\n\tQTimer::singleShot(1500, this, [=] {\n#include "test/allowgram_hardening_native_test.inc"\n\t});')
+    history = (root / 'Telegram/SourceFiles/history/history_widget.cpp').read_text(encoding='utf-8')
+    anchor = 'void HistoryWidget::updateControlsVisibility() {'
+    assert history.count(anchor) == 1
+    history = history.replace(anchor, anchor + '''
+    if (_history && !property("allowgramHardeningChecked").toBool()) {
+        setProperty("allowgramHardeningChecked", true);
+        QTimer::singleShot(500, this, [=] {
+#include "test/allowgram_hardening_composer_test.inc"
+        });
+    }
+''')
+    extra_sources.append(('history_widget', 'history/history_widget.cpp', json_includes + '\n' + history))
+    for name, relative, function in (
+        ('connection_tcp', 'mtproto/connection_tcp.cpp', 'void TcpConnection::connectToServer('),
+        ('connection_http', 'mtproto/connection_http.cpp', 'void HttpConnection::connectToServer('),
+    ):
+        source = (root / 'Telegram/SourceFiles' / relative).read_text(encoding='utf-8')
+        start = source.index(function)
+        opening = source.index('{', start)
+        end = source.index('\n}', opening)
+        source = source[:opening + 1] + source[end:]
+        extra_sources.append((name, relative, source))
+    instance = (root / 'Telegram/SourceFiles/mtproto/mtp_instance.cpp').read_text(encoding='utf-8')
+    anchor = 'if (_requestFilter && !_requestFilter(request)) {'
+    assert instance.count(anchor) == 1
+    instance = instance.replace(anchor, 'if (true) {')
+    extra_sources.append(('mtp_instance', 'mtproto/mtp_instance.cpp', instance))
+    for name, relative, source in extra_sources:
+        (fixture / (name + '.cpp')).write_text(source, encoding='utf-8')
+
 (fixture / 'mainwindow.cpp').write_text(main, encoding='utf-8')
 (fixture / 'window_allowlist.cpp').write_text(widget, encoding='utf-8')
 
 executable = root / 'out/Release/Telegram.exe'
 original_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
 replacements = []
-for name, relative in [('mainwindow', 'mainwindow.cpp'), ('window_allowlist', 'window/window_allowlist.cpp'), ('application', 'core/application.cpp')]:
+for name, relative in [('mainwindow', 'mainwindow.cpp'), ('window_allowlist', 'window/window_allowlist.cpp'), ('application', 'core/application.cpp')] + [(name, relative) for name, relative, source in extra_sources]:
     target = 'Telegram/CMakeFiles/Telegram.dir/Release/SourceFiles/' + relative + '.obj'
     command = subprocess.check_output(['ninja', '-f', 'build-Release.ninja', '-t', 'commands', target], cwd=build).decode().splitlines()[-1]
     old_source = str(root / 'Telegram/SourceFiles' / relative).replace('\\', '/')
@@ -113,6 +174,9 @@ for name, relative in [('mainwindow', 'mainwindow.cpp'), ('window_allowlist', 'w
     print(redact(result.stdout.decode(errors='replace')), flush=True)
     if result.returncode:
         raise SystemExit(result.returncode)
+
+if args.compile_only:
+    raise SystemExit(0)
 
 contents = (build / 'CMakeFiles/impl-Release.ninja').read_text()
 begin = contents.index('build Release\\Telegram.exe:')
@@ -139,8 +203,14 @@ assert (fixture / 'Allowgram-Docs.exe').is_file()
     'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
     'productionExecutableSha256': original_hash,
     'fixtureExecutableSha256': hashlib.sha256((fixture / 'Allowgram-Docs.exe').read_bytes()).hexdigest(),
+    'fixtureInputs': {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
+                      for path in fixture.rglob('*') if path.suffix in ('.cpp', '.inc', '.h')},
     'layoutUnmodified': True,
-    'overlay': ['unsigned-in construction', 'neutral scene values and parser-only validation',
-                'process-local style scale', 'real-widget regression include'],
+    'hardeningFixture': args.hardening,
+    'mtprotoNetworkDisabled': args.hardening,
+    'overlay': (['synthetic account/model construction', 'real composer callbacks',
+                 'MTProto TCP/HTTP connection and request delivery disabled'] if args.hardening else
+                ['unsigned-in construction', 'neutral scene values and parser-only validation'])
+               + ['process-local style scale', 'real-widget regression include'],
 }, indent=2) + '\n')
 print('Fixture built; original Release binary unchanged.', flush=True)

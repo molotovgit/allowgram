@@ -65,6 +65,7 @@ public:
 
 private:
 	int selectedTypesCount() const;
+	int hiddenPeersCount() const;
 	void prepareViewHook() override;
 	std::unique_ptr<Row> createRow(not_null<History*> history) override;
 	[[nodiscard]] object_ptr<Ui::RpWidget> prepareTypesList();

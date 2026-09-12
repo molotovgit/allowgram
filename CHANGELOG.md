@@ -1,5 +1,12 @@
 # Allowgram changelog
 
+## 7.2.8.4
+
+- Restore native input-field height so numeric IDs, prefixed group/channel IDs and the caret fit below floating labels.
+- Align each Remove link with its row's editable text region.
+- Add a regression that measures the actual form and exercises row controls, focus and scrolling in isolated profiles at four application scales.
+- Keep the numeric ID policy, fixed saved allow-list and Mini App authorization unchanged.
+
 ## 7.2.8.3
 
 - Enable supported Telegram Mini App entry points for explicitly allowed, server-resolved bots.

@@ -1624,6 +1624,15 @@ not_null<Main::Session*> RichMessageHtmlExport::session() const {
 }
 
 void RichMessageHtmlExport::start() {
+	const auto item = _session->data().message(_itemId);
+	if (!item
+		|| !_session->allowlistAllows(_itemId.peer)
+		|| (item->history()->amMonoforumAdmin()
+			&& item->sublistPeerId()
+			&& !_session->allowlistAllows(item->sublistPeerId()))) {
+		cancelFromManager();
+		return;
+	}
 	if (!chooseFolder()) {
 		fail();
 		return;

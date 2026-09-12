@@ -62,6 +62,20 @@ base::options::toggle OptionDisableAutoplayNext({
 		"Audio file / Voice Message / Video message.",
 });
 
+[[nodiscard]] bool AllowPlayback(const AudioMsgId &audioId) {
+	const auto document = audioId.audio();
+	const auto contextId = audioId.contextId();
+	if (!document || !document->session().allowlistAllows(contextId.peer)) {
+		return false;
+	}
+	const auto item = document->owner().message(contextId);
+	const auto monoforumPeerId = (item && item->history()->amMonoforumAdmin())
+		? item->sublistPeerId()
+		: PeerId();
+	return !monoforumPeerId
+		|| document->session().allowlistAllows(monoforumPeerId);
+}
+
 [[nodiscard]] float64 LookupPlaybackSpeed(const AudioMsgId &audioId) {
 	if (!audioId.changeablePlaybackSpeed()) {
 		return 1.;
@@ -234,6 +248,9 @@ void Instance::handleSongUpdate(const AudioMsgId &audioId) {
 }
 
 void Instance::setCurrent(const AudioMsgId &audioId) {
+	if (!AllowPlayback(audioId)) {
+		return;
+	}
 	if (const auto data = getData(audioId.type())) {
 		if (data->current == audioId) {
 			return;
@@ -278,7 +295,10 @@ void Instance::setHistory(
 		HistoryItem *item,
 		std::optional<PlaylistContext> context) {
 	if (history) {
-		data->history = history->migrateToOrMe();
+		const auto migratedTo = history->migrateToOrMe();
+		data->history = history->session().allowlistAllows(migratedTo->peer->id)
+			? migratedTo.get()
+			: history;
 		const auto peer = data->history->peer;
 		const auto sameHistory = item && (item->history() == data->history);
 		data->topicRootId = context
@@ -293,9 +313,13 @@ void Instance::setHistory(
 				&& peer->amMonoforumAdmin())
 			? item->sublistPeerId()
 			: PeerId();
-		data->migrated = (data->topicRootId || data->monoforumPeerId)
+		const auto migratedFrom = data->history->migrateFrom();
+		data->migrated = (data->topicRootId
+			|| data->monoforumPeerId
+			|| !migratedFrom
+			|| !history->session().allowlistAllows(migratedFrom->peer->id))
 			? nullptr
-			: data->history->migrateFrom();
+			: migratedFrom;
 		setSession(data, &history->session());
 	} else {
 		data->history = data->migrated = nullptr;
@@ -462,7 +486,9 @@ auto Instance::playlistKey(not_null<const Data*> data) const
 -> std::optional<SliceKey> {
 	const auto contextId = data->current.contextId();
 	const auto history = data->history;
-	if (!contextId || !history) {
+	if (!AllowPlayback(data->current)
+		|| !history
+		|| !history->session().allowlistAllows(history->peer->id)) {
 		return {};
 	}
 	const auto item = data->history->owner().message(contextId);
@@ -527,7 +553,9 @@ auto Instance::playlistOtherKey(not_null<const Data*> data) const
 	}
 	const auto contextId = data->current.contextId();
 	const auto history = data->history;
-	if (!contextId || !history) {
+	if (!AllowPlayback(data->current)
+		|| !history
+		|| !history->session().allowlistAllows(history->peer->id)) {
 		return {};
 	}
 	const auto item = data->history->owner().message(contextId);
@@ -555,6 +583,9 @@ HistoryItem *Instance::itemByIndex(not_null<Data*> data, int index) {
 	}
 	Assert(data->history != nullptr);
 	const auto fullId = (*data->playlistSlice)[index];
+	if (!data->history->session().allowlistAllows(fullId.peer)) {
+		return nullptr;
+	}
 	return data->history->owner().message(fullId);
 }
 
@@ -562,15 +593,22 @@ bool Instance::moveInPlaylist(
 		not_null<Data*> data,
 		int delta,
 		bool autonext) {
-	if (!data->playlistIndex) {
+	if (!data->playlistIndex || !AllowPlayback(data->current)) {
 		return false;
 	}
 	const auto jumpByItem = [&](not_null<HistoryItem*> item) {
+		const auto history = item->history();
+		if (!history->session().allowlistAllows(history->peer->id)) {
+			return false;
+		}
 		if (const auto media = item->media()) {
 			if (media->ttlSeconds()) {
 				return false;
 			}
 			if (const auto document = media->document()) {
+				if (!AllowPlayback(AudioMsgId(document, item->fullId()))) {
+					return false;
+				}
 				if (autonext) {
 					_switchToNext.fire({
 						data->current,
@@ -593,7 +631,8 @@ bool Instance::moveInPlaylist(
 		return false;
 	};
 	const auto jumpById = [&](FullMsgId id) {
-		return jumpByItem(data->history->owner().message(id));
+		const auto item = data->history->owner().message(id);
+		return item && jumpByItem(item);
 	};
 	const auto repeatAll = (repeat(data) == RepeatMode::All);
 
@@ -754,7 +793,9 @@ bool Instance::previousAvailable(AudioMsgId::Type type) const {
 	const auto data = getData(type);
 	Assert(data != nullptr);
 
-	if (!data->playlistIndex || !data->playlistSlice) {
+	if (!AllowPlayback(data->current)
+		|| !data->playlistIndex
+		|| !data->playlistSlice) {
 		return false;
 	} else if (repeat(data) == RepeatMode::All) {
 		return true;
@@ -771,7 +812,9 @@ bool Instance::nextAvailable(AudioMsgId::Type type) const {
 	const auto data = getData(type);
 	Assert(data != nullptr);
 
-	if (!data->playlistIndex || !data->playlistSlice) {
+	if (!AllowPlayback(data->current)
+		|| !data->playlistIndex
+		|| !data->playlistSlice) {
 		return false;
 	} else if (repeat(data) == RepeatMode::All) {
 		return true;
@@ -833,6 +876,10 @@ not_null<Instance*> instance() {
 
 void Instance::play(AudioMsgId::Type type) {
 	if (const auto data = getData(type)) {
+		if (!AllowPlayback(data->current)) {
+			stopAndClear(data);
+			return;
+		}
 		if (!data->streamed || IsStopped(getState(type).state)) {
 			play(data->current);
 		} else {
@@ -849,7 +896,10 @@ void Instance::play(
 		const AudioMsgId &audioId,
 		std::optional<PlaylistContext> context) {
 	const auto document = audioId.audio();
-	if (!document) {
+	if (!AllowPlayback(audioId)
+		|| (context
+			&& context->monoforumPeerId
+			&& !document->session().allowlistAllows(context->monoforumPeerId))) {
 		return;
 	}
 	_pendingContext = context;
@@ -965,7 +1015,7 @@ void Instance::stopAndClear(not_null<Data*> data) {
 }
 
 void Instance::validateShuffleData(not_null<Data*> data) {
-	if (!data->history) {
+	if (!data->history || !AllowPlayback(data->current)) {
 		data->shuffleData = nullptr;
 		return;
 	} else if (!data->shuffleData) {
@@ -1112,6 +1162,10 @@ void Instance::setupShuffleData(not_null<Data*> data) {
 
 void Instance::playPause(AudioMsgId::Type type) {
 	if (const auto data = getData(type)) {
+		if (!AllowPlayback(data->current)) {
+			stopAndClear(data);
+			return;
+		}
 		if (!data->streamed) {
 			play(data->current);
 		} else {
@@ -1188,6 +1242,9 @@ void Instance::playPauseCancelClicked(AudioMsgId::Type type) {
 }
 
 void Instance::startSeeking(AudioMsgId::Type type) {
+	if (!current(type)) {
+		return;
+	}
 	if (auto data = getData(type)) {
 		data->seeking = data->current;
 	}
@@ -1220,6 +1277,10 @@ void Instance::seekStreamed(
 		bool keepPaused) {
 	const auto streamed = data->streamed.get();
 	if (!streamed) {
+		return;
+	}
+	if (!AllowPlayback(streamed->id)) {
+		stopAndClear(data);
 		return;
 	}
 	const auto duration = streamedDuration(streamed);
@@ -1298,10 +1359,23 @@ rpl::producer<OrderMode> Instance::orderChanges(
 		: rpl::never<OrderMode>();
 }
 
+AudioMsgId Instance::current(AudioMsgId::Type type) const {
+	if (const auto data = getData(type)) {
+		if (AllowPlayback(data->current)) {
+			return data->current;
+		}
+	}
+	return {};
+}
+
 TrackState Instance::getState(AudioMsgId::Type type) const {
 	if (const auto data = getData(type)) {
 		if (data->streamed) {
-			return data->streamed->instance.player().prepareLegacyState();
+			const auto state = data->streamed->instance.player()
+				.prepareLegacyState();
+			if (AllowPlayback(state.id)) {
+				return state;
+			}
 		}
 	}
 	return TrackState();
@@ -1312,7 +1386,8 @@ Streaming::Instance *Instance::roundVideoStreamed(HistoryItem *item) const {
 		return nullptr;
 	} else if (const auto data = getData(AudioMsgId::Type::Voice)) {
 		if (const auto streamed = data->streamed.get()) {
-			if (streamed->id.contextId() == item->fullId()) {
+			if (streamed->id.contextId() == item->fullId()
+				&& AllowPlayback(streamed->id)) {
 				const auto player = &streamed->instance.player();
 				if (player->ready() && !player->videoSize().isEmpty()) {
 					return &streamed->instance;
@@ -1327,7 +1402,8 @@ Streaming::Instance *Instance::roundVideoPreview(
 		not_null<DocumentData*> document) const {
 	if (const auto data = getData(AudioMsgId::Type::Voice)) {
 		if (const auto streamed = data->streamed.get()) {
-			if (streamed->id.audio() == document) {
+			if (streamed->id.audio() == document
+				&& AllowPlayback(streamed->id)) {
 				const auto player = &streamed->instance.player();
 				if (player->ready() && !player->videoSize().isEmpty()) {
 					return &streamed->instance;

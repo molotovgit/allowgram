@@ -1089,8 +1089,12 @@ void Updates::handleSendActionUpdate(
 		MsgId rootId,
 		PeerId fromId,
 		const MTPSendMessageAction &action) {
+	if (!session().allowlistAllows(peerId)) {
+		return;
+	}
 	const auto history = session().data().historyLoaded(peerId);
-	if (!history) {
+	if (!history
+		|| (history->amMonoforumAdmin() && !session().allowlistAllows(fromId))) {
 		return;
 	}
 	const auto peer = history->peer;
@@ -1209,6 +1213,9 @@ void Updates::applyUpdatesNoPtsCheck(const MTPUpdates &updates) {
 	switch (updates.type()) {
 	case mtpc_updateShortMessage: {
 		const auto &d = updates.c_updateShortMessage();
+		if (!session().allowlistAllows(peerFromUser(d.vuser_id()))) {
+			break;
+		}
 		const auto flags = mtpCastFlags(d.vflags().v)
 			| MTPDmessage::Flag::f_from_id;
 		_session->data().addNewMessage(
@@ -1256,6 +1263,9 @@ void Updates::applyUpdatesNoPtsCheck(const MTPUpdates &updates) {
 
 	case mtpc_updateShortChatMessage: {
 		const auto &d = updates.c_updateShortChatMessage();
+		if (!session().allowlistAllows(peerFromChat(d.vchat_id()))) {
+			break;
+		}
 		const auto flags = mtpCastFlags(d.vflags().v)
 			| MTPDmessage::Flag::f_from_id;
 		_session->data().addNewMessage(
@@ -1312,6 +1322,9 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 	switch (update.type()) {
 	case mtpc_updateNewMessage: {
 		const auto &d = update.c_updateNewMessage();
+		if (!session().allowlistAllows(PeerFromMessage(d.vmessage()))) {
+			break;
+		}
 		auto needToAdd = true;
 		if (d.vmessage().type() == mtpc_message) { // index forwarded messages to links _overview
 			const auto &data = d.vmessage().c_message();
@@ -1335,6 +1348,9 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 		auto unknownReadIds = base::flat_set<MsgId>();
 		for (const auto &msgId : d.vmessages().v) {
 			if (const auto item = _session->data().nonChannelMessage(msgId.v)) {
+				if (!session().allowlistAllows(item->history()->peer->id)) {
+					continue;
+				}
 				if (item->isUnreadMedia() || item->isUnreadMention()) {
 					item->markMediaAndMentionRead();
 					_session->data().requestItemRepaint(item);
@@ -1358,6 +1374,9 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 	case mtpc_updateReadHistoryInbox: {
 		const auto &d = update.c_updateReadHistoryInbox();
 		const auto peer = peerFromMTP(d.vpeer());
+		if (!session().allowlistAllows(peer)) {
+			break;
+		}
 		if (const auto history = _session->data().historyLoaded(peer)) {
 			const auto folderId = d.vfolder_id().value_or_empty();
 			history->applyInboxReadUpdate(
@@ -1370,6 +1389,9 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 	case mtpc_updateReadHistoryOutbox: {
 		const auto &d = update.c_updateReadHistoryOutbox();
 		const auto peer = peerFromMTP(d.vpeer());
+		if (!session().allowlistAllows(peer)) {
+			break;
+		}
 		if (const auto history = _session->data().historyLoaded(peer)) {
 			history->outboxRead(d.vmax_id().v);
 			if (!requestingDifference()) {
@@ -1409,6 +1431,9 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 
 	case mtpc_updateNewChannelMessage: {
 		const auto &d = update.c_updateNewChannelMessage();
+		if (!session().allowlistAllows(PeerFromMessage(d.vmessage()))) {
+			break;
+		}
 		auto needToAdd = true;
 		if (d.vmessage().type() == mtpc_message) { // index forwarded messages to links _overview
 			const auto &data = d.vmessage().c_message();
@@ -1529,13 +1554,16 @@ void Updates::applyUpdates(
 
 	case mtpc_updateShortMessage: {
 		const auto &d = updates.c_updateShortMessage();
-		if (!DataIsLoaded(&_session->data(), d)) {
+		const auto allowed = session().allowlistAllows(peerFromUser(d.vuser_id()));
+		if (allowed && !DataIsLoaded(&_session->data(), d)) {
 			MTP_LOG(0, ("getDifference "
 				"{ good - after not all data loaded in updateShortMessage }%1"
 			).arg(_session->mtp().isTestMode() ? " TESTMODE" : ""));
 			return getDifference();
 		}
-		_session->data().fillMessagePeers(d);
+		if (allowed) {
+			_session->data().fillMessagePeers(d);
+		}
 		if (updateAndApply(d.vpts().v, d.vpts_count().v, updates)) {
 			// Update date as well.
 			setState(0, d.vdate().v, _updatesQts, _updatesSeq);
@@ -1544,13 +1572,16 @@ void Updates::applyUpdates(
 
 	case mtpc_updateShortChatMessage: {
 		const auto &d = updates.c_updateShortChatMessage();
-		if (!DataIsLoaded(&_session->data(), d)) {
+		const auto allowed = session().allowlistAllows(peerFromChat(d.vchat_id()));
+		if (allowed && !DataIsLoaded(&_session->data(), d)) {
 			MTP_LOG(0, ("getDifference "
 				"{ good - after not all data loaded in updateShortChatMessage }%1"
 			).arg(_session->mtp().isTestMode() ? " TESTMODE" : ""));
 			return getDifference();
 		}
-		_session->data().fillMessagePeers(d);
+		if (allowed) {
+			_session->data().fillMessagePeers(d);
+		}
 		if (updateAndApply(d.vpts().v, d.vpts_count().v, updates)) {
 			// Update date as well.
 			setState(0, d.vdate().v, _updatesQts, _updatesSeq);
@@ -1698,6 +1729,11 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 
 	case mtpc_updateChannelReadMessagesContents: {
 		const auto &d = update.c_updateChannelReadMessagesContents();
+		if (!session().allowlistAllows(peerFromChannel(d.vchannel_id()))
+			|| (d.vsaved_peer_id()
+				&& !session().allowlistAllows(peerFromMTP(*d.vsaved_peer_id())))) {
+			break;
+		}
 		auto channel = session().data().channelLoaded(d.vchannel_id());
 		if (!channel) {
 			if (!_byMinChannelTimer.isActive()) {
@@ -1765,6 +1801,11 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 	case mtpc_updateMessageReactions: {
 		const auto &d = update.c_updateMessageReactions();
 		const auto peer = peerFromMTP(d.vpeer());
+		if (!session().allowlistAllows(peer)
+			|| (d.vsaved_peer_id()
+				&& !session().allowlistAllows(peerFromMTP(*d.vsaved_peer_id())))) {
+			break;
+		}
 		if (const auto history = session().data().historyLoaded(peer)) {
 			const auto item = session().data().message(
 				peer,
@@ -1808,6 +1849,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 	case mtpc_updateReadChannelInbox: {
 		const auto &d = update.c_updateReadChannelInbox();
 		const auto peer = peerFromChannel(d.vchannel_id().v);
+		if (!session().allowlistAllows(peer)) {
+			break;
+		}
 		if (const auto history = session().data().historyLoaded(peer)) {
 			history->applyInboxReadUpdate(
 				d.vfolder_id().value_or_empty(),
@@ -1820,6 +1864,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 	case mtpc_updateReadChannelOutbox: {
 		const auto &d = update.c_updateReadChannelOutbox();
 		const auto peer = peerFromChannel(d.vchannel_id().v);
+		if (!session().allowlistAllows(peer)) {
+			break;
+		}
 		if (const auto history = session().data().historyLoaded(peer)) {
 			history->outboxRead(d.vmax_id().v);
 			if (!requestingDifference()) {
@@ -1835,6 +1882,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		data.vpeer().match(
 		[&](const MTPDdialogPeer &dialog) {
 			const auto id = peerFromMTP(dialog.vpeer());
+			if (!session().allowlistAllows(id)) {
+				return;
+			}
 			if (const auto history = session().data().historyLoaded(id)) {
 				history->setUnreadMark(data.is_unread());
 			}
@@ -1961,6 +2011,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto &d = update.c_updateMessagePoll();
 		const auto tlPeer = d.vpeer();
 		const auto peer = tlPeer ? peerFromMTP(*tlPeer) : PeerId();
+		if (tlPeer && !session().allowlistAllows(peer)) {
+			break;
+		}
 		const auto msgId = MsgId(d.vmsg_id().value_or_empty());
 		const auto wasRecentVoters = session().data().pollRecentVoters(
 			d.vpoll_id().v);
@@ -1968,7 +2021,8 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto notifyItem = session().data().findItemForPoll(
 			d.vpoll_id().v,
 			FullMsgId(peer, msgId));
-		if (notifyItem) {
+		if (notifyItem
+			&& session().allowlistAllows(notifyItem->history()->peer->id)) {
 			CheckPollVoteNotificationSchedule(
 				notifyItem,
 				wasRecentVoters);
@@ -2062,6 +2116,10 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 
 	case mtpc_updateUserStatus: {
 		const auto &d = update.c_updateUserStatus();
+		if (UserId(d.vuser_id()) != session().userId()
+			&& !session().allowlistAllows(peerFromUser(d.vuser_id()))) {
+			break;
+		}
 		if (const auto user = session().data().userLoaded(d.vuser_id())) {
 			const auto now = LastseenFromMTP(d.vstatus(), user->lastseen());
 			if (user->updateLastseen(now)) {
@@ -2303,7 +2361,8 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		};
 		if (IsForceLogoutNotification(d)) {
 			Core::App().forceLogOut(&session().account(), text);
-		} else if (IsWithdrawalNotification(d)) {
+		} else if (IsWithdrawalNotification(d)
+			|| !session().allowlistAllows(PeerData::kServiceNotificationsId)) {
 			return;
 		} else if (d.is_popup()) {
 			if (const auto show = Iv::Editor::ActiveWindowShow(&session())) {
@@ -2520,6 +2579,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto id = FullMsgId(
 			peerFromChannel(d.vchannel_id()),
 			d.vtop_msg_id().v);
+		if (!session().allowlistAllows(id.peer)) {
+			break;
+		}
 		const auto readTillId = d.vread_max_id().v;
 		session().data().updateRepliesReadTill({ id, readTillId, false });
 		const auto item = session().data().message(id);
@@ -2543,6 +2605,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto id = FullMsgId(
 			peerFromChannel(d.vchannel_id()),
 			d.vtop_msg_id().v);
+		if (!session().allowlistAllows(id.peer)) {
+			break;
+		}
 		const auto readTillId = d.vread_max_id().v;
 		session().data().updateRepliesReadTill({ id, readTillId, true });
 	} break;
@@ -2551,6 +2616,10 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto &d = update.c_updateReadMonoForumInbox();
 		const auto parentChatId = ChannelId(d.vchannel_id());
 		const auto sublistPeerId = peerFromMTP(d.vsaved_peer_id());
+		if (!session().allowlistAllows(parentChatId)
+			|| !session().allowlistAllows(sublistPeerId)) {
+			break;
+		}
 		const auto readTillId = d.vread_max_id().v;
 		session().data().updateSublistReadTill({
 			parentChatId,
@@ -2564,6 +2633,10 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto &d = update.c_updateReadMonoForumOutbox();
 		const auto parentChatId = ChannelId(d.vchannel_id());
 		const auto sublistPeerId = peerFromMTP(d.vsaved_peer_id());
+		if (!session().allowlistAllows(parentChatId)
+			|| !session().allowlistAllows(sublistPeerId)) {
+			break;
+		}
 		const auto readTillId = d.vread_max_id().v;
 		session().data().updateSublistReadTill({
 			parentChatId,
@@ -2795,6 +2868,10 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto monoforumPeerId = data.vsaved_peer_id()
 			? peerFromMTP(*data.vsaved_peer_id())
 			: PeerId();
+		if (!session().allowlistAllows(peerId)
+			|| (monoforumPeerId && !session().allowlistAllows(monoforumPeerId))) {
+			break;
+		}
 		data.vdraft().match([&](const MTPDdraftMessage &data) {
 			Data::ApplyPeerCloudDraft(
 				&session(),
@@ -2846,11 +2923,17 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 	} break;
 
 	case mtpc_updateStory: {
-		_session->data().stories().apply(update.c_updateStory());
+		const auto &data = update.c_updateStory();
+		if (session().allowlistAllows(peerFromMTP(data.vpeer()))) {
+			_session->data().stories().apply(data);
+		}
 	} break;
 
 	case mtpc_updateReadStories: {
-		_session->data().stories().apply(update.c_updateReadStories());
+		const auto &data = update.c_updateReadStories();
+		if (session().allowlistAllows(peerFromMTP(data.vpeer()))) {
+			_session->data().stories().apply(data);
+		}
 	} break;
 
 	case mtpc_updateStoriesStealthMode: {

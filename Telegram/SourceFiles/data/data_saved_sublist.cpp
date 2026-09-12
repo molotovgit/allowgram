@@ -903,6 +903,10 @@ int SavedSublist::fixedOnTopIndex() const {
 }
 
 bool SavedSublist::shouldBeInChatList() const {
+	if (!session().allowlistAllows(_parent->owningHistory()->peer->id)
+		|| !session().allowlistAllows(sublistPeer()->id)) {
+		return false;
+	}
 	const auto monoforum = _parent->parentChat();
 	if (monoforum && (monoforum == sublistPeer())) {
 		return false;
@@ -938,6 +942,10 @@ MsgId SavedSublist::lastKnownServerMessageId() const {
 }
 
 Dialogs::UnreadState SavedSublist::chatListUnreadState() const {
+	if (!session().allowlistAllows(_parent->owningHistory()->peer->id)
+		|| !session().allowlistAllows(sublistPeer()->id)) {
+		return { .known = true };
+	}
 	if (!inMonoforum()) {
 		return {};
 	}
@@ -945,6 +953,10 @@ Dialogs::UnreadState SavedSublist::chatListUnreadState() const {
 }
 
 Dialogs::BadgesState SavedSublist::chatListBadgesState() const {
+	if (!session().allowlistAllows(_parent->owningHistory()->peer->id)
+		|| !session().allowlistAllows(sublistPeer()->id)) {
+		return {};
+	}
 	if (!inMonoforum()) {
 		return {};
 	}

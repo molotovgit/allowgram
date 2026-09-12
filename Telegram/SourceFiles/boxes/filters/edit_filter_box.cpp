@@ -173,13 +173,24 @@ void EditExceptions(
 				histories.begin(),
 				histories.end()
 			};
+			// Hidden memberships are not editable from the visible selection.
+			for (const auto history : include ? rules.always() : rules.never()) {
+				if (!session->allowlistAllows(history->peer->id)) {
+					changed.emplace(history);
+				}
+			}
 			auto removeFrom = include ? rules.never() : rules.always();
 			for (const auto &history : changed) {
-				removeFrom.remove(history);
+				if (session->allowlistAllows(history->peer->id)) {
+					removeFrom.remove(history);
+				}
 			}
 			auto pinned = rules.pinned();
 			pinned.erase(ranges::remove_if(pinned, [&](
 					not_null<History*> history) {
+				if (!session->allowlistAllows(history->peer->id)) {
+					return false;
+				}
 				const auto contains = changed.contains(history);
 				return include ? !contains : contains;
 			}), end(pinned));

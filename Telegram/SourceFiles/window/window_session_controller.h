@@ -532,6 +532,8 @@ public:
 		not_null<PeerData*> peer,
 		Calls::StartGroupCallArgs args);
 
+	[[nodiscard]] bool allowlistAllowsSection(
+		not_null<SectionMemento*> memento) const;
 	void showSection(
 		std::shared_ptr<SectionMemento> memento,
 		const SectionShow &params = SectionShow()) override;

@@ -31,8 +31,12 @@ constexpr auto kSugBirthdayContacts = "BIRTHDAY_CONTACTS_TODAY"_cs;
 
 bool Available(const Context &context) {
 	const auto session = context.session.get();
+	const auto known = session->promoSuggestions().knownBirthdaysToday();
 	return session->premiumCanBuy()
-		&& session->promoSuggestions().current(kSugBirthdayContacts.utf8());
+		&& session->promoSuggestions().current(kSugBirthdayContacts.utf8())
+		&& (!known || ranges::any_of(*known, [=](UserId id) {
+			return session->allowlistAllows(peerFromUser(id));
+		}));
 }
 
 void Activate(ActivateArgs args) {
@@ -45,8 +49,11 @@ void Activate(ActivateArgs args) {
 
 	const auto alive = args.lifetime->make_state<base::has_weak_ptr>();
 	auto ready = crl::guard(content.get(), [=] {
-		const auto users = promo->knownBirthdaysToday().value_or(
+		auto users = promo->knownBirthdaysToday().value_or(
 			std::vector<UserId>());
+		users.erase(ranges::remove_if(users, [=](UserId id) {
+			return !session->allowlistAllows(peerFromUser(id));
+		}), end(users));
 		if (users.empty()) {
 			recompute();
 			return;

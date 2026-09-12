@@ -1248,27 +1248,11 @@ void BuildUpdateSection(SectionBuilder &builder, bool atTop) {
 	}
 }
 
-void BuildExportSection(SectionBuilder &builder) {
-	const auto controller = builder.controller();
-	const auto session = builder.session();
+void BuildExperimentalSection(SectionBuilder &builder) {
 	const auto showOther = builder.showOther();
 	builder.addSkip();
 	builder.addDivider();
 	builder.addSkip();
-
-	builder.addButton({
-		.id = u"advanced/export"_q,
-		.title = tr::lng_settings_export_data(),
-		.icon = { &st::menuIconExport },
-		.onClick = [=] {
-			controller->window().hideSettingsAndLayer();
-			base::call_delayed(
-				st::boxDuration,
-				session,
-				[=] { Core::App().exportManager().start(session); });
-		},
-		.keywords = { u"export"_q, u"data"_q, u"backup"_q },
-	});
 
 	builder.addButton({
 		.id = u"advanced/experimental"_q,
@@ -1355,7 +1339,7 @@ const auto kMeta = BuildHelper({
 	if (autoUpdate) {
 		BuildUpdateSection(builder, false);
 	}
-	BuildExportSection(builder);
+	BuildExperimentalSection(builder);
 });
 
 const SectionBuildMethod kAdvancedSection = kMeta.build;

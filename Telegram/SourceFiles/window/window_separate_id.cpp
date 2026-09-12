@@ -98,7 +98,9 @@ bool SeparateId::hasChatsList() const {
 
 bool SeparateWindowThreadAvailable(SeparateId id) {
 	const auto thread = id.thread;
-	return !thread || thread->peer()->computeUnavailableReason().isEmpty();
+	return !thread
+		|| (thread->session().allowlistAllows(thread->peer()->id)
+			&& thread->peer()->computeUnavailableReason().isEmpty());
 }
 
 bool SeparateWindowLocked(SeparateId id) {

@@ -155,6 +155,10 @@ void Proxy::clear() {
 }
 
 void Proxy::addSlice(const MTPmessages_Messages &slice, int alreadyLoaded) {
+	if (!_thread->session().allowlistAllows(
+			_thread->owningHistory()->peer->id)) {
+		return;
+	}
 	if (!alreadyLoaded && _data) {
 		resolveList().clear();
 	}
@@ -200,11 +204,10 @@ void Proxy::addSlice(const MTPmessages_Messages &slice, int alreadyLoaded) {
 	const auto localFlags = MessageFlags();
 	const auto type = NewMessageType::Existing;
 	for (const auto &message : messages) {
-		const auto item = history->addNewMessage(
-			IdFromMessage(message),
-			message,
-			localFlags,
-			type);
+		const auto item = owner.addNewMessage(message, localFlags, type);
+		if (!item || item->history() != history) {
+			continue;
+		}
 		if (_type == Type::PollVotes) {
 			item->setHasUnreadPollVote();
 		}

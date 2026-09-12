@@ -93,6 +93,7 @@ public:
 		Wrap wrap,
 		not_null<Memento*> memento);
 
+	[[nodiscard]] bool allowlistAllows() const;
 	[[nodiscard]] Key key() const;
 	Dialogs::RowDescriptor activeChat() const override;
 	[[nodiscard]] Wrap wrap() const {

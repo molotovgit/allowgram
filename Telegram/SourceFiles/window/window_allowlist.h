@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Ui {
 class FlatLabel;
 class InputField;
+class RoundButton;
 class ScrollArea;
 class VerticalLayout;
 } // namespace Ui
@@ -29,13 +30,24 @@ protected:
 	void keyPressEvent(QKeyEvent *e) override;
 
 private:
+	class IdRow;
+
+	void addRow(bool users, bool focus = true);
+	void removeRow(bool users, not_null<IdRow*> row);
+	void refreshRowButtons();
 	void submit();
+	void showError(const QString &error);
 	void clearError();
+	static QString CollectIds(const std::vector<IdRow*> &rows);
 
 	object_ptr<Ui::ScrollArea> _scroll;
 	Ui::VerticalLayout *_layout = nullptr;
-	Ui::InputField *_users = nullptr;
-	Ui::InputField *_groups = nullptr;
+	Ui::VerticalLayout *_usersLayout = nullptr;
+	Ui::VerticalLayout *_groupsLayout = nullptr;
+	std::vector<IdRow*> _users;
+	std::vector<IdRow*> _groups;
+	Ui::RoundButton *_addUser = nullptr;
+	Ui::RoundButton *_addGroup = nullptr;
 	Ui::FlatLabel *_error = nullptr;
 
 };

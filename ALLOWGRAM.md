@@ -7,7 +7,8 @@ user saves at least one valid user, group, or channel ID.
 
 ## Using the list
 
-Enter IDs separated by spaces, commas, semicolons, or newlines:
+Enter one ID per row. Use **+ Add user** or **+ Add group/channel** to add
+another row, and **Remove** to delete an unwanted row:
 
 | Field | Examples | Meaning |
 | --- | --- | --- |
@@ -27,23 +28,39 @@ account data and requires setup again on the next sign-in.
 
 ## Enforcement and scope
 
-Other chats remain readable. The message composer and outgoing request layer
-both enforce the list. The request filter checks the destination for text,
+Only allowed conversations are visible. Incoming messages from excluded
+conversations are discarded before entering the message model; their chat
+rows, archive entries, search results, unread counts, sounds, flashes, call
+alerts and notification previews are suppressed. Cached navigation and media
+playback also require an allowed conversation. Allowed groups still show
+messages from their participants, even when those people are not individually
+allowed for direct messages.
+
+Each setup section has a + button that adds another ID row. Enter an ID per
+row, and use Remove to delete an unwanted row. The maximum is 10,000 distinct
+IDs in total. Comma, space and semicolon separators are also accepted.
+
+The message composer and outgoing request layer both enforce the list. The
+request filter checks the destination for text,
 attachments, albums, forwards, edits, scheduled-message sends, reactions, poll
-votes, and supported bot interactions. Unknown request types are rejected by
+votes, and supported bot interactions. Forwarded messages and stories also
+require their source conversation to be allowed. Unknown request types are rejected by
 default. A bot queried through inline search must also be allowed. Saved
 Messages requires your own user ID. Channel comments require the ID of the
 linked discussion group.
 
-Calls, mini apps/webviews, broad story publishing, automated business messages,
-and other communication features without a supported destination check are
-disabled. Public groups/channels can be joined when their channel ID is allowed;
+Calls, aggregate stories/global discovery views, mini apps/webviews, broad
+story publishing, automated business messages, and other communication
+features without a supported destination check are disabled. Raw account/chat
+exports, takeout sessions and arbitrary URL previews/instant views are also
+disabled because they can bypass conversation filtering. Public groups/channels can be joined when their channel ID is allowed;
 invite links whose destination cannot be verified are blocked. Telegram
 permissions still apply inside allowed chats. A basic group
 that migrates into a supergroup gets a new peer ID and requires a new list.
 
-This is an application-level restriction. It does not stop the account from
-using another Telegram client, control messages already scheduled on Telegram's
+Telegram servers can still receive messages for this account. Allowgram
+suppresses excluded conversations locally. This application-level restriction
+does not stop the account from using another Telegram client, control messages already scheduled on Telegram's
 servers, or prevent someone with access to the computer from replacing the
 application or deleting its local data. It is not a device-management or
 administrator-enforced account policy.
@@ -64,18 +81,17 @@ a signing certificate is added to the packaging process.
 
 ## Verification status
 
-The standalone C++ ID parser passed 78 checks under MSVC 14.44 with warnings
-treated as errors. The outgoing request filter passed 62 native checks using
-the actual generated Telegram schema and request serializer, plus 6 schema
-audits. Those isolated checks used Qt 6.8.3. The original Allowgram icons
-passed Windows icon loading and resource compilation checks.
+The C++ ID parser passed 80 checks under MSVC 14.44 with warnings treated as
+errors. The request and incoming-message guards passed 135 native checks
+using the generated Telegram schema and real serialization, plus 6 schema
+audits. Incoming cases include matching numeric IDs across different peer
+types, normal/service messages, denied authors inside allowed groups,
+allowed authors inside denied groups, and an unconfigured allow-list.
+The native policy checks used Qt 6.8.3.
 
-The complete Windows x64 Release application was built and linked with
-MSVC 14.44 and the upstream patched Qt 6.11.2. Startup checks passed with
-both an explicit isolated account directory and the installed application's
-Allowgram data-directory layout. The checks confirmed that the process
-remained running, initialized its renderer and account storage, and produced
-no fatal startup log entries.
+The Windows x64 Release build passed with MSVC 14.44 and upstream patched
+Qt 6.11.2. The resulting client passed a startup check with fresh, isolated
+account data and no fatal startup log errors.
 
 Interactive phone-login, allow-list setup and persistence, and real
 allowed/blocked messaging have not been tested with a signed-in account.

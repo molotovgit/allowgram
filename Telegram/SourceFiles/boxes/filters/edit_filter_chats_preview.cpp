@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer.h"
 #include "history/history.h"
 #include "lang/lang_keys.h"
+#include "main/main_session.h"
 #include "ui/text/text_options.h"
 #include "ui/widgets/buttons.h"
 #include "ui/painter.h"
@@ -69,6 +70,9 @@ void FilterChatsPreview::updateData(
 		}
 	}
 	for (const auto &history : peers) {
+		if (!history->session().allowlistAllows(history->peer->id)) {
+			continue;
+		}
 		_removePeer.push_back(PeerButton{
 			.history = history,
 			.button = makeButton([=] { removePeer(history); })

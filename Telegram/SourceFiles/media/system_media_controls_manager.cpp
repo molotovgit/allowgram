@@ -72,6 +72,12 @@ void SystemMediaControlsManager::applyPlayerTrack(AudioMsgId::Type audioType) {
 
 	const auto current = mediaPlayer->current(audioType);
 	if (!current) {
+		_lastAudioMsgId = AudioMsgId();
+		_cachedMediaView.clear();
+		_streamed = nullptr;
+		_controls->setEnabled(false);
+		_controls->clearMetadata();
+		_controls->updateDisplay();
 		return;
 	}
 	if ((_lastAudioMsgId.contextId() == current.contextId())
@@ -180,10 +186,13 @@ void SystemMediaControlsManager::syncPlayerStateToControls() {
 		: AudioMsgId::Type::Voice;
 	const auto current = mediaPlayer->current(type);
 	if (!current) {
+		_lifetimeDownload.destroy();
+		_lastAudioMsgId = AudioMsgId();
 		_cachedMediaView.clear();
 		_streamed = nullptr;
 		_controls->setEnabled(false);
 		_controls->clearMetadata();
+		_controls->updateDisplay();
 		return;
 	}
 	_controls->setEnabled(true);

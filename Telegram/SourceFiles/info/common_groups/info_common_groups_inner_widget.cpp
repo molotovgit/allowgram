@@ -81,6 +81,9 @@ Main::Session &ListController::session() const {
 
 std::unique_ptr<PeerListRow> ListController::createRow(
 		not_null<PeerData*> peer) {
+	if (!session().allowlistAllows(peer->id)) {
+		return nullptr;
+	}
 	auto result = std::make_unique<PeerListRow>(peer);
 	result->setCustomStatus(QString());
 	return result;
@@ -117,7 +120,8 @@ void ListController::loadMoreRows() {
 			const auto weak = base::make_weak(this);
 			for (const auto &chat : chats) {
 				if (const auto peer = owner->processChat(chat)) {
-					if (!peer->migrateTo()) {
+					if (!peer->migrateTo()
+						&& session().allowlistAllows(peer->id)) {
 						add.push_back(peer);
 					}
 					preloadGroupId = peer->id;
@@ -231,7 +235,7 @@ rpl::producer<Ui::ScrollToRequest> InnerWidget::scrollToRequests() const {
 
 int InnerWidget::desiredHeight() const {
 	auto desired = 0;
-	auto count = qMax(_user->commonChatsCount(), 1);
+	auto count = qMax(_list->fullRowsCount(), 1);
 	desired += qMax(count, _list->fullRowsCount())
 		* st::infoCommonGroupsList.item.height;
 	return qMax(height(), desired);

@@ -1435,6 +1435,9 @@ void MainWidget::showHistory(
 		PeerId peerId,
 		const SectionShow &params,
 		MsgId showAtMsgId) {
+	if (peerId && !session().allowlistAllows(peerId)) {
+		return;
+	}
 	if (peerId && _controller->window().locked()) {
 		if (params.activation != anim::activation::background) {
 			_controller->window().activate();
@@ -1443,6 +1446,9 @@ void MainWidget::showHistory(
 	} else if (auto peer = session().data().peerLoaded(peerId)) {
 		if (peer->migrateTo()) {
 			peer = peer->migrateTo();
+			if (!session().allowlistAllows(peer->id)) {
+				return;
+			}
 			peerId = peer->id;
 			if (showAtMsgId > 0) {
 				showAtMsgId = -showAtMsgId;
@@ -1759,6 +1765,10 @@ void MainWidget::showMessage(
 		not_null<const HistoryItem*> item,
 		const SectionShow &params) {
 	const auto peerId = item->history()->peer->id;
+	if (&item->history()->session() != &session()
+		|| !session().allowlistAllows(peerId)) {
+		return;
+	}
 	const auto itemId = item->id;
 	if (!v::is_null(params.origin)) {
 		if (_mainSection) {
@@ -1867,6 +1877,9 @@ bool MainWidget::saveSectionInStack(
 void MainWidget::showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
+	if (!memento || !_controller->allowlistAllowsSection(memento.get())) {
+		return;
+	}
 	if (_mainSection && _mainSection->showInternal(
 			memento.get(),
 			params)) {
@@ -1990,6 +2003,9 @@ Window::SectionSlideParams MainWidget::prepareDialogsAnimation() {
 void MainWidget::showNewSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
+	if (!memento || !_controller->allowlistAllowsSection(memento.get())) {
+		return;
+	}
 	using Column = Window::Column;
 
 	if (_controller->window().locked()) {

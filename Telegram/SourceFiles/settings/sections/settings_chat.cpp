@@ -1846,23 +1846,9 @@ void SetupArchive(
 }
 
 void SetupExport(
-		not_null<Window::SessionController*> controller,
+		not_null<Window::SessionController*>,
 		not_null<Ui::VerticalLayout*> container,
 		Fn<void(Type)> showOther) {
-	AddButtonWithIcon(
-		container,
-		tr::lng_settings_export_data(),
-		st::settingsButton,
-		{ &st::menuIconExport }
-	)->addClickHandler([=] {
-		const auto session = &controller->session();
-		controller->window().hideSettingsAndLayer();
-		base::call_delayed(
-			st::boxDuration,
-			session,
-			[=] { Core::App().exportManager().start(session); });
-	});
-
 	AddButtonWithIcon(
 		container,
 		tr::lng_settings_experimental(),

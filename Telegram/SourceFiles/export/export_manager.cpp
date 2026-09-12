@@ -26,33 +26,16 @@ void Manager::start(not_null<PeerData*> peer) {
 }
 
 void Manager::startTopic(
-		not_null<PeerData*> peer,
-		MsgId topicRootId,
-		const QString &topicTitle) {
-	if (_panel) {
-		_panel->activatePanel();
-		return;
-	}
-	_controller = std::make_unique<Controller>(
-		&peer->session().mtp(),
-		peer->input(),
-		int32(topicRootId.bare),
-		uint64(peer->id.value),
-		topicTitle);
-	setupPanel(&peer->session());
+		not_null<PeerData*>,
+		MsgId,
+		const QString &) {
+	// Raw takeout exports bypass the conversation allowlist.
 }
 
 void Manager::start(
-		not_null<Main::Session*> session,
-		const MTPInputPeer &singlePeer) {
-	if (_panel) {
-		_panel->activatePanel();
-		return;
-	}
-	_controller = std::make_unique<Controller>(
-		&session->mtp(),
-		singlePeer);
-	setupPanel(session);
+		not_null<Main::Session*>,
+		const MTPInputPeer &) {
+	// This also blocks resuming a persisted export after signing in.
 }
 
 void Manager::setupPanel(not_null<Main::Session*> session) {

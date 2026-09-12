@@ -444,13 +444,20 @@ int EditFilterChatsListController::selectedTypesCount() const {
 
 void EditFilterChatsListController::rowClicked(not_null<PeerListRow*> row) {
 	const auto count = delegate()->peerListSelectedRowsCount()
-		- selectedTypesCount();
+		- selectedTypesCount()
+		+ hiddenPeersCount();
 	if (count < _limit || row->checked()) {
 		delegate()->peerListSetRowChecked(row, !row->checked());
 		updateTitle();
 	} else if (const auto copy = _showLimitReached) {
 		copy();
 	}
+}
+
+int EditFilterChatsListController::hiddenPeersCount() const {
+	return int(ranges::count_if(_peers, [=](not_null<History*> history) {
+		return !session().allowlistAllows(history->peer->id);
+	}));
 }
 
 void EditFilterChatsListController::itemDeselectedHook(
@@ -477,11 +484,13 @@ void EditFilterChatsListController::prepareViewHook() {
 		delegate()->peerListSetAboveWidget(prepareTypesList());
 	}
 
-	const auto count = int(_peers.size());
+	const auto count = int(_peers.size()) - hiddenPeersCount();
 	const auto rows = std::make_unique<std::optional<ExceptionRow>[]>(count);
 	auto i = 0;
 	for (const auto &history : _peers) {
-		rows[i++].emplace(history, delegate());
+		if (session().allowlistAllows(history->peer->id)) {
+			rows[i++].emplace(history, delegate());
+		}
 	}
 	auto pointers = std::vector<ExceptionRow*>();
 	pointers.reserve(count);
@@ -556,6 +565,9 @@ object_ptr<Ui::RpWidget> EditFilterChatsListController::prepareTypesList() {
 
 auto EditFilterChatsListController::createRow(not_null<History*> history)
 -> std::unique_ptr<Row> {
+	if (!session().allowlistAllows(history->peer->id)) {
+		return nullptr;
+	}
 	const auto business = (_options & (Flag::NewChats | Flag::ExistingChats))
 		|| (!_options && !_chatlist);
 	if (business && (history->peer->isSelf() || !history->peer->isUser())) {

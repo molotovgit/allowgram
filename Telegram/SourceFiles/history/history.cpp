@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history.h"
 
+#include "mtproto/allowlist_message_guard.h"
+
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_item_preview.h"
 #include "history/view/history_view_translate_tracker.h"
@@ -609,11 +611,24 @@ not_null<HistoryItem*> History::createItem(
 std::vector<not_null<HistoryItem*>> History::createItems(
 		const QVector<MTPMessage> &data) {
 	auto result = std::vector<not_null<HistoryItem*>>();
+	if (!session().allowlistAllows(peer->id)) {
+		return result;
+	}
 	result.reserve(data.size());
 	const auto localFlags = MessageFlags();
 	const auto detachExistingItem = true;
 	for (auto i = data.cend(), e = data.cbegin(); i != e;) {
 		const auto &data = *--i;
+		if (data.type() == mtpc_messageEmpty) {
+			const auto messagePeer = PeerFromMessage(data);
+			if (messagePeer && messagePeer != peer->id) {
+				continue;
+			}
+		} else if (!MTP::AllowlistMessageAllowed(data, [=](PeerId id) {
+				return (id == peer->id) && session().allowlistAllows(id);
+			})) {
+			continue;
+		}
 		const auto id = IdFromMessage(data);
 		if ((id.bare == 1) && (data.type() == mtpc_messageEmpty)) {
 			// The first message of channels should be a service message
@@ -2754,6 +2769,9 @@ History *History::migrateSibling() const {
 }
 
 Dialogs::UnreadState History::chatListUnreadState() const {
+	if (!session().allowlistAllows(peer->id)) {
+		return computeUnreadState();
+	}
 	if (const auto forum = peer->forum()) {
 		return AdjustedForumUnreadState(forum->topicsList()->unreadState());
 	} else if (const auto monoforum = peer->monoforum()) {
@@ -2764,6 +2782,9 @@ Dialogs::UnreadState History::chatListUnreadState() const {
 }
 
 Dialogs::BadgesState History::chatListBadgesState() const {
+	if (!session().allowlistAllows(peer->id)) {
+		return {};
+	}
 	const auto channel = peer->asChannel();
 	if (channel && channel->isCommunity()) {
 		if (const auto info = channel->communityInfo()) {
@@ -2815,6 +2836,10 @@ Dialogs::BadgesState History::adjustBadgesStateByFolder(
 
 Dialogs::UnreadState History::computeUnreadState() const {
 	auto result = Dialogs::UnreadState();
+	if (!session().allowlistAllows(peer->id)) {
+		result.known = true;
+		return result;
+	}
 	const auto count = _unreadCount.value_or(0);
 	const auto mark = !count && unreadMark();
 	const auto muted = this->muted();
@@ -3388,6 +3413,9 @@ int History::fixedOnTopIndex() const {
 }
 
 bool History::trackUnreadMessages() const {
+	if (!session().allowlistAllows(peer->id)) {
+		return false;
+	}
 	if (const auto channel = peer->asChannel()) {
 		return channel->amIn();
 	}
@@ -3395,7 +3423,9 @@ bool History::trackUnreadMessages() const {
 }
 
 bool History::shouldBeInChatList() const {
-	if (peer->migrateTo() || !folderKnown()) {
+	if (!session().allowlistAllows(peer->id)
+		|| peer->migrateTo()
+		|| !folderKnown()) {
 		return false;
 	} else if (const auto community = peer->asChannel()
 		; community && community->isCommunity()) {
@@ -3962,7 +3992,8 @@ not_null<History*> History::migrateToOrMe() const {
 }
 
 History *History::migrateFrom() const {
-	if (const auto from = peer->migrateFrom()) {
+	if (const auto from = peer->migrateFrom()
+		; from && session().allowlistAllows(from->id)) {
 		return owner().history(from);
 	}
 	return nullptr;

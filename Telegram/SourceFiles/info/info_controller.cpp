@@ -374,7 +374,11 @@ void Controller::setupMigrationViewer() {
 		peer,
 		Data::PeerUpdate::Flag::Migration
 	) | rpl::filter([=] {
-		return peer->migrateTo() || (peer->migrateFrom() != _migrated);
+		const auto to = peer->migrateTo();
+		const auto from = peer->migrateFrom();
+		return (to && session().allowlistAllows(to->id))
+			|| (from && from != _migrated
+				&& session().allowlistAllows(from->id));
 	}) | rpl::on_next([=] {
 		replaceWith(std::make_shared<Memento>(peer, _section));
 	}, lifetime());

@@ -206,7 +206,9 @@ void ListController::prepare() {
 			return;
 		}
 		const auto channel = peer->asChannel();
-		if (channel && Data::ChannelHasActiveCall(channel)) {
+		if (channel
+			&& session().allowlistAllows(peer->id)
+			&& Data::ChannelHasActiveCall(channel)) {
 			createRow(peer);
 		} else {
 			removeRow(peer);
@@ -568,6 +570,7 @@ void BoxController::loadMoreRows() {
 		MTP_long(0) // hash
 	)).done([this](const MTPmessages_Messages &result) {
 		_loadRequestId = 0;
+		const auto previousOffset = _offsetId;
 
 		auto handleResult = [&](auto &data) {
 			session().data().processUsers(data.vusers());
@@ -586,6 +589,11 @@ void BoxController::loadMoreRows() {
 			LOG(("API Error: received messages.messagesNotModified! (Calls::BoxController::preloadRows)"));
 		} break;
 		default: Unexpected("Type of messages.Messages (Calls::BoxController::preloadRows)");
+		}
+		if (!_allLoaded
+			&& _offsetId != previousOffset
+			&& !delegate()->peerListFullRowsCount()) {
+			loadMoreRows();
 		}
 	}).fail([this] {
 		_loadRequestId = 0;
@@ -645,17 +653,21 @@ void BoxController::receivedCalls(const QVector<MTPMessage> &result) {
 	for (const auto &message : result) {
 		const auto msgId = IdFromMessage(message);
 		const auto peerId = PeerFromMessage(message);
+		_offsetId = msgId;
+		if (!session().allowlistAllows(peerId)) {
+			continue;
+		}
 		if (session().data().peerLoaded(peerId)) {
-			const auto item = session().data().addNewMessage(
+			if (const auto item = session().data().addNewMessage(
 				message,
 				MessageFlags(),
-				NewMessageType::Existing);
-			insertRow(item, InsertWay::Append);
+				NewMessageType::Existing)) {
+				insertRow(item, InsertWay::Append);
+			}
 		} else {
 			LOG(("API Error: a search results with not loaded peer %1"
 				).arg(peerId.value));
 		}
-		_offsetId = msgId;
 	}
 
 	refreshAbout();
@@ -665,6 +677,9 @@ void BoxController::receivedCalls(const QVector<MTPMessage> &result) {
 bool BoxController::insertRow(
 		not_null<HistoryItem*> item,
 		InsertWay way) {
+	if (!session().allowlistAllows(item->history()->peer->id)) {
+		return false;
+	}
 	if (auto row = rowForItem(item)) {
 		if (row->canAddItem(item)) {
 			row->addItem(item);

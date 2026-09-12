@@ -472,6 +472,9 @@ void PeerListController::search(const QString &query) {
 }
 
 void PeerListController::peerListSearchAddRow(not_null<PeerData*> peer) {
+	if (!peer->session().allowlistAllows(peer->id)) {
+		return;
+	}
 	if (auto row = delegate()->peerListFindRow(peer->id.value)) {
 		Assert(row->id() == row->peer()->id.value);
 		delegate()->peerListAppendFoundRow(row);

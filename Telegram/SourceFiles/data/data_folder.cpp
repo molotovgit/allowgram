@@ -156,9 +156,6 @@ void Folder::indexNameParts() {
 void Folder::registerOne(not_null<History*> history) {
 	if (_chatsList.indexed()->size() == 1) {
 		updateChatListSortPosition();
-		if (!_chatsList.cloudUnreadKnown()) {
-			owner().histories().requestDialogEntry(this);
-		}
 	} else {
 		updateChatListEntry();
 	}
@@ -317,6 +314,7 @@ void Folder::validateListEntryCache() {
 }
 
 void Folder::updateStoriesCount(int count, int unread) {
+	count = unread = 0;
 	if (_storiesCount == count && _storiesUnreadCount == unread) {
 		return;
 	}
@@ -348,12 +346,12 @@ TimeId Folder::adjustedChatListTimeId() const {
 }
 
 void Folder::applyDialog(const MTPDdialogFolder &data) {
-	_chatsList.updateCloudUnread(data);
-	if (const auto peerId = peerFromMTP(data.vpeer())) {
+	const auto peerId = peerFromMTP(data.vpeer());
+	if (session().allowlistAllows(peerId)) {
 		const auto history = owner().history(peerId);
 		const auto fullId = FullMsgId(peerId, data.vtop_message().v);
 		history->setFolder(this, owner().message(fullId));
-	} else {
+	} else if (!peerId) {
 		_chatsList.clear();
 		updateChatListExistence();
 	}
@@ -375,7 +373,7 @@ int Folder::fixedOnTopIndex() const {
 }
 
 bool Folder::shouldBeInChatList() const {
-	return !_chatsList.empty() || (_storiesCount > 0);
+	return !_chatsList.empty();
 }
 
 Dialogs::UnreadState Folder::chatListUnreadState() const {

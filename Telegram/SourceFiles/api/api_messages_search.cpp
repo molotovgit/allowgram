@@ -28,13 +28,18 @@ constexpr auto kSearchPerPage = 50;
 	auto result = MessageIdsList();
 	for (const auto &message : messages) {
 		const auto peerId = PeerFromMessage(message);
+		if (!data->session().allowlistAllows(peerId)) {
+			continue;
+		}
 		if (data->peerLoaded(peerId)) {
 			if (DateFromMessage(message)) {
 				const auto item = data->addNewMessage(
 					message,
 					MessageFlags(),
 					NewMessageType::Existing);
-				result.push_back(item->fullId());
+				if (item) {
+					result.push_back(item->fullId());
+				}
 			}
 		} else {
 			LOG(("API Error: a search results with not loaded peer %1"
@@ -101,6 +106,10 @@ void MessagesSearch::searchMore() {
 
 void MessagesSearch::searchRequest() {
 	const auto nextToken = RequestToToken(_request);
+	if (!_history->session().allowlistAllows(_history->peer->id)) {
+		_messagesFounds.fire({ 0, MessageIdsList(), nextToken });
+		return;
+	}
 	if (!_offsetId) {
 		const auto it = _cacheOfStartByToken.find(nextToken);
 		if (it != end(_cacheOfStartByToken)) {
@@ -165,6 +174,12 @@ void MessagesSearch::searchReceived(
 		mtpRequestId requestId,
 		const QString &nextToken) {
 	if (requestId != _requestId) {
+		return;
+	}
+	if (!_history->session().allowlistAllows(_history->peer->id)) {
+		_requestId = 0;
+		_offsetId = {};
+		_messagesFounds.fire({ 0, MessageIdsList(), nextToken });
 		return;
 	}
 	auto &owner = _history->owner();

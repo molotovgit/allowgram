@@ -480,10 +480,16 @@ Manager::Private::Private(Manager *instance)
 }
 
 bool Manager::Private::init() {
-	return base::WinRT::Try([&] {
+	const auto result = base::WinRT::Try([&] {
 		_notifier = ToastNotificationManager::CreateToastNotifier(
 			AppUserModelId::Id());
 	});
+	if (result) {
+		base::WinRT::Try([&] {
+			ToastNotificationManager::History().Clear(AppUserModelId::Id());
+		});
+	}
+	return result;
 }
 
 Manager::Private::~Private() {

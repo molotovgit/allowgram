@@ -835,11 +835,18 @@ RecentsController::RecentsController(
 void RecentsController::prepare() {
 	setupDivider();
 
-	for (const auto &peer : _recent.list) {
-		delegate()->peerListAppendRow(std::make_unique<RecentRow>(peer));
-	}
-	delegate()->peerListRefreshRows();
-	setCount(_recent.list.size());
+	session().allowlistConfiguredValue(
+	) | rpl::on_next([=] {
+		while (delegate()->peerListFullRowsCount()) {
+			delegate()->peerListRemoveRow(delegate()->peerListRowAt(0));
+		}
+		_recent = RecentPeersContent(&session());
+		for (const auto &peer : _recent.list) {
+			delegate()->peerListAppendRow(std::make_unique<RecentRow>(peer));
+		}
+		delegate()->peerListRefreshRows();
+		setCount(delegate()->peerListFullRowsCount());
+	}, _lifetime);
 
 	subscribeToEvents();
 }
@@ -1012,10 +1019,12 @@ void MyChannelsController::prepare() {
 
 	_channels.reserve(kProbablyMaxChannels);
 	const auto owner = &session().data();
-	const auto add = [&](not_null<Dialogs::MainList*> list) {
+	const auto add = [=](not_null<Dialogs::MainList*> list) {
 		for (const auto &row : list->indexed()->all()) {
 			if (const auto history = row->history()) {
-				if (history->peer->isBroadcast()) {
+				if (history->peer->isBroadcast()
+					&& session().allowlistAllows(history->peer->id)
+					&& !ranges::contains(_channels, not_null(history))) {
 					_channels.push_back(history);
 				}
 			}
@@ -1039,16 +1048,15 @@ void MyChannelsController::prepare() {
 	});
 	rpl::merge(
 		std::move(loading),
-		owner->chatsListLoadedEvents()
+		owner->chatsListLoadedEvents(),
+		session().allowlistConfiguredValue()
+			| rpl::skip(1)
+			| rpl::map([] { return static_cast<Data::Folder*>(nullptr); })
 	) | rpl::on_next([=](Data::Folder *folder) {
-		const auto list = owner->chatsList(folder);
-		for (const auto &row : list->indexed()->all()) {
-			if (const auto history = row->history()) {
-				if (history->peer->isBroadcast()) {
-					if (ranges::contains(_channels, not_null(history))) {
-						_channels.push_back(history);
-					}
-				}
+		add(owner->chatsList(folder));
+		if (!folder) {
+			if (const auto archive = owner->folderLoaded(Data::Folder::kId)) {
+				add(owner->chatsList(archive));
 			}
 		}
 		const auto was = countCurrent();
@@ -1082,6 +1090,9 @@ void MyChannelsController::fill(bool force) {
 }
 
 void MyChannelsController::appendRow(not_null<ChannelData*> channel) {
+	if (!session().allowlistAllows(channel->id)) {
+		return;
+	}
 	auto row = std::make_unique<PeerListRow>(channel);
 	if (channel->membersCountKnown()) {
 		row->setCustomStatus((channel->isBroadcast()
@@ -1119,7 +1130,8 @@ RecommendationsController::RecommendationsController(
 
 void RecommendationsController::prepare() {
 	setupPlainDivider(tr::lng_channels_recommended());
-	fill();
+	session().allowlistConfiguredValue(
+	) | rpl::on_next([=] { fill(); }, _lifetime);
 }
 
 void RecommendationsController::load() {
@@ -1172,6 +1184,9 @@ void RecommendationsController::fill() {
 }
 
 void RecommendationsController::appendRow(not_null<ChannelData*> channel) {
+	if (!session().allowlistAllows(channel->id)) {
+		return;
+	}
 	auto row = std::make_unique<ChannelRow>(channel);
 	if (channel->membersCountKnown()) {
 		row->setCustomStatus((channel->isBroadcast()
@@ -1193,13 +1208,16 @@ void RecentAppsController::prepare() {
 	setupExpandDivider(tr::lng_bot_apps_your());
 
 	_bots.reserve(kProbablyMaxApps);
-	rpl::single() | rpl::then(
+	rpl::merge(
+		session().allowlistConfiguredValue() | rpl::to_empty,
 		session().topBotApps().updates()
 	) | rpl::on_next([=] {
 		_bots.clear();
 		for (const auto &peer : session().topBotApps().list()) {
 			if (const auto bot = peer->asUser()) {
-				if (bot->isBot() && !bot->isInaccessible()) {
+				if (bot->isBot()
+					&& !bot->isInaccessible()
+					&& session().allowlistAllows(bot->id)) {
 					_bots.push_back(bot);
 				}
 			}
@@ -1286,6 +1304,9 @@ void RecentAppsController::fill() {
 }
 
 void RecentAppsController::appendRow(not_null<UserData*> bot) {
+	if (!session().allowlistAllows(bot->id)) {
+		return;
+	}
 	auto row = std::make_unique<PeerListRow>(bot);
 	if (const auto count = bot->botInfo->activeUsers) {
 		row->setCustomStatus(
@@ -1307,7 +1328,8 @@ void PopularAppsController::prepare() {
 	if (_filterOut) {
 		setupPlainDivider(tr::lng_bot_apps_popular());
 	}
-	rpl::single() | rpl::then(
+	rpl::merge(
+		session().allowlistConfiguredValue() | rpl::to_empty,
 		std::move(_filterOutRefreshes)
 	) | rpl::on_next([=] {
 		fill();
@@ -1355,6 +1377,9 @@ void PopularAppsController::fill() {
 }
 
 void PopularAppsController::appendRow(not_null<UserData*> bot) {
+	if (!session().allowlistAllows(bot->id)) {
+		return;
+	}
 	auto row = std::make_unique<PeerListRow>(bot);
 	if (bot->isBot()) {
 		if (!bot->botInfo->activeUsers && !bot->username().isEmpty()) {
@@ -2159,6 +2184,9 @@ void Suggestions::hide(anim::type animated, Fn<void()> finish) {
 }
 
 void Suggestions::switchTab(Key key) {
+	if (!ranges::contains(_tabKeys, key)) {
+		return;
+	}
 	const auto was = _key.current();
 	if (was == key) {
 		return;
@@ -2174,6 +2202,9 @@ void Suggestions::switchTab(Key key) {
 }
 
 void Suggestions::ensureContent(Key key) {
+	if (!ranges::contains(_tabKeys, key)) {
+		return;
+	}
 	if (key.tab == Tab::Posts) {
 		setPostsSearchQuery(QString());
 		return;
@@ -2306,24 +2337,13 @@ float64 Suggestions::shownOpacity() const {
 }
 
 std::vector<Suggestions::Key> Suggestions::TabKeysFor(
-		not_null<Window::SessionController*> controller) {
-	auto result = std::vector<Key>{
+		not_null<Window::SessionController*>) {
+	return {
 		{ Tab::Chats },
 		{ Tab::Channels },
 		{ Tab::Apps },
 		{ Tab::Posts },
-		{ Tab::Media, MediaType::Photo },
-		{ Tab::Media, MediaType::Video },
-		{ Tab::Downloads },
-		{ Tab::Media, MediaType::Link },
-		{ Tab::Media, MediaType::File },
-		{ Tab::Media, MediaType::MusicFile },
-		{ Tab::Media, MediaType::RoundVoiceFile },
 	};
-	if (Core::App().downloadManager().empty()) {
-		result.erase(ranges::find(result, Key{ Tab::Downloads }));
-	}
-	return result;
 }
 
 void Suggestions::paintEvent(QPaintEvent *e) {
@@ -2782,6 +2802,14 @@ void Suggestions::clearPersistance() {
 
 rpl::producer<TopPeersList> TopPeersContent(
 		not_null<Main::Session*> session) {
+	if (!session->allowlistConfigured()) {
+		return rpl::single(TopPeersList()) | rpl::then(
+			session->allowlistConfiguredValue()
+			| rpl::filter(rpl::mappers::_1)
+			| rpl::take(1)
+			| rpl::map([=] { return TopPeersContent(session); })
+			| rpl::flatten_latest());
+	}
 	return [=](auto consumer) {
 		auto lifetime = rpl::lifetime();
 
@@ -2804,7 +2832,9 @@ rpl::producer<TopPeersList> TopPeersContent(
 		const auto now = base::unixtime::now();
 		for (const auto &peer : top) {
 			const auto user = peer->asUser();
-			if (user->isInaccessible()) {
+			if (!session->allowlistAllows(peer->id)
+				|| !user
+				|| user->isInaccessible()) {
 				continue;
 			}
 			const auto self = user && user->isSelf();
@@ -2926,7 +2956,11 @@ rpl::producer<TopPeersList> TopPeersContent(
 }
 
 RecentPeersList RecentPeersContent(not_null<Main::Session*> session) {
-	return RecentPeersList{ session->recentPeers().list() };
+	auto result = RecentPeersList{ session->recentPeers().list() };
+	result.list.erase(ranges::remove_if(result.list, [=](const auto peer) {
+		return !session->allowlistAllows(peer->id);
+	}), end(result.list));
+	return result;
 }
 
 object_ptr<Ui::BoxContent> StarsExamplesBox(

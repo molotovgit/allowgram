@@ -280,6 +280,9 @@ void WrapWidget::injectActivePeerProfile(not_null<PeerData*> peer) {
 
 void WrapWidget::injectActiveProfileMemento(
 		std::shared_ptr<ContentMemento> memento) {
+	if (!memento->allowlistAllows(&session())) {
+		return;
+	}
 	auto injected = StackItem();
 	injected.section = std::move(memento);
 	_historyStack.insert(
@@ -864,10 +867,21 @@ void WrapWidget::showFinishedHook() {
 	}
 }
 
+bool WrapWidget::allowlistAllows() const {
+	return _content
+		&& _content->createMemento()->allowlistAllows(&session())
+		&& ranges::all_of(_historyStack, [&](const auto &entry) {
+			return entry.section->allowlistAllows(&session());
+		});
+}
+
 bool WrapWidget::showInternal(
 		not_null<Window::SectionMemento*> memento,
 		const Window::SectionShow &params) {
 	if (auto infoMemento = dynamic_cast<Memento*>(memento.get())) {
+		if (!infoMemento->allowlistAllows(&session())) {
+			return true;
+		}
 		if (_mementoTaken || infoMemento->stackSize() > 1) {
 			return false;
 		}
@@ -959,6 +973,9 @@ bool WrapWidget::returnToFirstStackFrame(
 void WrapWidget::showNewContent(
 		not_null<ContentMemento*> memento,
 		const Window::SectionShow &params) {
+	if (!memento->allowlistAllows(&session())) {
+		return;
+	}
 	const auto saveToStack = (_content != nullptr)
 		&& (params.way == Window::SectionShow::Way::Forward);
 	const auto needAnimation = (_content != nullptr)
@@ -1036,6 +1053,9 @@ void WrapWidget::showNewContent(
 }
 
 void WrapWidget::showNewContent(not_null<ContentMemento*> memento) {
+	if (!memento->allowlistAllows(&session())) {
+		return;
+	}
 	// Validates contentGeometry().
 	setupTop();
 	auto newContent = createContent(memento, _controller.get());

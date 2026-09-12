@@ -949,6 +949,7 @@ public:
 			return existenceChanged || (moved.from != moved.to);
 		}
 	};
+	void refreshAllowlist();
 	void refreshChatListEntry(Dialogs::Key key);
 	void removeChatListEntry(Dialogs::Key key);
 	void refreshChatListUnreadOnTop();

@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_forum_topic.h"
 #include "data/data_forum.h"
 #include "data/data_saved_messages.h"
+#include "data/data_saved_sublist.h"
 #include "data/data_user.h"
 #include "info/profile/info_profile_widget.h"
 #include "info/media/info_media_widget.h"
@@ -601,6 +602,42 @@ void ContentWidget::setupSwipeHandler(not_null<Ui::RpWidget*> widget) {
 	});
 }
 
+bool ContentMemento::allowlistAllows(
+		not_null<Main::Session*> session) const {
+	if (!session->allowlistConfigured()) {
+		return false;
+	}
+	const auto type = section().type();
+	if (type == Section::Type::Settings) {
+		return settingsSelf() == session->user();
+	}
+	if (type == Section::Type::GlobalMedia
+		|| type == Section::Type::Downloads
+		|| type == Section::Type::Stories
+		|| type == Section::Type::Community
+		|| type == Section::Type::CommunityRequests) {
+		return false;
+	}
+	if (sublist()
+		&& !session->allowlistAllows(sublist()->sublistPeer()->id)) {
+		return false;
+	}
+	if (const auto peer = this->peer()) {
+		return &peer->session() == session
+			&& session->allowlistAllows(peer->id)
+			&& (!migratedPeerId()
+				|| session->allowlistAllows(migratedPeerId()));
+	} else if (savedMessages()) {
+		return &savedMessages()->session() == session
+			&& session->allowlistAllows(session->userPeerId());
+	} else if (pollContextId()) {
+		return session->allowlistAllows(pollContextId().peer);
+	} else if (reactionsContextId()) {
+		return session->allowlistAllows(reactionsContextId().peer);
+	}
+	return false;
+}
+
 Key ContentMemento::key() const {
 	if (const auto topic = this->topic()) {
 		return Key(topic);
@@ -646,7 +683,8 @@ ContentMemento::ContentMemento(
 	Data::SavedSublist *sublist,
 	PeerId migratedPeerId)
 : _peer(peer)
-, _migratedPeerId((!topic && !sublist && peer->migrateFrom())
+, _migratedPeerId((!topic && !sublist && peer->migrateFrom()
+	&& peer->session().allowlistAllows(peer->migrateFrom()->id))
 	? peer->migrateFrom()->id
 	: 0)
 , _topic(topic)

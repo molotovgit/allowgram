@@ -291,11 +291,20 @@ std::shared_ptr<ContentMemento> Memento::DefaultContent(
 	Unexpected("Wrong section type in Info::Memento::DefaultContent()");
 }
 
+bool Memento::allowlistAllows(not_null<Main::Session*> session) const {
+	return !_stack.empty() && ranges::all_of(_stack, [&](const auto &entry) {
+		return entry->allowlistAllows(session);
+	});
+}
+
 object_ptr<Window::SectionWidget> Memento::createWidget(
 		QWidget *parent,
 		not_null<Window::SessionController*> controller,
 		Window::Column column,
 		const QRect &geometry) {
+	if (!allowlistAllows(&controller->session())) {
+		return nullptr;
+	}
 	auto wrap = (column == Window::Column::Third)
 		? Wrap::Side
 		: Wrap::Narrow;
@@ -311,7 +320,8 @@ object_ptr<Window::SectionWidget> Memento::createWidget(
 object_ptr<Ui::LayerWidget> Memento::createLayer(
 		not_null<Window::SessionController*> controller,
 		const QRect &geometry) {
-	if (geometry.width() >= LayerWidget::MinimalSupportedWidth()) {
+	if (allowlistAllows(&controller->session())
+		&& geometry.width() >= LayerWidget::MinimalSupportedWidth()) {
 		return object_ptr<LayerWidget>(controller, this);
 	}
 	return nullptr;
@@ -329,11 +339,20 @@ MoveMemento::MoveMemento(object_ptr<WrapWidget> content)
 	_content->setParent(nullptr);
 }
 
+bool MoveMemento::allowlistAllows(not_null<Main::Session*> session) const {
+	return _content
+		&& &_content->session() == session
+		&& _content->allowlistAllows();
+}
+
 object_ptr<Window::SectionWidget> MoveMemento::createWidget(
 		QWidget *parent,
 		not_null<Window::SessionController*> controller,
 		Window::Column column,
 		const QRect &geometry) {
+	if (!allowlistAllows(&controller->session())) {
+		return nullptr;
+	}
 	auto wrap = (column == Window::Column::Third)
 		? Wrap::Side
 		: Wrap::Narrow;
@@ -349,7 +368,8 @@ object_ptr<Window::SectionWidget> MoveMemento::createWidget(
 object_ptr<Ui::LayerWidget> MoveMemento::createLayer(
 		not_null<Window::SessionController*> controller,
 		const QRect &geometry) {
-	if (geometry.width() < LayerWidget::MinimalSupportedWidth()) {
+	if (!allowlistAllows(&controller->session())
+		|| geometry.width() < LayerWidget::MinimalSupportedWidth()) {
 		return nullptr;
 	}
 	return object_ptr<LayerWidget>(controller, this);

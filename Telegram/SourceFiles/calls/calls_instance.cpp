@@ -678,6 +678,9 @@ void Instance::handleCallUpdate(
 		const MTPPhoneCall &call) {
 	if (call.type() == mtpc_phoneCallRequested) {
 		auto &phoneCall = call.c_phoneCallRequested();
+		if (!session->allowlistAllows(UserId(phoneCall.vadmin_id()))) {
+			return;
+		}
 		auto user = session->data().userLoaded(phoneCall.vadmin_id());
 		if (!user) {
 			LOG(("API Error: User not loaded for phoneCallRequested."));
@@ -1057,6 +1060,9 @@ void Instance::registerConferenceInvite(
 		not_null<UserData*> user,
 		MsgId messageId,
 		bool incoming) {
+	if (!user->session().allowlistAllows(user->id)) {
+		return;
+	}
 	auto &info = _conferenceInvites[conferenceId].users[user];
 	(incoming ? info.incoming : info.outgoing).emplace(messageId);
 }
@@ -1169,6 +1175,9 @@ void Instance::declineOutgoingConferenceInvite(
 void Instance::showConferenceInvite(
 		not_null<UserData*> user,
 		MsgId conferenceInviteMsgId) {
+	if (!user->session().allowlistAllows(user->id)) {
+		return;
+	}
 	const auto item = user->owner().message(user, conferenceInviteMsgId);
 	const auto media = item ? item->media() : nullptr;
 	const auto call = media ? media->call() : nullptr;

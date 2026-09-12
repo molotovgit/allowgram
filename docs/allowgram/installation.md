@@ -4,14 +4,14 @@
 
 ## Availability
 
-This publication contains source code. It does not upload an installer, portable binary or GitHub Release. The owner received a private Windows x64 7.2.8.3 build. There is no public binary download link to follow here. You can [build from source](build.md); a public binary release would require a separate owner-authorized distribution step.
+This publication contains source code. It does not upload an installer, portable binary or GitHub Release. The owner received a private Windows x64 7.2.8.4 build. There is no public binary download link to follow here. You can [build from source](build.md); a public binary release would require a separate owner-authorized distribution step.
 
 ## If you already have an Allowgram package
 
-The current installer targets **Windows 10 version 1903 or later, or Windows 11, on x64**. Run `Allowgram-Setup-7.2.8.3-x64.exe` when ready. The installer is per-user and unsigned. Windows SmartScreen or an unknown-publisher prompt may appear; verify the source of the file and its checksum before choosing to proceed. Do not disable Windows security settings.
+The current installer targets **Windows 10 version 1903 or later, or Windows 11, on x64**. Run `Allowgram-Setup-7.2.8.4-x64.exe` when ready. The installer is per-user and unsigned. Windows SmartScreen or an unknown-publisher prompt may appear; verify the source of the file and its checksum before choosing to proceed. Do not disable Windows security settings.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath .\Allowgram-Setup-7.2.8.3-x64.exe
+Get-FileHash -Algorithm SHA256 -LiteralPath .\Allowgram-Setup-7.2.8.4-x64.exe
 ```
 
 Compare the result with the `SHA256SUMS.txt` delivered through the same trusted release channel. A matching checksum checks file integrity; it is not a code signature or independent assurance of the publisher's identity.

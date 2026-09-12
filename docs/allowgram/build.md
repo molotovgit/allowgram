@@ -2,7 +2,7 @@
 
 [Back to Allowgram](../../README.md)
 
-The application source corresponds to the privately validated 7.2.8.3 Windows x64 release. This publication has not run a GitHub-hosted build. The [manual workflow](../../.github/workflows/allowgram-windows.yml) is opt-in and does not publish a GitHub Release automatically.
+The application source corresponds to the privately validated 7.2.8.4 Windows x64 release. This publication has not run a GitHub-hosted build. The [manual workflow](../../.github/workflows/allowgram-windows.yml) is opt-in and does not publish a GitHub Release automatically.
 
 ## Checkout and prerequisites
 

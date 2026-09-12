@@ -16,7 +16,7 @@ Allowgram is an unofficial, independent modification maintained by [molotovgit](
 - [Build from source](docs/allowgram/build.md)
 - [Frequently asked questions](docs/allowgram/faq.md)
 
-This repository publishes source. **No public installer or GitHub Release is provided by this publication.** Version 7.2.8.3 was built and delivered privately to the owner; a public binary release requires a separate distribution step. Do not substitute an upstream Telegram installer: it does not contain Allowgram's restrictions.
+This repository publishes source. **No public installer or GitHub Release is provided by this publication.** Version 7.2.8.4 was built and delivered privately to the owner; a public binary release requires a separate distribution step. Do not substitute an upstream Telegram installer: it does not contain Allowgram's restrictions.
 
 [![Allowgram allow-list setup with add-row and save controls](docs/allowgram/images/allow-list-overview.png)](docs/allowgram/allow-list.md)
 
@@ -37,7 +37,9 @@ The list is **a client-side restriction**, not a Telegram server rule or device-
 
 ## Verification
 
-The 7.2.8.3 release passed **451 native request/message/Mini App checks**, **80 ID-parser checks** and **six schema audits**, plus a Windows x64 Release build, fresh-profile startup, isolated installation/uninstallation and package integrity checks. The owner subsequently reported that the delivered installer worked. That is owner-reported live success, not a claim that every dashboard, excluded-bot case or permission flow was individually exercised. See [testing and evidence](docs/allowgram/testing.md).
+Version 7.2.8.4 fixes clipped ID fields and aligns Remove with the editable text. It passed **1,284 native UI checks** across four application scales and three window sizes, plus **451 request/message/Mini App checks**, **80 parser checks** and **six schema audits**. The Windows x64 build, isolated startup/install/uninstall, portable startup and package checks also passed. See [testing and evidence](docs/allowgram/testing.md).
+
+The owner reported live success with the earlier 7.2.8.3 release. The 7.2.8.4 checks did not sign in, change an existing list or send live messages; individual dashboard and permission flows are not newly asserted.
 
 ## Source and provenance
 

@@ -16,7 +16,7 @@ Yes. **+ Add user** and **+ Add group/channel** create more rows. The combined l
 
 ### Can I edit the saved list in Settings?
 
-There is no in-session editor in 7.2.8.3. The saved list remains fixed until logout; after the next sign-in setup is required again. Plan reconfiguration carefully and ensure you can authenticate again. Do not log out merely to upgrade or to use a bot already in the list.
+There is no in-session editor in 7.2.8.4. The saved list remains fixed until logout; after the next sign-in setup is required again. Plan reconfiguration carefully and ensure you can authenticate again. Do not log out merely to upgrade or to use a bot already in the list.
 
 ### Why do messages from unlisted people appear in an allowed group?
 

@@ -78,6 +78,7 @@ widget = '#include <QtCore/QTimer>\n#include <QtCore/QFile>\n#include <QtCore/QJ
 anchor = '\tconst auto scene = qEnvironmentVariable("ALLOWGRAM_DOCS_SCENE");'
 assert widget.count(anchor) == 1
 widget = widget.replace(anchor, anchor + '\n\tQTimer::singleShot(1200, this, [=] {\n#include "test/allowlist_layout_test.inc"\n\t});')
+widget = widget.replace(anchor, anchor + '\n\tif (qEnvironmentVariableIntValue("ALLOWGRAM_UI_SELECT")) {\n\t\tQTimer::singleShot(950, this, [=] {\n\t\t\t_users.front()->field()->setFocusFast();\n\t\t\t_users.front()->field()->selectAll();\n\t\t});\n\t}')
 application = (root / 'Telegram/SourceFiles/core/application.cpp').read_text(encoding='utf-8')
 assert application.count('style::StartManager(cScale());') == 1
 application = application.replace('style::StartManager(cScale());',

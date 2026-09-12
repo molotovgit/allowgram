@@ -191,6 +191,12 @@ Stories::Stories(not_null<Session*> owner)
 , _pollingTimer([=] { sendPollingRequests(); })
 , _pollingViewsTimer([=] { sendPollingViewsRequests(); }) {
 	crl::on_main(this, [=] {
+		session().allowlistConfiguredValue(
+		) | rpl::skip(1) | rpl::on_next([=] {
+			loadMore(StorySourcesList::NotHidden);
+			loadMore(StorySourcesList::Hidden);
+		}, _lifetime);
+
 		session().changes().peerUpdates(
 			Data::PeerUpdate::Flag::Rights
 		) | rpl::on_next([=](const Data::PeerUpdate &update) {
@@ -239,6 +245,9 @@ Main::Session &Stories::session() const {
 
 void Stories::apply(const MTPDupdateStory &data) {
 	const auto peerId = peerFromMTP(data.vpeer());
+	if (!session().allowlistAllows(peerId)) {
+		return;
+	}
 	const auto peer = _owner->peer(peerId);
 	const auto now = base::unixtime::now();
 	const auto idDates = parseAndApply(peer, data.vstory(), now);
@@ -299,6 +308,10 @@ void Stories::apply(const MTPStoriesStealthMode &stealthMode) {
 }
 
 void Stories::apply(not_null<PeerData*> peer, const MTPPeerStories *data) {
+	if (!session().allowlistAllows(peer->id)) {
+		peer->setStoriesState(PeerData::StoriesState::None);
+		return;
+	}
 	if (!data) {
 		applyDeletedFromSources(peer->id, StorySourcesList::NotHidden);
 		applyDeletedFromSources(peer->id, StorySourcesList::Hidden);
@@ -324,6 +337,12 @@ Story *Stories::applySingle(PeerId peerId, const MTPstoryItem &story) {
 void Stories::requestPeerStories(
 		not_null<PeerData*> peer,
 		Fn<void()> done) {
+	if (!session().allowlistAllows(peer->id)) {
+		if (done) {
+			done();
+		}
+		return;
+	}
 	const auto &[i, ok] = _requestingPeerStories.emplace(peer);
 	if (done) {
 		i->second.push_back(std::move(done));
@@ -435,6 +454,10 @@ void Stories::parseAndApply(
 		ParseSource source) {
 	const auto &data = stories.data();
 	const auto peerId = peerFromMTP(data.vpeer());
+	if (!session().allowlistAllows(peerId)) {
+		_owner->peer(peerId)->setStoriesState(PeerData::StoriesState::None);
+		return;
+	}
 	const auto already = _readTill.find(peerId);
 	const auto readTill = std::max(
 		data.vmax_read_id().value_or_empty(),
@@ -530,6 +553,9 @@ Story *Stories::parseAndApply(
 		not_null<PeerData*> peer,
 		const MTPDstoryItem &data,
 		TimeId now) {
+	if (!session().allowlistAllows(peer->id)) {
+		return nullptr;
+	}
 	const auto id = data.vid().v;
 	const auto fullId = FullStoryId{ peer->id, id };
 	auto &stories = _stories[peer->id];
@@ -634,6 +660,9 @@ StoryIdDates Stories::parseAndApply(
 		not_null<PeerData*> peer,
 		const MTPstoryItem &story,
 		TimeId now) {
+	if (!session().allowlistAllows(peer->id)) {
+		return {};
+	}
 	return story.match([&](const MTPDstoryItem &data) {
 		if (const auto story = parseAndApply(peer, data, now)) {
 			return story->idDates();
@@ -718,6 +747,9 @@ void Stories::savedStateChanged(not_null<Story*> story) {
 }
 
 void Stories::loadMore(StorySourcesList list) {
+	if (!session().allowlistConfigured()) {
+		return;
+	}
 	const auto index = static_cast<int>(list);
 	if (_loadMoreRequestId[index] || _sourcesLoaded[index]) {
 		return;
@@ -1126,6 +1158,9 @@ std::shared_ptr<HistoryItem> Stories::resolveItem(FullStoryId id) {
 }
 
 const StoriesSource *Stories::source(PeerId id) const {
+	if (!session().allowlistAllows(id)) {
+		return nullptr;
+	}
 	const auto i = _all.find(id);
 	return (i != end(_all)) ? &i->second : nullptr;
 }
@@ -1144,15 +1179,22 @@ rpl::producer<> Stories::sourcesChanged(StorySourcesList list) const {
 }
 
 rpl::producer<PeerId> Stories::sourceChanged() const {
-	return _sourceChanged.events();
+	return _sourceChanged.events() | rpl::filter([=](PeerId id) {
+		return session().allowlistAllows(id);
+	});
 }
 
 rpl::producer<PeerId> Stories::itemsChanged() const {
-	return _itemsChanged.events();
+	return _itemsChanged.events() | rpl::filter([=](PeerId id) {
+		return session().allowlistAllows(id);
+	});
 }
 
 base::expected<not_null<Story*>, NoStory> Stories::lookup(
 		FullStoryId id) const {
+	if (!session().allowlistAllows(id.peer)) {
+		return base::make_unexpected(NoStory::Deleted);
+	}
 	const auto i = _stories.find(id.peer);
 	if (i != end(_stories)) {
 		const auto j = i->second.find(id.story);
@@ -1165,6 +1207,12 @@ base::expected<not_null<Story*>, NoStory> Stories::lookup(
 }
 
 void Stories::resolve(FullStoryId id, Fn<void()> done, bool force) {
+	if (!session().allowlistAllows(id.peer)) {
+		if (done) {
+			done();
+		}
+		return;
+	}
 	if (!force) {
 		const auto already = lookup(id);
 		if (already.has_value() || already.error() != NoStory::Unknown) {
@@ -1258,6 +1306,9 @@ void Stories::markAsRead(FullStoryId id, bool viewed) {
 }
 
 bool Stories::bumpReadTill(PeerId peerId, StoryId maxReadTill) {
+	if (!session().allowlistAllows(peerId)) {
+		return false;
+	}
 	auto &till = _readTill[peerId];
 	auto refreshItems = std::vector<StoryId>();
 	const auto guard = gsl::finally([&] {
@@ -1700,6 +1751,9 @@ void Stories::sendViewsCountsRequest() {
 }
 
 bool Stories::hasArchive(not_null<PeerData*> peer) const {
+	if (!session().allowlistAllows(peer->id)) {
+		return false;
+	}
 	if (peer->isSelf()) {
 		return true;
 	} else if (const auto channel = peer->asChannel()) {
@@ -1713,6 +1767,9 @@ const Stories::Set *Stories::albumIdsSet(PeerId peerId, int albumId) const {
 }
 
 Stories::Set *Stories::albumIdsSet(PeerId peerId, int albumId, bool lazy) {
+	if (!session().allowlistAllows(peerId)) {
+		return nullptr;
+	}
 	if (albumId == kStoriesAlbumIdArchive) {
 		const auto peer = _owner->peer(peerId);
 		if (!hasArchive(peer)) {
@@ -1755,7 +1812,9 @@ const StoriesIds &Stories::albumIds(PeerId peerId, int albumId) const {
 }
 
 rpl::producer<StoryAlbumIdsKey> Stories::albumIdsChanged() const {
-	return _albumIdsChanged.events();
+	return _albumIdsChanged.events() | rpl::filter([=](StoryAlbumIdsKey key) {
+		return session().allowlistAllows(key.peerId);
+	});
 }
 
 int Stories::albumIdsCount(PeerId peerId, int albumId) const {
@@ -1887,6 +1946,9 @@ const base::flat_set<StoryId> &Stories::albumKnownInArchive(
 
 auto Stories::albumsListValue(PeerId peerId)
 -> rpl::producer<std::vector<Data::StoryAlbum>> {
+	if (!session().allowlistAllows(peerId)) {
+		return rpl::single(std::vector<Data::StoryAlbum>());
+	}
 	auto &albums = _albums[peerId];
 	if (!albums.requestId) {
 		loadAlbums(_owner->peer(peerId), albums);
@@ -2335,7 +2397,7 @@ void Stories::decrementPreloadingHiddenSources() {
 
 void Stories::setPreloadingInViewer(std::vector<FullStoryId> ids) {
 	ids.erase(ranges::remove_if(ids, [&](FullStoryId id) {
-		return _preloaded.contains(id);
+		return !session().allowlistAllows(id.peer) || _preloaded.contains(id);
 	}), end(ids));
 	if (_toPreloadViewer != ids) {
 		_toPreloadViewer = std::move(ids);
@@ -2346,6 +2408,9 @@ void Stories::setPreloadingInViewer(std::vector<FullStoryId> ids) {
 std::optional<Stories::PeerSourceState> Stories::peerSourceState(
 		not_null<PeerData*> peer,
 		const MTPRecentStory &recent) {
+	if (!session().allowlistAllows(peer->id)) {
+		return PeerSourceState();
+	}
 	const auto &data = recent.data();
 	const auto maxId = data.vmax_id().value_or_empty();
 	const auto live = data.is_live();
@@ -2386,6 +2451,9 @@ void Stories::requestReadTills() {
 }
 
 bool Stories::isUnread(not_null<Story*> story) {
+	if (!session().allowlistAllows(story->peer()->id)) {
+		return false;
+	}
 	const auto till = _readTill.find(story->peer()->id);
 	if (till == end(_readTill) && !_readTillReceived) {
 		requestReadTills();
@@ -2504,6 +2572,10 @@ void Stories::sendPollingViewsRequests() {
 void Stories::updatePeerStoriesState(
 		not_null<PeerData*> peer,
 		std::optional<RecentState> cachedRecentState) {
+	if (!session().allowlistAllows(peer->id)) {
+		peer->setStoriesState(PeerData::StoriesState::None);
+		return;
+	}
 	const auto till = _readTill.find(peer->id);
 	const auto readTill = (till != end(_readTill)) ? till->second : 0;
 	const auto pendingRecentState = [&] {

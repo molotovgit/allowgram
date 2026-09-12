@@ -157,6 +157,9 @@ public:
 	}
 
 	void setUpdatesHandler(Fn<void(const Response&)> handler);
+	void setRequestFilter(Fn<bool(const SerializedRequest&)> filter) {
+		_requestFilter = std::move(filter);
+	}
 	void setGlobalFailHandler(
 		Fn<void(const Error&, const Response&)> handler);
 	void setStateChangedHandler(Fn<void(ShiftedDcId shiftedDcId, int32 state)> handler);
@@ -283,6 +286,7 @@ private:
 	std::map<DcId, std::vector<mtpRequestId>> _authWaiters;
 
 	Fn<void(const Response&)> _updatesHandler;
+	Fn<bool(const SerializedRequest&)> _requestFilter;
 	Fn<void(const Error&, const Response&)> _globalFailHandler;
 	Fn<void(ShiftedDcId shiftedDcId, int32 state)> _stateChangedHandler;
 	Fn<void(ShiftedDcId shiftedDcId)> _sessionResetHandler;
@@ -1017,6 +1021,21 @@ void Instance::Private::sendRequest(
 		crl::time msCanWait,
 		bool needsLayer,
 		mtpRequestId afterRequestId) {
+	if (_requestFilter && !_requestFilter(request)) {
+		request->requestId = requestId;
+		storeRequest(requestId, request, std::move(callbacks));
+		auto response = Response{ .requestId = requestId };
+		MTPRpcError(MTP_rpc_error(
+			MTP_int(403),
+			MTP_string("CLIENT_CHAT_NOT_ALLOWED: "
+				"This action is restricted by the allow list.")
+		)).write(response.reply);
+		crl::on_main(_instance, [=, response = std::move(response)] {
+			processCallback(response);
+		});
+		return;
+	}
+
 	const auto session = getSession(shiftedDcId);
 
 	request->requestId = requestId;
@@ -2127,6 +2146,11 @@ void Instance::sendRequest(
 		msCanWait,
 		needsLayer,
 		afterRequestId);
+}
+
+void Instance::setRequestFilter(
+		Fn<bool(const SerializedRequest&)> filter) {
+	_private->setRequestFilter(std::move(filter));
 }
 
 void Instance::sendAnything(ShiftedDcId shiftedDcId, crl::time msCanWait) {

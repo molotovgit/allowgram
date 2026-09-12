@@ -104,6 +104,8 @@ public:
 	void logout(Fn<void()> done);
 
 	void setUpdatesHandler(Fn<void(const Response&)> handler);
+	void setRequestFilter(
+		Fn<bool(const details::SerializedRequest&)> filter);
 	void setGlobalFailHandler(
 		Fn<void(const Error&, const Response&)> handler);
 	void setStateChangedHandler(

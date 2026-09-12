@@ -81,7 +81,8 @@ widget = widget.replace(anchor, anchor + '\n\tQTimer::singleShot(1200, this, [=]
 application = (root / 'Telegram/SourceFiles/core/application.cpp').read_text(encoding='utf-8')
 assert application.count('style::StartManager(cScale());') == 1
 application = application.replace('style::StartManager(cScale());',
-    'style::StartManager(qEnvironmentVariableIntValue("ALLOWGRAM_UI_SCALE"));')
+    'style::SetScale(qEnvironmentVariableIntValue("ALLOWGRAM_UI_SCALE"));\n'
+    '\tstyle::StartManager(style::Scale());')
 application = application.replace('autoRegisterUrlScheme();', '')
 application = application.replace('Platform::NewVersionLaunched(old);', '')
 (fixture / 'application.cpp').write_text(application, encoding='utf-8')

@@ -153,4 +153,4 @@ if (report.open(QIODevice::WriteOnly)) {
 	}).toJson());
 	report.close();
 }
-QCoreApplication::exit(failures ? 1 : 0);
+Core::Quit();

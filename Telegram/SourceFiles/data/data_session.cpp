@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_session.h"
 
+#include "mtproto/allowlist_message_guard.h"
+
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "main/main_app_config.h"
@@ -351,6 +353,13 @@ Session::Session(not_null<Main::Session*> session)
 , _chatbots(std::make_unique<Chatbots>(this))
 , _businessInfo(std::make_unique<BusinessInfo>(this))
 , _shortcutMessages(std::make_unique<ShortcutMessages>(this)) {
+	session->allowlistConfiguredValue(
+	) | rpl::skip(1) | rpl::on_next([=](bool ready) {
+		if (ready) {
+			refreshAllowlist();
+		}
+	}, _lifetime);
+
 	_cache->open(_session->local().cacheKey());
 	_bigFileCache->open(_session->local().cacheBigFileKey());
 
@@ -1910,7 +1919,7 @@ void Session::setupUserIsContactViewer() {
 				"userIsContactChanged() called for a not loaded user!"));
 			return;
 		}
-		if (user->isContact()) {
+		if (user->isContact() && session().allowlistAllows(user->id)) {
 			const auto history = this->history(user->id);
 			_contactsList.addByName(history);
 			if (!history->inChatList()) {
@@ -2804,6 +2813,9 @@ void Session::applyPinnedChats(
 			}
 		}, [&](const MTPDdialogPeerCommunity &data) {
 			const auto channelId = ChannelId(data.vcommunity_id().v);
+			if (!session().allowlistAllows(peerFromChannel(channelId))) {
+				return;
+			}
 			if (const auto channel = channelLoaded(channelId)) {
 				this->history(channel)->clearFolder();
 			}
@@ -2831,16 +2843,13 @@ void Session::applyDialogs(
 			applyDialog(requestFolder, data);
 		});
 	}
-	if (requestFolder && count) {
-		requestFolder->chatsList()->setCloudListSize(*count);
-	}
 }
 
 void Session::applyDialog(
 		Data::Folder *requestFolder,
 		const MTPDdialog &data) {
 	const auto peerId = peerFromMTP(data.vpeer());
-	if (!peerId) {
+	if (!session().allowlistAllows(peerId)) {
 		return;
 	}
 
@@ -2874,6 +2883,9 @@ void Session::applyDialog(
 		Data::Folder *requestFolder,
 		const MTPDdialogCommunity &data) {
 	const auto channelId = ChannelId(data.vcommunity_id().v);
+	if (!session().allowlistAllows(peerFromChannel(channelId))) {
+		return;
+	}
 	const auto channel = channelLoaded(channelId);
 	if (!channel || !channel->isCommunity()) {
 		if (data.is_pinned()) {
@@ -3049,6 +3061,9 @@ void Session::reorderTwoPinnedChats(
 
 bool Session::updateExistingMessage(const MTPDmessage &data) {
 	const auto peer = peerFromMTP(data.vpeer_id());
+	if (!session().allowlistAllows(peer)) {
+		return false;
+	}
 	const auto existing = message(peer, data.vid().v);
 	if (!existing) {
 		return false;
@@ -3065,6 +3080,11 @@ bool Session::updateExistingMessage(const MTPDmessage &data) {
 }
 
 void Session::updateEditedMessage(const MTPMessage &data) {
+	if (!MTP::AllowlistMessageAllowed(data, [=](PeerId peer) {
+			return session().allowlistAllows(peer);
+		})) {
+		return;
+	}
 	const auto existing = data.match([](const MTPDmessageEmpty &)
 			-> HistoryItem* {
 		return nullptr;
@@ -3092,6 +3112,11 @@ void Session::processMessages(
 	auto indices = base::flat_map<uint64, int>();
 	for (int i = 0, l = data.size(); i != l; ++i) {
 		const auto &message = data[i];
+		if (!MTP::AllowlistMessageAllowed(message, [=](PeerId peer) {
+				return session().allowlistAllows(peer);
+			})) {
+			continue;
+		}
 		if (message.type() == mtpc_message) {
 			const auto &data = message.c_message();
 			// new message, index my forwarded messages to links overview
@@ -3592,7 +3617,9 @@ HistoryItem *Session::addNewMessage(
 		MessageFlags localFlags,
 		NewMessageType type) {
 	const auto peerId = PeerFromMessage(data);
-	if (!peerId || data.type() == mtpc_messageEmpty) {
+	if (!MTP::AllowlistMessageAllowed(data, [=](PeerId peer) {
+			return session().allowlistAllows(peer);
+		})) {
 		return nullptr;
 	}
 
@@ -5659,12 +5686,62 @@ not_null<Dialogs::IndexedList*> Session::contactsNoChatsList() {
 	return &_contactsNoChatsList;
 }
 
+void Session::refreshAllowlist() {
+	constexpr auto kBatchSize = 100;
+	auto peers = QVector<MTPInputDialogPeer>();
+	const auto send = [&] {
+		if (peers.empty()) {
+			return;
+		}
+		session().api().request(MTPmessages_GetPeerDialogs(
+			MTP_vector(base::take(peers))
+		)).done([=](const MTPmessages_PeerDialogs &result) {
+			const auto &data = result.c_messages_peerDialogs();
+			processUsers(data.vusers());
+			processChats(data.vchats());
+			applyDialogs(nullptr, data.vmessages().v, data.vdialogs().v);
+			sendHistoryChangeNotifications();
+		}).send();
+	};
+	for (const auto peerId : session().allowlistPeers()) {
+		if (const auto peer = peerLoaded(peerId)) {
+			const auto history = this->history(peer);
+			if (const auto user = peer->asUser(); user && user->isContact()) {
+				_contactsList.addByName(history);
+				if (!history->inChatList()) {
+					_contactsNoChatsList.addByName(history);
+				}
+			}
+			history->updateChatListExistence();
+			if (const auto channel = peer->asChannel()
+				; channel && channel->isCommunity()) {
+				channel->ensuredCommunityInfo()->ensureRowInChatList();
+				continue;
+			}
+			peers.push_back(MTP_inputDialogPeer(peer->input()));
+			if (peers.size() == kBatchSize) {
+				send();
+			}
+		}
+	}
+	send();
+}
+
 void Session::refreshChatListEntry(Dialogs::Key key) {
 	Expects(key.entry()->folderKnown());
 
 	using namespace Dialogs;
 
 	const auto entry = key.entry();
+	const auto thread = entry->asThread();
+	const auto sublist = entry->asSublist();
+	if ((thread && !session().allowlistAllows(
+			thread->owningHistory()->peer->id))
+		|| (sublist && !session().allowlistAllows(
+			sublist->sublistPeer()->id))) {
+		removeChatListEntry(key);
+		return;
+	}
 	const auto history = entry->asHistory();
 	const auto topic = entry->asTopic();
 	const auto mainList = chatsListFor(entry);
@@ -5768,7 +5845,9 @@ void Session::removeChatListEntry(Dialogs::Key key) {
 		.key = key,
 		.existenceChanged = true
 	});
-	if (_contactsList.contains(key)) {
+	if (const auto history = key.history()
+		; history && session().allowlistAllows(history->peer->id)
+		&& _contactsList.contains(key)) {
 		if (!_contactsNoChatsList.contains(key)) {
 			_contactsNoChatsList.addByName(key);
 		}
@@ -5798,6 +5877,9 @@ void Session::serviceNotification(
 		const TextWithEntities &message,
 		const MTPMessageMedia &media,
 		bool invertMedia) {
+	if (!session().allowlistAllows(PeerData::kServiceNotificationsId)) {
+		return;
+	}
 	const auto date = base::unixtime::now();
 	if (!peerLoaded(PeerData::kServiceNotificationsId)) {
 		processUser(MTP_user(

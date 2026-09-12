@@ -34,6 +34,13 @@ public:
 	[[nodiscard]] QByteArray serialize() const;
 	void addFromSerialized(const QByteArray &serialized);
 
+	[[nodiscard]] bool allowlistConfigured() const {
+		return !_allowlistPeers.empty();
+	}
+	[[nodiscard]] const base::flat_set<PeerId> &allowlistPeers() const {
+		return _allowlistPeers;
+	}
+
 	void setSupportSwitch(Support::SwitchSettings value) {
 		_supportSwitch = value;
 	}
@@ -250,6 +257,9 @@ private:
 	rpl::variable<bool> _phoneNumberHidden = false;
 
 	std::vector<Data::ReactionId> _extraFavoriteReactions;
+	base::flat_set<PeerId> _allowlistPeers;
+
+	friend class Session;
 
 };
 

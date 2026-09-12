@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_session_settings.h"
 
+#include "main/allowlist_policy.h"
+
 #include "chat_helpers/tabbed_selector.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/chat/attach/attach_send_files_way.h"
@@ -24,6 +26,7 @@ namespace {
 constexpr auto kLegacyCallsPeerToPeerNobody = 4;
 constexpr auto kVersionTag = -1;
 constexpr auto kVersion = 2;
+constexpr auto kAllowlistMagic = qint32(0x414C5731);
 
 } // namespace
 
@@ -95,6 +98,7 @@ QByteArray SessionSettings::serialize() const {
 	for (const auto &id : _extraFavoriteReactions) {
 		size += sizeof(quint64) + Serialize::stringSize(id.emoji());
 	}
+	size += 2 * sizeof(qint32) + _allowlistPeers.size() * sizeof(quint64);
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -187,6 +191,10 @@ QByteArray SessionSettings::serialize() const {
 		for (const auto &id : _extraFavoriteReactions) {
 			stream << quint64(id.custom()) << id.emoji();
 		}
+		stream << kAllowlistMagic << qint32(_allowlistPeers.size());
+		for (const auto peer : _allowlistPeers) {
+			stream << SerializePeerId(peer);
+		}
 	}
 
 	Ensures(result.size() == size);
@@ -194,6 +202,7 @@ QByteArray SessionSettings::serialize() const {
 }
 
 void SessionSettings::addFromSerialized(const QByteArray &serialized) {
+	_allowlistPeers.clear();
 	if (serialized.isEmpty()) {
 		return;
 	}
@@ -263,6 +272,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	qint32 disableSharingBoxShowsCount = 0;
 	qint32 phoneNumberHidden = 0;
 	std::vector<Data::ReactionId> extraFavoriteReactions;
+	base::flat_set<PeerId> allowlistPeers;
 
 	stream >> versionTag;
 	if (versionTag == kVersionTag) {
@@ -745,6 +755,33 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 			}
 		}
 	}
+	if (!stream.atEnd()) {
+		auto magic = qint32(0);
+		auto count = qint32(0);
+		stream >> magic >> count;
+		if (magic != kAllowlistMagic
+			|| count < 0
+			|| count > Allowlist::kMaximumEntries) {
+			return;
+		}
+		for (auto i = 0; i != count; ++i) {
+			auto serializedPeer = quint64(0);
+			stream >> serializedPeer;
+			const auto peer = DeserializePeerId(serializedPeer);
+			const auto bare = peer.value & PeerId::kChatTypeMask;
+			if (stream.status() != QDataStream::Ok
+				|| !bare
+				|| (peer.value >> 56)
+				|| SerializePeerId(peer) != serializedPeer
+				|| (!peerIsUser(peer) && !peerIsChat(peer) && !peerIsChannel(peer))) {
+				return;
+			}
+			allowlistPeers.emplace(peer);
+		}
+		if (allowlistPeers.size() != count) {
+			return;
+		}
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for SessionSettings::addFromSerialized()"));
@@ -811,6 +848,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	_disableSharingBoxShowsCount = disableSharingBoxShowsCount;
 	_phoneNumberHidden = (phoneNumberHidden == 1);
 	_extraFavoriteReactions = std::move(extraFavoriteReactions);
+	_allowlistPeers = std::move(allowlistPeers);
 
 	if (version < 2) {
 		app.setLastSeenWarningSeen(appLastSeenWarningSeen == 1);

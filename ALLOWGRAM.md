@@ -113,9 +113,9 @@ The Windows x64 Release build passed with MSVC 14.44 and upstream patched
 Qt 6.11.2. The resulting client passed a startup check with fresh, isolated
 account data and no fatal startup log errors.
 
-Interactive phone-login, allow-list setup and persistence, and real
-allowed/blocked messaging and Mini App dashboard loading have not been tested
-with a signed-in account for this release.
+The owner subsequently reported that the delivered 7.2.8.3 installer worked.
+This is owner-reported live success; no individual dashboard or excluded-bot
+case is claimed as independently tested. See [current testing details](docs/allowgram/testing.md).
 
 Telegram Desktop and its dependencies retain their upstream licenses. The
 packaging workflow produces a corresponding source archive with the installer.

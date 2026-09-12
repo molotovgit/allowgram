@@ -209,6 +209,8 @@ void CheckIncomingMessages(int &checks, int &failures) {
 
 } // namespace
 
+void CheckAllowlistWebViews(int &checks, int &failures);
+
 int main() {
 	const auto user = MTPInputPeer(MTP_inputPeerUser(MTP_long(42), MTP_long(1)));
 	const auto blocked = MTPInputPeer(MTP_inputPeerUser(MTP_long(43), MTP_long(1)));
@@ -225,6 +227,7 @@ int main() {
 	auto failures = 0;
 	auto checks = 0;
 	CheckIncomingMessages(checks, failures);
+	CheckAllowlistWebViews(checks, failures);
 	const auto checkWith = [&](
 			const char *name,
 			const Request &request,

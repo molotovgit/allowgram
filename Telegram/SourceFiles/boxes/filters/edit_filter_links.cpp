@@ -232,7 +232,11 @@ private:
 }
 
 [[nodiscard]] QString ComputeStatus(const InviteLinkData &link) {
-	return tr::lng_filters_chats_count(tr::now, lt_count, link.chats.size());
+	const auto count = ranges::count_if(link.chats, [](
+			not_null<History*> history) {
+		return history->session().allowlistAllows(history->peer->id);
+	});
+	return tr::lng_filters_chats_count(tr::now, lt_count, count);
 }
 
 LinkRow::LinkRow(
@@ -666,6 +670,9 @@ void LinkController::prepare() {
 
 	for (const auto &history : _data.chats) {
 		const auto peer = history->peer;
+		if (!session().allowlistAllows(peer->id)) {
+			continue;
+		}
 		auto row = std::make_unique<ChatRow>(
 			peer,
 			FilterChatStatusText(peer),
@@ -677,7 +684,8 @@ void LinkController::prepare() {
 		_initial.emplace(peer);
 	}
 	for (const auto &history : _filterChats) {
-		if (delegate()->peerListFindRow(history->peer->id.value)) {
+		if (!session().allowlistAllows(history->peer->id)
+			|| delegate()->peerListFindRow(history->peer->id.value)) {
 			continue;
 		}
 		const auto peer = history->peer;
@@ -817,7 +825,14 @@ rpl::producer<bool> LinkController::hasChangesValue() const {
 }
 
 base::flat_set<not_null<PeerData*>> LinkController::selected() const {
-	return _selected.current();
+	auto result = _selected.current();
+	// Keep existing hidden memberships when saving visible link edits.
+	for (const auto history : _data.chats) {
+		if (!session().allowlistAllows(history->peer->id)) {
+			result.emplace(history->peer);
+		}
+	}
+	return result;
 }
 
 LinksController::LinksController(
@@ -993,7 +1008,8 @@ std::vector<not_null<PeerData*>> CollectFilterLinkChats(
 		const Data::ChatFilter &filter) {
 	return filter.always() | ranges::views::filter([](
 			not_null<History*> history) {
-		return !ErrorForSharing(history);
+		return history->session().allowlistAllows(history->peer->id)
+			&& !ErrorForSharing(history);
 	}) | ranges::views::transform(&History::peer) | ranges::to_vector;
 }
 

@@ -1738,63 +1738,55 @@ auto WebViewInstance::botDownloads(bool forceCheck)
 void WebViewInstance::botDownloadsAction(
 		uint32 id,
 		Ui::BotWebView::DownloadsAction type) {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	_session->attachWebView().downloads().action(_bot, id, type);
 }
 
 bool WebViewInstance::botHandleLocalUri(QString uri, bool keepOpen) {
-	const auto local = Core::TryConvertUrlToLocal(uri);
-	if (Core::InternalPassportOrOAuthLink(local)) {
+	if (!checkAllowlist()) {
 		return true;
-	} else if (!local.startsWith(u"tg://"_q, Qt::CaseInsensitive)
+	}
+	const auto local = Core::TryConvertUrlToLocal(uri);
+	if (!local.startsWith(u"tg://"_q, Qt::CaseInsensitive)
 		&& !local.startsWith(u"tonsite://"_q, Qt::CaseInsensitive)
 		&& !local.startsWith(u"ton://"_q, Qt::CaseInsensitive)) {
 		return false;
 	}
-	const auto bot = _bot;
-	const auto context = std::make_shared<WebViewContext>(_context);
-	if (!keepOpen) {
-		botClose();
+	if (!MTP::AllowlistWebViewLocalUriAllowed(local)) {
+		return true;
 	}
-	crl::on_main([=] {
-		if (bot->session().windows().empty()) {
-			Core::App().domain().activate(&bot->session().account());
+	const auto bot = _bot;
+	const auto session = _session;
+	const auto context = std::make_shared<WebViewContext>(_context);
+	const auto thread = _contextThread;
+	const auto hadThread = _hadThread;
+	context->maySkipConfirmation = false;
+	crl::on_main(session, [=] {
+		const auto window = context->controller.get();
+		if (!window || (hadThread && !thread)
+			|| !AllowedContext(session, bot, *context)) {
+			return;
 		}
-		const auto window = !bot->session().windows().empty()
-			? bot->session().windows().front().get()
-			: nullptr;
-		context->controller = window;
+		context->dialogsEntryState = {};
 		const auto variant = QVariant::fromValue(ClickHandlerContext{
 			.sessionWindow = window,
 			.botWebviewContext = context,
 		});
 		UrlClickHandler::Open(local, variant);
 	});
+	if (!keepOpen) {
+		botClose();
+	}
 	return true;
 }
 
 void WebViewInstance::botHandleInvoice(QString slug) {
-	Expects(_panel != nullptr);
-
-	using Result = Payments::CheckoutResult;
-	const auto weak = base::make_weak(_panel.get());
-	const auto reactivate = [=](Result result) {
-		if (const auto strong = weak.get()) {
-			strong->invoiceClosed(slug, [&] {
-				switch (result) {
-				case Result::Paid: return "paid";
-				case Result::Failed: return "failed";
-				case Result::Pending: return "pending";
-				case Result::Cancelled: return "cancelled";
-				}
-				Unexpected("Payments::CheckoutResult value.");
-			}());
-		}
-	};
-	Payments::CheckoutProcess::Start(
-		_session,
-		slug,
-		reactivate,
-		nonPanelPaymentFormFactory(reactivate));
+	if (_panel) {
+		_panel->invoiceClosed(slug, "failed");
+	}
 }
 
 auto WebViewInstance::nonPanelPaymentFormFactory(

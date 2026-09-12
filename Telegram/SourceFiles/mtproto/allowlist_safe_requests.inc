@@ -53,7 +53,6 @@ case mtpc_account_getWallPapers:
 case mtpc_account_getWebAuthorizations:
 case mtpc_account_getWebBrowserSettings:
 case mtpc_account_initPasskeyRegistration:
-case mtpc_account_initTakeoutSession:
 case mtpc_account_installTheme:
 case mtpc_account_installWallPaper:
 case mtpc_account_invalidateSignInCodes:
@@ -312,7 +311,6 @@ case mtpc_messages_getRecentLocations:
 case mtpc_messages_getRecentReactions:
 case mtpc_messages_getRecentStickers:
 case mtpc_messages_getReplies:
-case mtpc_messages_getRichMessage:
 case mtpc_messages_getSavedDialogs:
 case mtpc_messages_getSavedDialogsByID:
 case mtpc_messages_getSavedGifs:
@@ -332,8 +330,6 @@ case mtpc_messages_getTopReactions:
 case mtpc_messages_getUnreadMentions:
 case mtpc_messages_getUnreadPollVotes:
 case mtpc_messages_getUnreadReactions:
-case mtpc_messages_getWebPage:
-case mtpc_messages_getWebPagePreview:
 case mtpc_messages_installStickerSet:
 case mtpc_messages_markDialogUnread:
 case mtpc_messages_readDiscussion:

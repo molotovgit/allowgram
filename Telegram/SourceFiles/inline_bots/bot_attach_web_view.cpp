@@ -59,9 +59,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/iv_instance.h"
 #include "lang/lang_keys.h"
 #include "main/main_app_config.h"
+#include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
 #include "mainwidget.h"
+#include "mtproto/allowlist_webview_guard.h"
 #include "payments/payments_checkout_process.h"
 #include "payments/payments_non_panel_process.h"
 #include "settings/sections/settings_premium.h"
@@ -103,6 +105,67 @@ namespace {
 constexpr auto kProlongTimeout = 60 * crl::time(1000);
 constexpr auto kRefreshBotsTimeout = 60 * 60 * crl::time(1000);
 constexpr auto kPopularAppBotsLimit = 100;
+constexpr auto kAllowlistCheckTimeout = crl::time(1000);
+
+[[nodiscard]] bool AllowedBot(
+		not_null<Main::Session*> session,
+		not_null<UserData*> bot) {
+	return &bot->session() == session
+		&& session->domain().active().maybeSession() == session
+		&& session->data().userLoaded(peerToUser(bot->id)) == bot
+		&& bot->isBot()
+		&& session->allowlistAllows(bot->id);
+}
+
+[[nodiscard]] bool AllowedContext(
+		not_null<Main::Session*> session,
+		not_null<UserData*> bot,
+		const WebViewContext &context) {
+	const auto controller = context.controller.get();
+	auto sameAccount = session->account().maybeSession() == session
+		&& &bot->session() == session
+		&& (!controller || &controller->session() == session);
+	if (!sameAccount) {
+		return false;
+	}
+	auto peers = std::vector<PeerId>();
+	const auto addPeer = [&](not_null<PeerData*> peer) {
+		sameAccount = sameAccount && &peer->session() == session;
+		peers.push_back(peer->id);
+	};
+	const auto addReply = [&](const FullReplyTo &reply) {
+		for (const auto peer : { reply.messageId.peer, reply.storyId.peer, reply.monoforumPeerId }) {
+			if (peer) {
+				peers.push_back(peer);
+			}
+		}
+	};
+	if (context.action) {
+		addPeer(context.action->history->peer);
+		if (const auto sendAs = context.action->options.sendAs) {
+			addPeer(sendAs);
+		}
+		addReply(context.action->replyTo);
+	}
+	if (const auto history = context.dialogsEntryState.key.owningHistory()) {
+		addPeer(history->peer);
+	}
+	if (const auto thread = context.dialogsEntryState.key.thread()) {
+		addPeer(thread->peer());
+		if (const auto sublistPeer = thread->maybeSublistPeer()) {
+			addPeer(sublistPeer);
+		}
+	}
+	addReply(context.dialogsEntryState.currentReplyTo);
+	return MTP::AllowlistWebViewAllowed(
+		peerToUser(bot->id),
+		sameAccount,
+		peers,
+		[=](PeerId peer) { return session->allowlistAllows(peer); },
+		[=](UserId id) {
+			return id == peerToUser(bot->id) && AllowedBot(session, bot);
+		});
+}
 
 [[nodiscard]] QImage PaintButtonEmojiFrame(
 		Ui::Text::CustomEmoji &emoji,
@@ -169,6 +232,7 @@ constexpr auto kPopularAppBotsLimit = 100;
 		const auto user = session->data().userLoaded(UserId(data.vbot_id()));
 		const auto good = user
 			&& user->isBot()
+			&& session->allowlistAllows(user->id)
 			&& user->botInfo->supportsAttachMenu;
 		return good
 			? AttachWebViewBot{
@@ -402,7 +466,7 @@ void FillDisclaimerBox(
 WebViewContext ResolveContext(
 		not_null<UserData*> bot,
 		WebViewContext context) {
-	if (!context.dialogsEntryState.key) {
+	if (!context.dialogsEntryState.key && !context.action) {
 		if (const auto strong = context.controller.get()) {
 			context.dialogsEntryState = strong->dialogsEntryStateCurrent();
 		}

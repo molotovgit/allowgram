@@ -248,6 +248,41 @@ int main() {
 	check("type-safe basic group ID", Text(group), false);
 	check("type-safe channel ID", Text(channel), false);
 	check("self is not implicitly allowed", Text(MTP_inputPeerSelf()), false);
+	const auto includesSelf = Fn<bool(PeerId)>([](PeerId) { return true; });
+	const auto explicitSelf = MTPInputPeer(MTP_inputPeerUser(MTP_long(99), MTP_long(1)));
+	for (const auto &self : { MTPInputPeer(MTP_inputPeerSelf()), explicitSelf,
+		MTPInputPeer(MTP_inputPeerUserFromMessage(user, MTP_int(17), MTP_long(99))) }) {
+		checkWith("Saved Messages send denied even when allowlisted", Text(self), false, includesSelf);
+		checkWith("Saved Messages forward destination denied", Forward(user, self), false, includesSelf);
+		checkWith("Saved Messages forward source denied", Forward(self, user), false, includesSelf);
+		checkWith("Saved Messages history read denied", Packet(
+			MTP_int(mtpc_messages_getHistory), self, MTP_int(0), MTP_int(0),
+			MTP_int(0), MTP_int(20), MTP_int(0), MTP_int(0), MTP_long(0)), false, includesSelf);
+	}
+	checkWith("ordinary history remains readable", Packet(
+		MTP_int(mtpc_messages_getHistory), user, MTP_int(0), MTP_int(0),
+		MTP_int(0), MTP_int(20), MTP_int(0), MTP_int(0), MTP_long(0)), true, includesSelf);
+	checkWith("get-me metadata remains available", Request::Serialize(
+		MTPusers_GetUsers(MTP_vector<MTPInputUser>({ MTP_inputUserSelf() }))), true, includesSelf);
+	checkWith("Saved dialogs denied", Packet(MTP_int(mtpc_messages_getSavedDialogs),
+		MTP_int(0), MTP_int(0), MTP_int(0), MTPInputPeer(MTP_inputPeerEmpty()),
+		MTP_int(20), MTP_long(0)), false, includesSelf);
+	checkWith("Saved pinned dialogs denied", Packet(MTP_int(mtpc_messages_getPinnedSavedDialogs)), false, includesSelf);
+	checkWith("Saved tags denied", Packet(MTP_int(mtpc_messages_getSavedReactionTags),
+		MTP_int(0), MTP_long(0)), false, includesSelf);
+	checkWith("Saved dialogs by ID denied", Packet(MTP_int(mtpc_messages_getSavedDialogsByID),
+		MTP_int(0), MTPVector<MTPInputPeer>(MTP_vector<MTPInputPeer>({ user }))), false, includesSelf);
+	for (const auto &parent : { MTPInputPeer(MTP_inputPeerSelf()), explicitSelf, channel }) {
+		const auto expected = parent.type() == mtpc_inputPeerChannel;
+		checkWith("Saved history parent distinguishes channel messaging", Packet(
+			MTP_int(mtpc_messages_getSavedHistory), MTP_int(1), parent, user,
+			MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(20), MTP_int(0), MTP_int(0), MTP_long(0)), expected, includesSelf);
+		checkWith("Saved read marker parent distinguishes channel messaging", Packet(
+			MTP_int(mtpc_messages_readSavedHistory), parent, user, MTP_int(1)), expected, includesSelf);
+	}
+	checkWith("Implicit Saved history denied", Packet(MTP_int(mtpc_messages_getSavedHistory),
+		MTP_int(0), user, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(20),
+		MTP_int(0), MTP_int(0), MTP_long(0)), false, includesSelf);
 	check("empty peer", Text(MTP_inputPeerEmpty()), false);
 	check("channel join requires channel ID", Request::Serialize(
 		MTPchannels_JoinChannel(MTP_inputChannel(MTP_long(42), MTP_long(1)))), false);
@@ -318,7 +353,7 @@ int main() {
 			|| id == PeerId(ChannelId(42));
 	});
 	checkWith("forward allowed group to Saved Messages", Forward(
-		group, MTP_inputPeerSelf()), true, forwardingAllows);
+		group, MTP_inputPeerSelf()), false, forwardingAllows);
 	checkWith("forward allowed channel to allowed user", Forward(
 		channel, user), true, forwardingAllows);
 	checkWith("forward denied source to allowed Saved Messages", Forward(

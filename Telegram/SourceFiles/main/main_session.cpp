@@ -420,6 +420,7 @@ rpl::producer<bool> Session::allowlistConfiguredValue() const {
 bool Session::allowlistAllows(PeerId peer) const {
 	return allowlistConfigured()
 		&& peer
+		&& peer != userPeerId()
 		&& _settings->allowlistPeers().contains(peer);
 }
 

@@ -103,9 +103,10 @@ class RequestPolicySchemaTest(unittest.TestCase):
             "auth_importAuthorization", "auth_exportAuthorization",
             "auth_bindTempAuthKey", "help_getConfig", "help_getAppConfig",
             "users_getUsers", "updates_getState", "updates_getDifference",
-            "messages_getDialogs", "messages_getHistory", "upload_getFile",
+            "messages_getDialogs", "upload_getFile",
         ):
             self.assertIn(name, SAFE)
+        self.assertIn("messages_getHistory", PEER_CHECKED)
 
 
 if __name__ == "__main__":

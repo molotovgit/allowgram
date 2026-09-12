@@ -92,7 +92,6 @@ const auto CommandByName = base::flat_map<QString, Command>{
 	{ u"next_chat"_q                     , Command::ChatNext },
 	{ u"first_chat"_q                    , Command::ChatFirst },
 	{ u"last_chat"_q                     , Command::ChatLast },
-	{ u"self_chat"_q                     , Command::ChatSelf },
 	{ u"pinned_chat1"_q                  , Command::ChatPinned1 },
 	{ u"pinned_chat2"_q                  , Command::ChatPinned2 },
 	{ u"pinned_chat3"_q                  , Command::ChatPinned3 },

@@ -1,3 +1,87 @@
+	case mtpc_messages_search:
+		return ReadPeerAllowed<MTPmessages_Search>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_readHistory:
+		return ReadPeerAllowed<MTPmessages_ReadHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{});
+	case mtpc_messages_deleteHistory:
+		return ReadPeerAllowed<MTPmessages_DeleteHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getScheduledHistory:
+		return ReadPeerAllowed<MTPmessages_GetScheduledHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{});
+	case mtpc_messages_getScheduledMessages:
+		return ReadPeerAllowed<MTPmessages_GetScheduledMessages>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{});
+	case mtpc_messages_getReplies:
+		return ReadPeerAllowed<MTPmessages_GetReplies>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{});
+	case mtpc_messages_getSearchCounters:
+		return ReadPeerAllowed<MTPmessages_GetSearchCounters>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getSearchResultsCalendar:
+		return ReadPeerAllowed<MTPmessages_GetSearchResultsCalendar>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getSearchResultsPositions:
+		return ReadPeerAllowed<MTPmessages_GetSearchResultsPositions>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_readMentions:
+		return ReadPeerAllowed<MTPmessages_ReadMentions>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_readReactions:
+		return ReadPeerAllowed<MTPmessages_ReadReactions>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getHistory:
+		return ReadPeerAllowed<MTPmessages_GetHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			PeerRequestLayout{});
 	case mtpc_messages_getRichMessage:
 		return ReadPeerAllowed<MTPmessages_GetRichMessage>(
 			from,

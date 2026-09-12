@@ -6194,13 +6194,6 @@ void InnerWidget::setupShortcuts() {
 		request->check(Command::ChatLast) && request->handle([=] {
 			return jumpToDialogRow(last);
 		});
-		request->check(Command::ChatSelf) && request->handle([=] {
-			_controller->showThread(
-				session().data().history(session().user()),
-				ShowAtUnreadMsgId,
-				Window::SectionShow::Way::ClearStack);
-			return true;
-		});
 		request->check(Command::ShowArchive) && request->handle([=] {
 			const auto folder = session().data().folderLoaded(
 				Data::Folder::kId);

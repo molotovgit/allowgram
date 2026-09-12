@@ -710,12 +710,6 @@ void MainMenu::setupMenu() {
 		)->setClickedCallback([=] {
 			::Calls::ShowCallsBox(controller);
 		});
-		addAction(
-			tr::lng_saved_messages(),
-			{ &st::menuIconSavedMessages }
-		)->setClickedCallback([=] {
-			controller->showPeerHistory(controller->session().user());
-		});
 	} else {
 		addAction(
 			tr::lng_profile_add_contact(),

@@ -205,6 +205,31 @@ template <typename Request>
 }
 
 template <typename Request>
+[[nodiscard]] bool ReadSavedParentAllowed(
+		const mtpPrime *from,
+		const mtpPrime *end,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows,
+		uint32 parentFlag) {
+	if (!ValidateRequest<Request>(from, end)) {
+		return false;
+	}
+	++from;
+	if (parentFlag) {
+		auto flags = MTPint();
+		if (!flags.read(from, end) || !(flags.v & parentFlag)) {
+			return false;
+		}
+	}
+	auto parent = MTPInputPeer();
+	if (!parent.read(from, end)) {
+		return false;
+	}
+	const auto peer = Destination(parent, selfId);
+	return peerIsChannel(peer) && allows(peer);
+}
+
+template <typename Request>
 [[nodiscard]] bool ReadBotAllowed(
 		const mtpPrime *from,
 		const mtpPrime *end,
@@ -408,6 +433,21 @@ template <typename Request>
 			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, depth + 1);
 	case mtpc_messages_forwardMessages:
 		return ReadForwardAllowed(from, end, selfId, allows);
+	case mtpc_messages_getSavedDialogs:
+		return ReadSavedParentAllowed<MTPmessages_GetSavedDialogs>(
+			from, end, selfId, allows, 1U << 1);
+	case mtpc_messages_getSavedDialogsByID:
+		return ReadSavedParentAllowed<MTPmessages_GetSavedDialogsByID>(
+			from, end, selfId, allows, 1U << 1);
+	case mtpc_messages_getSavedHistory:
+		return ReadSavedParentAllowed<MTPmessages_GetSavedHistory>(
+			from, end, selfId, allows, 1U);
+	case mtpc_messages_deleteSavedHistory:
+		return ReadSavedParentAllowed<MTPmessages_DeleteSavedHistory>(
+			from, end, selfId, allows, 1U);
+	case mtpc_messages_readSavedHistory:
+		return ReadSavedParentAllowed<MTPmessages_ReadSavedHistory>(
+			from, end, selfId, allows, 0);
 	case mtpc_channels_joinChannel: {
 		if (!ValidateRequest<MTPchannels_JoinChannel>(from, end)) {
 			return false;
@@ -490,8 +530,16 @@ bool AllowlistRequestAllowed(
 		|| size / sizeof(mtpPrime) != request->size() - offset) {
 		return false;
 	}
+	const auto conversationAllowed = Fn<bool(PeerId)>([&](PeerId peer) {
+		return peer && peer != peerFromUser(selfId) && allows(peer);
+	});
 	return BodyAllowed(
-		from, from + size / sizeof(mtpPrime), selfId, allows, knownBot, 0);
+		from,
+		from + size / sizeof(mtpPrime),
+		selfId,
+		conversationAllowed,
+		knownBot,
+		0);
 }
 
 bool AllowlistWebViewAllowed(

@@ -2266,7 +2266,7 @@ bool Panel::createWebview(const Webview::ThemeParams &params) {
 	}
 
 	raw->setMessageHandler([=](Webview::Message message) {
-		if (_closeRequested) {
+		if (_closeRequested || !_delegate->botAllowBridge()) {
 			return;
 		} else if (message.text.size() > size_t(kMaxNativeMessageBytes)) {
 			LogNativeMessageRejected(
@@ -2455,7 +2455,8 @@ bool Panel::createWebview(const Webview::ThemeParams &params) {
 	});
 
 	raw->setNavigationStartHandler([=](const QString &uri, bool newWindow) {
-		if (_delegate->botHandleLocalUri(uri, false)) {
+		if (!_delegate->botAllowBridge()
+			|| _delegate->botHandleLocalUri(uri, false)) {
 			return false;
 		} else if (newWindow) {
 			return true;
@@ -2845,6 +2846,8 @@ void Panel::openExternalLink(const QJsonObject &args) {
 		requestClose();
 		return;
 	} else if (!allowOpenLink()) {
+		return;
+	} else if (_delegate->botHandleLocalUri(url, true)) {
 		return;
 	} else if (iv) {
 		_delegate->botOpenIvLink(url);

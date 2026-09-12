@@ -243,12 +243,10 @@ case mtpc_messages_getAdminsWithInvites:
 case mtpc_messages_getAllDrafts:
 case mtpc_messages_getAllStickers:
 case mtpc_messages_getArchivedStickers:
-case mtpc_messages_getAttachMenuBot:
 case mtpc_messages_getAttachMenuBots:
 case mtpc_messages_getAttachedStickers:
 case mtpc_messages_getAvailableEffects:
 case mtpc_messages_getAvailableReactions:
-case mtpc_messages_getBotApp:
 case mtpc_messages_getChatInviteImporters:
 case mtpc_messages_getChats:
 case mtpc_messages_getCommonChats:

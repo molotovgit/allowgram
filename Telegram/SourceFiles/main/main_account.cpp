@@ -440,6 +440,10 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 			_session ? _session->userId() : UserId(),
 			[=](PeerId peerId) {
 				return _session && _session->allowlistAllows(peerId);
+			},
+			[=](UserId botId) {
+				const auto bot = _session ? _session->data().userLoaded(botId) : nullptr;
+				return bot && bot->isBot();
 			});
 	});
 

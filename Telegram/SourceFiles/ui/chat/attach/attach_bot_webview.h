@@ -104,6 +104,7 @@ struct RequestChatRequest {
 
 class Delegate {
 public:
+	[[nodiscard]] virtual bool botAllowBridge() = 0;
 	[[nodiscard]] virtual Webview::ThemeParams botThemeParams() = 0;
 	[[nodiscard]] virtual Ui::Text::MarkedContext botTextContext() = 0;
 	[[nodiscard]] virtual auto botDownloads(bool forceCheck = false)

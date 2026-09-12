@@ -4,6 +4,11 @@ For license and copyright information see:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mtproto/allowlist_request_guard.h"
+#include "mtproto/allowlist_webview_guard.h"
+
+#include <QtCore/QRegularExpression>
+#include <QtCore/QUrl>
+#include <QtCore/QUrlQuery>
 
 namespace MTP {
 namespace {
@@ -228,11 +233,146 @@ template <typename Request>
 	return true;
 }
 
+[[nodiscard]] bool WebViewPeerAllowed(
+		const MTPInputPeer &peer,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows,
+		int depth = 0) {
+	if (depth > 8 || !allows(Destination(peer, selfId))) {
+		return false;
+	}
+	return peer.match([&](const MTPDinputPeerUserFromMessage &data) {
+		return WebViewPeerAllowed(data.vpeer(), selfId, allows, depth + 1);
+	}, [&](const MTPDinputPeerChannelFromMessage &data) {
+		return WebViewPeerAllowed(data.vpeer(), selfId, allows, depth + 1);
+	}, [](const auto &) {
+		return true;
+	});
+}
+
+[[nodiscard]] bool WebViewBotAllowed(
+		const MTPInputUser &bot,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows,
+		const Fn<bool(UserId)> &knownBot) {
+	const auto id = Destination(bot, selfId);
+	if (!peerIsUser(id)
+		|| !AllowlistWebViewAllowed(
+			peerToUser(id), true, {}, allows, knownBot)) {
+		return false;
+	}
+	return bot.match([&](const MTPDinputUserFromMessage &data) {
+		return WebViewPeerAllowed(data.vpeer(), selfId, allows);
+	}, [](const auto &) {
+		return true;
+	});
+}
+
+[[nodiscard]] bool WebViewReplyAllowed(
+		const MTPInputReplyTo &reply,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows) {
+	const auto peerAllowed = [&](const MTPInputPeer &peer) {
+		return WebViewPeerAllowed(peer, selfId, allows);
+	};
+	return reply.match([&](const MTPDinputReplyToMessage &data) {
+		return (!data.vreply_to_peer_id() || peerAllowed(*data.vreply_to_peer_id()))
+			&& (!data.vmonoforum_peer_id() || peerAllowed(*data.vmonoforum_peer_id()));
+	}, [&](const MTPDinputReplyToStory &data) {
+		return peerAllowed(data.vpeer());
+	}, [&](const MTPDinputReplyToMonoForum &data) {
+		return peerAllowed(data.vmonoforum_peer_id());
+	}, [](const auto &) {
+		return false;
+	});
+}
+
+template <typename Request>
+[[nodiscard]] bool ReadWebViewAllowed(
+		const mtpPrime *from,
+		const mtpPrime *end,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows,
+		const Fn<bool(UserId)> &knownBot) {
+	if (!ValidateRequest<Request>(from, end)) {
+		return false;
+	}
+	++from;
+	constexpr auto noFlags = std::is_same_v<Request, MTPmessages_GetBotApp>
+		|| std::is_same_v<Request, MTPmessages_SendWebViewData>
+		|| std::is_same_v<Request, MTPmessages_GetAttachMenuBot>
+		|| std::is_same_v<Request, MTPbots_CanSendMessage>
+		|| std::is_same_v<Request, MTPbots_AllowSendMessage>;
+	constexpr auto hasPeer = std::is_same_v<Request, MTPmessages_RequestWebView>
+		|| std::is_same_v<Request, MTPmessages_ProlongWebView>
+		|| std::is_same_v<Request, MTPmessages_RequestMainWebView>
+		|| std::is_same_v<Request, MTPmessages_RequestAppWebView>;
+	auto flags = MTPint();
+	if (!noFlags && !flags.read(from, end)) {
+		return false;
+	}
+	if constexpr (hasPeer) {
+		auto peer = MTPInputPeer();
+		if (!peer.read(from, end) || !WebViewPeerAllowed(peer, selfId, allows)) {
+			return false;
+		}
+	}
+	if constexpr (std::is_same_v<Request, MTPmessages_GetBotApp>
+		|| std::is_same_v<Request, MTPmessages_RequestAppWebView>) {
+		auto app = MTPInputBotApp();
+		return app.read(from, end) && app.match(
+			[&](const MTPDinputBotAppShortName &data) {
+				return !data.vshort_name().v.isEmpty()
+					&& WebViewBotAllowed(data.vbot_id(), selfId, allows, knownBot);
+			}, [](const auto &) {
+				return false;
+			});
+	} else {
+		auto bot = MTPInputUser();
+		if (!bot.read(from, end)
+			|| !WebViewBotAllowed(bot, selfId, allows, knownBot)) {
+			return false;
+		}
+	}
+	if constexpr (std::is_same_v<Request, MTPmessages_RequestWebView>) {
+		auto text = MTPstring();
+		auto theme = MTPDataJSON();
+		if (((flags.v & (1U << 1)) && !text.read(from, end))
+			|| ((flags.v & (1U << 3)) && !text.read(from, end))
+			|| ((flags.v & (1U << 2)) && !theme.read(from, end))
+			|| !text.read(from, end)) {
+			return false;
+		}
+	} else if constexpr (std::is_same_v<Request, MTPmessages_ProlongWebView>) {
+		auto queryId = MTPlong();
+		if (!queryId.read(from, end) || !queryId.v) {
+			return false;
+		}
+	}
+	if constexpr (std::is_same_v<Request, MTPmessages_RequestWebView>
+		|| std::is_same_v<Request, MTPmessages_ProlongWebView>) {
+		if (flags.v & 1U) {
+			auto reply = MTPInputReplyTo();
+			if (!reply.read(from, end) || !WebViewReplyAllowed(reply, selfId, allows)) {
+				return false;
+			}
+		}
+		if (flags.v & (1U << 13)) {
+			auto sendAs = MTPInputPeer();
+			if (!sendAs.read(from, end) || !WebViewPeerAllowed(sendAs, selfId, allows)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 [[nodiscard]] bool BodyAllowed(
 		const mtpPrime *from,
 		const mtpPrime *end,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
+		const Fn<bool(UserId)> &knownBot,
 		int depth) {
 	if (from == end || depth > 8) {
 		return false;
@@ -256,16 +396,16 @@ template <typename Request>
 	case mtpc_msg_resend_req:
 		return true;
 	case mtpc_invokeWithoutUpdates:
-		return BodyAllowed(from + 1, end, selfId, allows, depth + 1);
+		return BodyAllowed(from + 1, end, selfId, allows, knownBot, depth + 1);
 	case mtpc_account_initTakeoutSession:
 	case mtpc_invokeWithTakeout:
 		return false;
 	case mtpc_invokeAfterMsg:
 		return (end - from > 3)
-			&& BodyAllowed(from + 3, end, selfId, allows, depth + 1);
+			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, depth + 1);
 	case mtpc_invokeWithLayer:
 		return (end - from > 2)
-			&& BodyAllowed(from + 2, end, selfId, allows, depth + 1);
+			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, depth + 1);
 	case mtpc_messages_forwardMessages:
 		return ReadForwardAllowed(from, end, selfId, allows);
 	case mtpc_channels_joinChannel: {
@@ -293,13 +433,38 @@ template <typename Request>
 			true,
 			true);
 	case mtpc_messages_sendWebViewData:
-		return ReadBotAllowed<MTPmessages_SendWebViewData>(
-			from,
-			end,
-			selfId,
-			allows,
-			false,
-			false);
+		return ReadWebViewAllowed<MTPmessages_SendWebViewData>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_requestWebView:
+		return ReadWebViewAllowed<MTPmessages_RequestWebView>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_requestSimpleWebView:
+		return ReadWebViewAllowed<MTPmessages_RequestSimpleWebView>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_requestMainWebView:
+		return ReadWebViewAllowed<MTPmessages_RequestMainWebView>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_requestAppWebView:
+		return ReadWebViewAllowed<MTPmessages_RequestAppWebView>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_prolongWebView:
+		return ReadWebViewAllowed<MTPmessages_ProlongWebView>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_getBotApp:
+		return ReadWebViewAllowed<MTPmessages_GetBotApp>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_getAttachMenuBot:
+		return ReadWebViewAllowed<MTPmessages_GetAttachMenuBot>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_messages_toggleBotInAttachMenu:
+		return ReadWebViewAllowed<MTPmessages_ToggleBotInAttachMenu>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_bots_canSendMessage:
+		return ReadWebViewAllowed<MTPbots_CanSendMessage>(
+			from, end, selfId, allows, knownBot);
+	case mtpc_bots_allowSendMessage:
+		return ReadWebViewAllowed<MTPbots_AllowSendMessage>(
+			from, end, selfId, allows, knownBot);
 #include "mtproto/allowlist_peer_requests.inc"
 	default:
 		return false;
@@ -311,7 +476,8 @@ template <typename Request>
 bool AllowlistRequestAllowed(
 		const details::SerializedRequest &request,
 		UserId selfId,
-		const Fn<bool(PeerId)> &allows) {
+		const Fn<bool(PeerId)> &allows,
+		const Fn<bool(UserId)> &knownBot) {
 	constexpr auto offset = details::SerializedRequest::kMessageBodyPosition;
 	if (!request || request->size() <= offset) {
 		return false;
@@ -324,7 +490,67 @@ bool AllowlistRequestAllowed(
 		|| size / sizeof(mtpPrime) != request->size() - offset) {
 		return false;
 	}
-	return BodyAllowed(from, from + size / sizeof(mtpPrime), selfId, allows, 0);
+	return BodyAllowed(
+		from, from + size / sizeof(mtpPrime), selfId, allows, knownBot, 0);
+}
+
+bool AllowlistWebViewAllowed(
+		UserId bot,
+		bool sameAccount,
+		std::span<const PeerId> peers,
+		const Fn<bool(PeerId)> &allows,
+		const Fn<bool(UserId)> &knownBot) {
+	if (!sameAccount || !bot || !knownBot || !knownBot(bot)
+		|| !allows(peerFromUser(bot))) {
+		return false;
+	}
+	for (const auto peer : peers) {
+		if (!peer || !allows(peer)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool AllowlistBotAppMatches(
+		UserId bot,
+		UserId appBot,
+		const QString &requestedName,
+		const QString &resolvedName,
+		bool sameAccount) {
+	return sameAccount
+		&& bot
+		&& bot == appBot
+		&& !requestedName.isEmpty()
+		&& requestedName == resolvedName;
+}
+
+bool AllowlistWebViewLocalUriAllowed(const QString &uri) {
+	const auto url = QUrl(uri);
+	if (!url.isValid() || url.scheme() != u"tg"_q
+		|| url.host() != u"resolve"_q || !url.path().isEmpty()
+		|| !url.userInfo().isEmpty() || url.port() != -1
+		|| url.hasFragment()) {
+		return false;
+	}
+	const auto query = QUrlQuery(url);
+	const auto domain = query.queryItemValue(u"domain"_q);
+	if (!QRegularExpression(u"^[A-Za-z][A-Za-z0-9_]{0,63}$"_q)
+		.match(domain).hasMatch()) {
+		return false;
+	}
+	auto seen = QStringList();
+	for (const auto &[key, value] : query.queryItems()) {
+		if (seen.contains(key)
+			|| (key != u"domain"_q && key != u"appname"_q
+				&& key != u"startapp"_q && key != u"mode"_q
+				&& key != u"start"_q && key != u"post"_q
+				&& key != u"comment"_q && key != u"thread"_q)) {
+			return false;
+		}
+		seen.push_back(key);
+	}
+	return true;
 }
 
 } // namespace MTP

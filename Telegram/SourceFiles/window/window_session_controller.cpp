@@ -849,6 +849,9 @@ void SessionNavigation::showPeerByLinkResolved(
 				.bot = bot,
 				.context = {
 					.controller = parentController(),
+					.action = info.clickFromBotWebviewContext
+						? info.clickFromBotWebviewContext->action
+						: Api::SendAction(bot->owner().history(bot)),
 					.fullscreen = info.botAppFullScreen,
 					.maySkipConfirmation = !info.botAppForceConfirmation,
 				},
@@ -2513,10 +2516,28 @@ bool SessionController::switchInlineQuery(
 		not_null<UserData*> bot,
 		const QString &query) {
 	Expects(to.key.owningHistory() != nullptr);
+	const auto target = to.key.owningHistory();
+	if (&bot->session() != &session()
+		|| &target->session() != &session()
+		|| !bot->isBot()
+		|| !session().allowlistAllows(bot->id)
+		|| !session().allowlistAllows(target->peer->id)
+		|| (to.currentReplyTo.messageId.peer
+			&& !session().allowlistAllows(to.currentReplyTo.messageId.peer))
+		|| (to.currentReplyTo.storyId.peer
+			&& !session().allowlistAllows(to.currentReplyTo.storyId.peer))
+		|| (to.currentReplyTo.monoforumPeerId
+			&& !session().allowlistAllows(to.currentReplyTo.monoforumPeerId))) {
+		return false;
+	}
 
 	using Section = Dialogs::EntryState::Section;
 
 	const auto thread = to.key.thread();
+	if (thread && thread->maybeSublistPeer()
+		&& !session().allowlistAllows(thread->maybeSublistPeer()->id)) {
+		return false;
+	}
 	if (!thread || !Data::CanSend(thread, ChatRestriction::SendInline)) {
 		show(Ui::MakeInformBox(tr::lng_inline_switch_cant()));
 		return false;

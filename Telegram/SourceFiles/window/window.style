@@ -409,8 +409,6 @@ allowlistHint: FlatLabel(defaultFlatLabel) {
 	textFg: windowSubTextFg;
 }
 allowlistInput: InputField(defaultInputField) {
-	heightMin: 44px;
-	heightMax: 44px;
 }
 allowlistAddButton: RoundButton(defaultBoxButton) {
 	width: 256px;

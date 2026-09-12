@@ -519,7 +519,10 @@ void ActivateBotButton(ClickHandlerContext context, BotButtonLookup lookup) {
 		if (const auto bot = item->getMessageBot()) {
 			bot->session().attachWebView().open({
 				.bot = bot,
-				.context = { .controller = controller },
+				.context = {
+					.controller = controller,
+					.action = Api::SendAction(item->history()),
+				},
 				.button = { .text = button->text, .url = button->data },
 				.source = InlineBots::WebViewSourceButton{ .simple = false },
 			});
@@ -530,7 +533,10 @@ void ActivateBotButton(ClickHandlerContext context, BotButtonLookup lookup) {
 		if (const auto bot = item->getMessageBot()) {
 			bot->session().attachWebView().open({
 				.bot = bot,
-				.context = { .controller = controller },
+				.context = {
+					.controller = controller,
+					.action = Api::SendAction(item->history()),
+				},
 				.button = { .text = button->text, .url = button->data },
 				.source = InlineBots::WebViewSourceButton{ .simple = true },
 			});

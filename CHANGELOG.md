@@ -4,6 +4,7 @@
 
 - Restore native input-field height so numeric IDs, prefixed group/channel IDs and the caret fit below floating labels.
 - Align each Remove link with its row's editable text region.
+- Reserve a native border-width document inset so fractional-scale caret rounding stays inside the viewport.
 - Add a regression that measures the actual form and exercises row controls, focus and scrolling in isolated profiles at four application scales.
 - Keep the numeric ID policy, fixed saved allow-list and Mini App authorization unchanged.
 

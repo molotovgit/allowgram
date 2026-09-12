@@ -1681,6 +1681,9 @@ void WebViewInstance::started(uint64 queryId) {
 		kProlongTimeout
 	) | rpl::on_next([=] {
 		using Flag = MTPmessages_ProlongWebView::Flag;
+		if (!checkAllowlist()) {
+			return;
+		}
 		_api.request(base::take(_prolongId)).cancel();
 		_prolongId = _api.request(MTPmessages_ProlongWebView(
 			MTP_flags(Flag(0)
@@ -1696,6 +1699,9 @@ void WebViewInstance::started(uint64 queryId) {
 				: MTP_inputPeerEmpty())
 		)).done([=] {
 			_prolongId = 0;
+		}).fail([=] {
+			_prolongId = 0;
+			close();
 		}).send();
 	}, _panel->lifetime());
 }

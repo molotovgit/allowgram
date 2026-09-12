@@ -6,7 +6,14 @@ Allowgram derives from Telegram Desktop upstream commit `272f6f5c2d29d8cdb3aec15
 
 The original checkout was shallow. Missing ancestry was fetched from the official Telegram Desktop repository into a separate publication checkout; no artificial root or altered upstream history was created. A private backup was retained. The original application/release checkout and privately delivered packages were not rewritten.
 
-`archive/release-7.2.8.3` retains the original commits and full upstream ancestry. `main` presents only the owner-authored changes as smaller coherent commits. At the end of each original change, Git tree IDs were compared and matched exactly. The final application tree is identical to 7.2.8.3 before public documentation additions. This verifies content, including modes, deletions, binary artwork and submodule pins; it does not claim each dependent intermediate split was separately buildable or tested.
+`archive/release-7.2.8.3` retains the original commits and full upstream ancestry. The initial public `main` at `c691b2b80cade2c25050116beae3def78226bca1` presents the owner-authored changes as smaller coherent commits. At the end of each original change, Git tree IDs were compared and matched exactly. That publication's application tree is identical to 7.2.8.3 before public documentation additions. This verifies content, including modes, deletions, binary artwork and submodule pins; it does not claim each dependent intermediate split was separately buildable or tested.
+
+Version 7.2.8.4 extends that published history with ordinary forward commits.
+Its reviewed application delta is restricted to the allow-list input style and
+row layout, native UI regression helpers and packaging revision. Documentation
+and fresh screenshots accompany the fix. The archival branch and six original
+tree-equivalence boundaries remain unchanged; current application equality to
+7.2.8.3 is deliberately replaced by an explicit scoped-delta check.
 
 The new history uses the owner's requested author and committer email, actual new commit times and no forged signatures or assistant coauthor trailers. Repository ownership does not transfer authorship of Telegram or third-party code. Existing license and copyright notices remain intact.
 

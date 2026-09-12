@@ -24,7 +24,7 @@ This repository publishes source. **No public installer or GitHub Release is pro
 
 ## What the client enforces
 
-| Capability | Behavior in 7.2.8.3 |
+| Capability | Behavior in 7.2.8.4 |
 | --- | --- |
 | Repeatable setup rows | **+ Add user** and **+ Add group/channel** add rows; **Remove** deletes extra rows. Up to 10,000 distinct IDs total. |
 | Conversation visibility | Excluded chat rows, search results, archive entries, message previews, unread badges and notifications are suppressed. |
@@ -47,7 +47,7 @@ The 7.2.8.3 release passed **451 native request/message/Mini App checks**, **80 
 - [Contribution guidance](CONTRIBUTING.md)
 - [Upstream README and third-party notices](README.telegram.md)
 
-The original release history is retained on `archive/release-7.2.8.3`. `main` presents the owner's changes as smaller commits and reproduces the original application tree before the documentation additions. Upstream ancestry and attribution remain intact.
+The original release history is retained on `archive/release-7.2.8.3`. The initial public `main` reproduced that application tree in smaller commits. Version 7.2.8.4 adds the input-field correction in forward commits; upstream ancestry and attribution remain intact.
 
 ## License
 

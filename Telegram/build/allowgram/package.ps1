@@ -40,6 +40,11 @@ $version = ($versionLine -split '\s+')[1]
 if ($version -notmatch '^\d+\.\d+\.\d+$') {
     throw 'Cannot determine an installer version.'
 }
+$revision = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'revision') -Raw).Trim()
+if ($revision -notmatch '^[1-9][0-9]{0,3}$') {
+    throw 'Cannot determine the Allowgram packaging revision.'
+}
+$version = "$version.$revision"
 $manifestPath = Join-Path $Repository 'SOURCE-MANIFEST.json'
 if (-not (Test-Path -LiteralPath (Join-Path $Repository '.git')) -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     $commit = (Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).sourceCommit
@@ -66,9 +71,14 @@ Allowgram is an independent modification of Telegram Desktop. Sign in with
 your phone number, complete Telegram verification, and configure the required
 allowlist with Telegram user and group identifiers before using the client.
 
-Other chats stay readable, but sending is blocked. Calls, mini apps, payments,
-and business automation are disabled. Saved Messages requires your own user
-ID in the list. Channel comments need the linked discussion group ID.
+Only allowed conversations appear in the chat list, archive, search and
+notifications. Excluded conversations produce no message previews, unread
+badges, sounds or incoming-call alerts. Calls, aggregate stories, mini apps,
+payments and business automation are disabled. Saved Messages requires your
+own user ID. Channel comments need the linked discussion group ID.
+
+Each setup section has a + button to add another ID row and a Remove button
+to delete an unwanted row. Up to 10,000 distinct IDs are supported.
 The list stays fixed until you log out; logging out requires setup again.
 
 The restriction applies to this client. Other Telegram clients and existing

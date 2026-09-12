@@ -595,11 +595,11 @@ void Account::writeMapQueued() {
 	});
 }
 
-void Account::writeMap() {
+void Account::writeMap(QByteArray *writtenData) {
 	Expects(_localKey != nullptr);
 
 	_writeMapTimer.cancel();
-	if (!_mapChanged) {
+	if (!_mapChanged && !writtenData) {
 		return;
 	}
 	_mapChanged = false;
@@ -757,6 +757,9 @@ void Account::writeMap() {
 		for (const auto &[key, value] : _botStoragesMap) {
 			mapData.stream << quint64(value) << SerializePeerId(key);
 		}
+	}
+	if (writtenData) {
+		*writtenData = mapData.data.mid(sizeof(uint32));
 	}
 	map.writeEncrypted(mapData, _localKey);
 
@@ -1015,23 +1018,24 @@ void Account::writeSessionSettings() {
 }
 
 void Account::writeSessionSettings(Main::SessionSettings *stored) {
+	const auto settings = stored ? stored : _owner->getSessionSettings();
+	writeSessionSettingsSerialized(settings
+		? settings->serialize()
+		: QByteArray());
+}
+
+void Account::writeSessionSettingsSerialized(
+		const QByteArray &userData,
+		QByteArray *writtenData) {
 	if (_readingUserSettings) {
 		LOG(("App Error: attempt to write settings while reading them!"));
 		return;
 	}
 	LOG(("App Info: writing encrypted user settings..."));
-
 	if (!_settingsKey) {
 		_settingsKey = GenerateKey(_basePath);
 		writeMapQueued();
 	}
-
-	auto userDataInstance = stored
-		? stored
-		: _owner->getSessionSettings();
-	auto userData = userDataInstance
-		? userDataInstance->serialize()
-		: QByteArray();
 
 	auto recentStickers = cRecentStickersPreload();
 	if (recentStickers.isEmpty() && _owner->sessionExists()) {
@@ -1059,8 +1063,42 @@ void Account::writeSessionSettings(Main::SessionSettings *stored) {
 	}
 	data.stream << quint32(dbiRecentStickers) << recentStickers;
 
+	if (writtenData) {
+		*writtenData = data.data.mid(sizeof(uint32));
+	}
 	FileWriteDescriptor file(_settingsKey, _basePath);
 	file.writeEncrypted(data, _localKey);
+}
+
+bool Account::writeSessionSettingsVerified(const QByteArray &serialized) {
+	if (serialized.isEmpty() || _readingUserSettings || !_localKey) {
+		return false;
+	}
+	auto writtenSettings = QByteArray();
+	writeSessionSettingsSerialized(serialized, &writtenSettings);
+	auto writtenMap = QByteArray();
+	writeMap(&writtenMap);
+	Local::sync();
+
+	auto settings = FileReadDescriptor();
+	if (!ReadEncryptedFile(settings, _settingsKey, _basePath, _localKey)
+		|| settings.data.mid(sizeof(uint32)) != writtenSettings) {
+		return false;
+	}
+	auto map = FileReadDescriptor();
+	if (!ReadFile(map, u"map"_q, _basePath)) {
+		return false;
+	}
+	auto legacySalt = QByteArray();
+	auto legacyKey = QByteArray();
+	auto encryptedMap = QByteArray();
+	map.stream >> legacySalt >> legacyKey >> encryptedMap;
+	if (!CheckStreamStatus(map.stream) || !map.stream.atEnd()) {
+		return false;
+	}
+	auto decryptedMap = EncryptedDescriptor();
+	return DecryptLocal(decryptedMap, encryptedMap, _localKey)
+		&& decryptedMap.data.mid(sizeof(uint32)) == writtenMap;
 }
 
 ReadSettingsContext Account::prepareReadSettingsContext() const {

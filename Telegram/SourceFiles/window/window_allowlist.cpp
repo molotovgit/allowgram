@@ -103,9 +103,12 @@ int AllowlistLockWidget::IdRow::resizeGetHeight(int newWidth) {
 		newWidth - removeWidth - st::allowlistLabelSkip,
 		1));
 	_field->moveToLeft(0, 0, newWidth);
+	const auto textRect = _field->rect().marginsRemoved(
+		_field->fullTextMargins());
 	_remove->moveToRight(
 		0,
-		std::max((_field->height() - _remove->height()) / 2, 0),
+		std::max(textRect.y()
+			+ (textRect.height() - _remove->height()) / 2, 0),
 		newWidth);
 	return _field->height();
 }

@@ -44,6 +44,8 @@ if (firstCreated) {
 	domain.addActivated(MTP::Environment::Production, true);
 	check(domain.accountsAuthedCount() == 1, "new-window addition cannot authorize a second user");
 	check(session.configureAllowlist(u"42\n99"_q, u"chat:42"_q).isEmpty(), "isolated synthetic allow-list saved");
+	clearAllowlistLock();
+	check(!_allowlistLock, "production setup completion reveals the main client");
 	const auto user = session.data().processUser(makeUser(42, false));
 	const auto group = session.data().peer(peerFromChat(ChatId(42)));
 	check(session.allowlistAllows(user->id), "allowed DM navigation policy retained");
@@ -152,7 +154,8 @@ if (firstCreated) {
 		auto picker = ChatHelpers::TabbedMemento();
 		check(!navigation->allowlistAllowsSection(&picker), "cached picker section navigation denied");
 		check(!picker.createWidget(bodyWidget(), navigation, Window::Column::Third, QRect()), "direct picker widget factory denied");
-		navigation->showPeerHistory(user);
+		navigation->showPeerHistory(user,
+			{ anim::type::instant, anim::activation::background }, ShowAtTheEndMsgId);
 		check(navigation->activeChatCurrent().history() == session.data().history(user), "allowed DM actually navigates");
 		navigation->showPeerHistory(session.user());
 		check(navigation->activeChatCurrent().history() == session.data().history(user), "retained self-chat callback cannot navigate");

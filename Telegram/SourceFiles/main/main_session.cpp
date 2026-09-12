@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_session.h"
 
+#include "main/allowlist_policy.h"
+
 #include "apiwrap.h"
 #include "api/api_peer_colors.h"
 #include "api/api_updates.h"
@@ -103,6 +105,7 @@ Session::Session(
 : _userId(user.c_user().vid())
 , _account(account)
 , _settings(std::move(settings))
+, _allowlistConfigured(_settings && _settings->allowlistConfigured())
 , _changes(std::make_unique<Data::Changes>(this))
 , _api(std::make_unique<ApiWrap>(this))
 , _updates(std::make_unique<Api::Updates>(this))
@@ -404,6 +407,80 @@ bool Session::validateSelf(UserId id) {
 
 void Session::saveSettings() {
 	local().writeSessionSettings();
+}
+
+bool Session::allowlistConfigured() const {
+	return _allowlistConfigured.current();
+}
+
+rpl::producer<bool> Session::allowlistConfiguredValue() const {
+	return _allowlistConfigured.value();
+}
+
+bool Session::allowlistAllows(PeerId peer) const {
+	return allowlistConfigured()
+		&& peer
+		&& _settings->allowlistPeers().contains(peer);
+}
+
+const base::flat_set<PeerId> &Session::allowlistPeers() const {
+	return _settings->allowlistPeers();
+}
+
+QString Session::configureAllowlist(
+		const QString &userIds,
+		const QString &groupIds) {
+	if (allowlistConfigured()) {
+		return tr::lng_allowgram_already_configured(tr::now);
+	}
+	const auto parsed = Allowlist::Parse(
+		userIds.toStdString(),
+		groupIds.toStdString());
+	using Error = Allowlist::Error;
+	switch (parsed.error) {
+	case Error::Empty:
+		return tr::lng_allowgram_empty(tr::now);
+	case Error::InvalidId:
+		return tr::lng_allowgram_invalid_id(
+			tr::now,
+			lt_name,
+			QString::fromStdString(parsed.token));
+	case Error::WrongField:
+		return tr::lng_allowgram_wrong_type(
+			tr::now,
+			lt_name,
+			QString::fromStdString(parsed.token));
+	case Error::TooMany:
+		return tr::lng_allowgram_too_many(tr::now);
+	case Error::TooLong:
+		return tr::lng_allowgram_too_long(tr::now);
+	case Error::None:
+		break;
+	}
+	auto peers = base::flat_set<PeerId>();
+	for (const auto &entry : parsed.entries) {
+		using Kind = Allowlist::Kind;
+		switch (entry.kind) {
+		case Kind::User:
+			peers.emplace(peerFromUser(UserId(entry.id)));
+			break;
+		case Kind::Chat:
+			peers.emplace(peerFromChat(ChatId(entry.id)));
+			break;
+		case Kind::Channel:
+			peers.emplace(peerFromChannel(ChannelId(entry.id)));
+			break;
+		}
+	}
+	auto candidate = SessionSettings();
+	candidate.addFromSerialized(_settings->serialize());
+	candidate._allowlistPeers = peers;
+	if (!local().writeSessionSettingsVerified(candidate.serialize())) {
+		return tr::lng_allowgram_save_failed(tr::now);
+	}
+	_settings->_allowlistPeers = std::move(peers);
+	_allowlistConfigured = true;
+	return QString();
 }
 
 void Session::saveSettingsDelayed(crl::time delay) {

@@ -240,6 +240,13 @@ public:
 	}
 
 	void saveSettings();
+	[[nodiscard]] bool allowlistConfigured() const;
+	[[nodiscard]] rpl::producer<bool> allowlistConfiguredValue() const;
+	[[nodiscard]] bool allowlistAllows(PeerId peer) const;
+	[[nodiscard]] const base::flat_set<PeerId> &allowlistPeers() const;
+	[[nodiscard]] QString configureAllowlist(
+		const QString &userIds,
+		const QString &groupIds);
 	void saveSettingsDelayed(crl::time delay = kDefaultSaveDelay);
 	void saveSettingsNowIfNeeded();
 
@@ -309,6 +316,7 @@ private:
 	const not_null<Account*> _account;
 
 	const std::unique_ptr<SessionSettings> _settings;
+	rpl::variable<bool> _allowlistConfigured;
 	const std::unique_ptr<Data::Changes> _changes;
 	const std::unique_ptr<ApiWrap> _api;
 	const std::unique_ptr<Api::Updates> _updates;

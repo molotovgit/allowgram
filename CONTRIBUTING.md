@@ -10,4 +10,4 @@ The historical presentation on `main` contains small dependent commits. It prese
 
 Use [testing instructions](docs/allowgram/testing.md) and [build instructions](docs/allowgram/build.md). For documentation, check every local link and image, use real isolated UI captures, strip metadata and review images for personal information. Report limitations and unperformed tests plainly.
 
-The upstream contribution guide remains at [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for provenance. Allowgram-specific changes belong in this repository; do not send custom policy changes to Telegram's repository without separately agreeing that scope.
+The upstream contribution guide remains at [docs/upstream-contributing.md](docs/upstream-contributing.md) for provenance. Allowgram-specific changes belong in this repository; do not send custom policy changes to Telegram's repository without separately agreeing that scope.

@@ -385,6 +385,34 @@ lockSetupEmailUserpicSmall: UserpicButton(defaultUserpicButton) {
 	photoSize: 22px;
 }
 
+
+allowlistContentWidth: 520px;
+allowlistContentTop: 32px;
+allowlistSectionSkip: 20px;
+allowlistRowPadding: margins(24px, 0px, 24px, 0px);
+allowlistHintPadding: margins(24px, 8px, 24px, 0px);
+allowlistButtonPadding: margins(24px, 16px, 24px, 8px);
+allowlistTitle: FlatLabel(defaultFlatLabel) {
+	minWidth: 240px;
+	style: TextStyle(defaultTextStyle) {
+		font: font(22px semibold);
+	}
+}
+allowlistDescription: FlatLabel(defaultFlatLabel) {
+	minWidth: 240px;
+}
+allowlistHint: FlatLabel(defaultFlatLabel) {
+	minWidth: 240px;
+	textFg: windowSubTextFg;
+}
+allowlistInput: InputField(defaultInputField) {
+	heightMin: 80px;
+	heightMax: 120px;
+}
+allowlistSubmit: RoundButton(changePhoneButton) {
+	width: 256px;
+}
+
 // Windows specific
 
 winQuitIcon: icon {{ "win_quit", windowFg }};

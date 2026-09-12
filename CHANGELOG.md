@@ -1,5 +1,13 @@
 # Allowgram changelog
 
+## 7.2.8.5
+
+- Block other-user profile presentation and Saved Messages, independently of the saved allow-list.
+- Remove additional-account entry points and guard new logins without deleting restored accounts.
+- Reject outgoing Unicode/custom emoji, stickers, GIF animations and reactions; remove composer pickers and suggestions.
+- Classify final text, media metadata, uploaded file prefixes and cached forwards before transport. Suppress outgoing URL previews and effects.
+- Preserve ordinary allowed text and attachments, allowed-bot Mini App gates and the 7.2.8.4 form layout. See [hardening scope and limits](docs/allowgram-7.2.8.5.md).
+
 ## 7.2.8.4
 
 - Restore native input-field height so numeric IDs, prefixed group/channel IDs and the caret fit below floating labels.

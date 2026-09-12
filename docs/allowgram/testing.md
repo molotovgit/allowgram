@@ -2,6 +2,22 @@
 
 [Back to Allowgram](../../README.md)
 
+## 7.2.8.5 hardening checks
+
+Run `python Telegram/build/allowgram/check_emoji_data.py` to verify that the
+production scalar table matches the pinned Telegram sequence source. The native
+request suite decodes real serialized requests and tests every listed emoji
+sequence, custom entities, malformed UTF-8, embedded NUL, valid photo captions,
+mixed albums, cached documents/forwards, upload prefixes, reactions and effects.
+Positive controls include numeric IDs, Uzbek/Cyrillic/CJK, ordinary documents,
+photos/videos and allowed-bot Mini App gates. Parser tests also exercise the
+production profile-presentation and initial-login permission functions.
+
+These are no-network policy tests, not signed-in navigation or sending E2E.
+Consult the private revision-specific report for actual commands, RED/GREEN
+receipts, native UI/build/startup/package results and untested routes. Historical
+7.2.8.4 counts below are not evidence for the new restrictions.
+
 ## Repeat the native form regression
 
 After building the Windows client, use the same x64 MSVC environment to build

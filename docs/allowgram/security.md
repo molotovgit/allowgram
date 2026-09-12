@@ -6,6 +6,15 @@ Allowgram enforces an account-specific policy inside this client. It is not a Te
 
 ## Policy flow
 
+Version 7.2.8.5 adds a shared profile-presentation gate, a new-login model guard,
+explicit self-chat exclusion and outgoing content classification. Client sends
+require safe final text/entities and inspectable media. Uploaded file prefixes
+and cached document/message metadata feed a session-owned transport context;
+callers without that context cannot authorize opaque media or forwards.
+URL previews and message effects are suppressed. See [scope and conservative
+restrictions](../allowgram-7.2.8.5.md); no server-wide or live-account guarantee
+is implied by these source changes.
+
 ```mermaid
 flowchart TD
   A[Telegram sign-in] --> B{Saved list exists?}

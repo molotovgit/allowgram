@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Allowgram</title>
+  <path id="bubble" fill="#008B83" d="M128 16C66.1 16 16 62.6 16 120c0 27.3 11.3 52.2 30 70.7L30 240l52.4-25.3C96.3 220.7 111.8 224 128 224c61.9 0 112-46.6 112-104S189.9 16 128 16Z"/>
+  <path id="check" fill="#FFFFFF" d="M66 119L80 105L111 136L177 70L193 86L111 169Z"/>
+</svg>

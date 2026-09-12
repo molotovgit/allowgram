@@ -47,5 +47,75 @@
   "archivalRelease": "52063613d25b281a9e5f9c360e42b48ef070922e",
   "publishedHistoryRewritten": false,
   "authorAndCommitter": "molotovgit <275727637+molotovgit@users.noreply.github.com>",
-  "publicBinaryRelease": false
+  "publicBinaryRelease": false,
+  "screenshots": [
+    {
+      "path": "docs/allowgram/images/allow-list-overview.png",
+      "sha256": "612406714c3da5f0a41243835aeadb64d62a0ea71d9527ab123a2fad6ed73115",
+      "dimensions": [
+        800,
+        840
+      ],
+      "applicationScale": 100,
+      "requestedOuterSize": [
+        800,
+        900
+      ],
+      "actualCrop": [
+        560,
+        240,
+        1360,
+        1080
+      ],
+      "metadataEmpty": true,
+      "scope": "Visible native app content; all form controls contained; lower blank window portion extends below screen."
+    },
+    {
+      "path": "docs/allowgram/images/allow-list-multiple.png",
+      "sha256": "3096877d1309e0f49af4ba58491edaffb7d2c57da26c0510274f90c430602b17",
+      "dimensions": [
+        800,
+        840
+      ],
+      "applicationScale": 100,
+      "requestedOuterSize": [
+        800,
+        900
+      ],
+      "actualCrop": [
+        560,
+        240,
+        1360,
+        1080
+      ],
+      "metadataEmpty": true,
+      "scope": "Visible native app content; all form controls contained; lower blank window portion extends below screen."
+    },
+    {
+      "path": "docs/allowgram/images/allow-list-validation.png",
+      "sha256": "30a0539c26579ce245f43f65162a2c7eea2c33b2df5b00e314ae6e3f19a80049",
+      "dimensions": [
+        800,
+        840
+      ],
+      "applicationScale": 100,
+      "requestedOuterSize": [
+        800,
+        900
+      ],
+      "actualCrop": [
+        560,
+        240,
+        1360,
+        1080
+      ],
+      "metadataEmpty": true,
+      "scope": "Visible native app content; all form controls contained; lower blank window portion extends below screen."
+    }
+  ],
+  "supplementaryCapturesReviewed": [
+    "150% selection viewport",
+    "100% compact viewport"
+  ],
+  "screenshotFixtureSha256": "fd96782f3fb37c627ef6a6bc8df00095c120bce3dfd2bb2efae3bdaf1cdcfdd3"
 }

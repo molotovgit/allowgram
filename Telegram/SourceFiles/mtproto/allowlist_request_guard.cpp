@@ -5,10 +5,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mtproto/allowlist_request_guard.h"
 #include "mtproto/allowlist_webview_guard.h"
+#include "main/allowlist_policy.h"
 
 #include <QtCore/QRegularExpression>
 #include <QtCore/QUrl>
 #include <QtCore/QUrlQuery>
+#include <algorithm>
 
 namespace MTP {
 namespace {
@@ -53,14 +55,37 @@ namespace {
 	});
 }
 
+[[nodiscard]] bool TextAllowed(const MTPstring &text) {
+	const auto decoded = QString::fromUtf8(text.v);
+	return decoded.toUtf8() == text.v
+		&& !Main::Allowlist::ContainsEmoji(decoded.toStdU32String());
+}
+
+[[nodiscard]] bool EntitiesAllowed(const MTPVector<MTPMessageEntity> &entities) {
+	return std::ranges::none_of(entities.v, [](const MTPMessageEntity &entity) {
+		return entity.match([](const MTPDmessageEntityCustomEmoji &) {
+			return true;
+		}, [](const MTPDmessageEntityPre &data) {
+			return !TextAllowed(data.vlanguage());
+		}, [](const MTPDmessageEntityTextUrl &data) {
+			return !TextAllowed(data.vurl());
+		}, [](const auto &) {
+			return false;
+		});
+	});
+}
+
 [[nodiscard]] bool ReplyAllowed(
 		const MTPInputReplyTo &reply,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows) {
 	return reply.match([&](const MTPDinputReplyToMessage &data) {
 		const auto monoforumPeer = data.vmonoforum_peer_id();
-		return !monoforumPeer
-			|| allows(Destination(*monoforumPeer, selfId));
+		return (!monoforumPeer || allows(Destination(*monoforumPeer, selfId)))
+			&& (!data.vreply_to_peer_id()
+				|| allows(Destination(*data.vreply_to_peer_id(), selfId)))
+			&& (!data.vquote_text() || TextAllowed(*data.vquote_text()))
+			&& (!data.vquote_entities() || EntitiesAllowed(*data.vquote_entities()));
 	}, [&](const MTPDinputReplyToMonoForum &data) {
 		return allows(Destination(data.vmonoforum_peer_id(), selfId));
 	}, [](const MTPDinputReplyToStory &) {
@@ -91,18 +116,41 @@ struct PeerRequestLayout {
 [[nodiscard]] bool MediaAllowed(
 		const MTPInputMedia &media,
 		UserId selfId,
-		const Fn<bool(PeerId)> &allows) {
-	return media.match([&](const MTPDinputMediaStory &data) {
-		return allows(Destination(data.vpeer(), selfId));
+		const Fn<bool(PeerId)> &allows,
+		AllowlistContentContext *content) {
+	return media.match([](const MTPDinputMediaEmpty &) {
+		return true;
+	}, [&](const MTPDinputMediaUploadedPhoto &data) {
+		return content && content->uploadAllowed(data.vfile())
+			&& !data.vstickers() && !data.vvideo();
+	}, [&](const MTPDinputMediaPhoto &data) {
+		return !data.vvideo();
+	}, [&](const MTPDinputMediaUploadedDocument &data) {
+		return content && content->uploadAllowed(data.vfile())
+			&& !data.vstickers() && !data.is_nosound_video()
+			&& AllowlistDocumentContentAllowed(qs(data.vmime_type()), data.vattributes().v);
+	}, [&](const MTPDinputMediaDocument &data) {
+		return content && content->documentAllowed(data.vid());
+	}, [](const MTPDinputMediaGeoPoint &) {
+		return true;
+	}, [](const MTPDinputMediaGeoLive &) {
+		return true;
+	}, [](const MTPDinputMediaContact &data) {
+		return TextAllowed(data.vphone_number()) && TextAllowed(data.vfirst_name())
+			&& TextAllowed(data.vlast_name()) && TextAllowed(data.vvcard());
+	}, [](const MTPDinputMediaVenue &data) {
+		return TextAllowed(data.vtitle()) && TextAllowed(data.vaddress());
+	}, [](const MTPDinputMediaWebPage &) {
+		return false;
 	}, [&](const MTPDinputMediaPaidMedia &data) {
 		for (const auto &nested : data.vextended_media().v) {
-			if (!MediaAllowed(nested, selfId, allows)) {
+			if (!MediaAllowed(nested, selfId, allows, content)) {
 				return false;
 			}
 		}
 		return true;
 	}, [](const auto &) {
-		return true;
+		return false;
 	});
 }
 
@@ -112,6 +160,7 @@ template <typename Request>
 		const mtpPrime *end,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
+		AllowlistContentContext *content,
 		PeerRequestLayout layout) {
 	if (!ValidateRequest<Request>(from, end)) {
 		return false;
@@ -141,24 +190,102 @@ template <typename Request>
 	}
 	const auto readMedia = [&] {
 		auto media = MTPInputMedia();
-		return media.read(from, end) && MediaAllowed(media, selfId, allows);
+		return media.read(from, end) && MediaAllowed(media, selfId, allows, content);
 	};
-	if constexpr (std::is_same_v<Request, MTPmessages_SendMedia>
-		|| std::is_same_v<Request, MTPmessages_UploadMedia>) {
+	const auto readEntities = [&] {
+		auto entities = MTPVector<MTPMessageEntity>();
+		return !(flags.v & (1U << 2))
+			&& (!(flags.v & (1U << 3))
+				|| (entities.read(from, end) && EntitiesAllowed(entities)));
+	};
+	if constexpr (std::is_same_v<Request, MTPmessages_SetTyping>) {
+		auto action = MTPSendMessageAction();
+		if (!action.read(from, end)) {
+			return false;
+		}
+		switch (action.type()) {
+		case mtpc_sendMessageTypingAction:
+		case mtpc_sendMessageCancelAction:
+		case mtpc_sendMessageRecordVideoAction:
+		case mtpc_sendMessageUploadVideoAction:
+		case mtpc_sendMessageRecordAudioAction:
+		case mtpc_sendMessageUploadAudioAction:
+		case mtpc_sendMessageUploadPhotoAction:
+		case mtpc_sendMessageUploadDocumentAction:
+		case mtpc_sendMessageGeoLocationAction:
+		case mtpc_sendMessageChooseContactAction:
+		case mtpc_sendMessageRecordRoundAction:
+		case mtpc_sendMessageUploadRoundAction:
+		case mtpc_sendMessageStopDraftAction:
+			return true;
+		case mtpc_sendMessageTextDraftAction: {
+			const auto &text = action.c_sendMessageTextDraftAction().vtext().data();
+			return TextAllowed(text.vtext()) && EntitiesAllowed(text.ventities());
+		} break;
+		default:
+			return false;
+		}
+	} else if constexpr (std::is_same_v<Request, MTPmessages_SendInlineBotResult>
+		|| std::is_same_v<Request, MTPmessages_SendQuickReplyMessages>
+		|| std::is_same_v<Request, MTPmessages_SendScheduledMessages>
+		|| std::is_same_v<Request, MTPmessages_SendPaidReaction>) {
+		return false;
+	} else if constexpr (std::is_same_v<Request, MTPmessages_SendReaction>) {
+		auto id = MTPint();
+		auto reactions = MTPVector<MTPReaction>();
+		return id.read(from, end) && (!(flags.v & 1U)
+			|| (reactions.read(from, end) && reactions.v.isEmpty()));
+	} else if constexpr (std::is_same_v<Request, MTPstories_SendReaction>) {
+		auto id = MTPint();
+		auto reaction = MTPReaction();
+		return id.read(from, end) && reaction.read(from, end)
+			&& reaction.type() == mtpc_reactionEmpty;
+	} else if constexpr (std::is_same_v<Request, MTPmessages_UploadMedia>) {
 		return readMedia();
+	} else if constexpr (std::is_same_v<Request, MTPmessages_SendMessage>
+		|| std::is_same_v<Request, MTPmessages_SendMedia>) {
+		if constexpr (std::is_same_v<Request, MTPmessages_SendMessage>) {
+			if (!(flags.v & (1U << 1))) {
+				return false;
+			}
+		}
+		if (flags.v & ((1U << 18) | (1U << 23))) {
+			return false;
+		}
+		if constexpr (std::is_same_v<Request, MTPmessages_SendMedia>) {
+			if (!readMedia()) {
+				return false;
+			}
+		}
+		auto message = MTPstring();
+		auto randomId = MTPlong();
+		return message.read(from, end) && TextAllowed(message)
+			&& randomId.read(from, end) && readEntities();
 	} else if constexpr (std::is_same_v<Request, MTPmessages_EditMessage>) {
 		auto id = MTPint();
 		auto message = MTPstring();
-		return id.read(from, end)
-			&& (!(flags.v & (1U << 11)) || message.read(from, end))
-			&& (!(flags.v & (1U << 14)) || readMedia());
+		return !(flags.v & (1U << 23))
+			&& (!(flags.v & (1U << 11)) || (flags.v & (1U << 1)))
+			&& id.read(from, end)
+			&& (!(flags.v & (1U << 15))
+				|| (content && content->messageAllowed(Destination(peer, selfId), id.v, true)))
+			&& (!(flags.v & (1U << 11))
+				|| (message.read(from, end) && TextAllowed(message)))
+			&& (!(flags.v & (1U << 14)) || readMedia())
+			&& readEntities();
 	} else if constexpr (std::is_same_v<Request, MTPmessages_SendMultiMedia>) {
+		if (flags.v & (1U << 18)) {
+			return false;
+		}
 		auto media = MTPVector<MTPInputSingleMedia>();
 		if (!media.read(from, end)) {
 			return false;
 		}
 		for (const auto &single : media.v) {
-			if (!MediaAllowed(single.data().vmedia(), selfId, allows)) {
+			if (!MediaAllowed(single.data().vmedia(), selfId, allows, content)
+				|| !TextAllowed(single.data().vmessage())
+				|| (single.data().ventities()
+					&& !EntitiesAllowed(*single.data().ventities()))) {
 				return false;
 			}
 		}
@@ -170,7 +297,8 @@ template <typename Request>
 		const mtpPrime *from,
 		const mtpPrime *end,
 		UserId selfId,
-		const Fn<bool(PeerId)> &allows) {
+		const Fn<bool(PeerId)> &allows,
+		AllowlistContentContext *content) {
 	if (!ValidateRequest<MTPmessages_ForwardMessages>(from, end)) {
 		return false;
 	}
@@ -181,6 +309,7 @@ template <typename Request>
 	auto randomIds = MTPVector<MTPlong>();
 	auto destination = MTPInputPeer();
 	if (!flags.read(from, end)
+		|| (flags.v & (1U << 18))
 		|| !source.read(from, end)
 		|| !allows(Destination(source, selfId))
 		|| !ids.read(from, end)
@@ -188,6 +317,14 @@ template <typename Request>
 		|| !destination.read(from, end)
 		|| !allows(Destination(destination, selfId))) {
 		return false;
+	}
+	if (!content || ids.v.isEmpty() || ids.v.size() != randomIds.v.size()) {
+		return false;
+	}
+	for (const auto &id : ids.v) {
+		if (!content->messageAllowed(Destination(source, selfId), id.v)) {
+			return false;
+		}
 	}
 	if (flags.v & (1 << 9)) {
 		auto topMessageId = MTPint();
@@ -398,6 +535,7 @@ template <typename Request>
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
 		const Fn<bool(UserId)> &knownBot,
+		AllowlistContentContext *content,
 		int depth) {
 	if (from == end || depth > 8) {
 		return false;
@@ -421,18 +559,35 @@ template <typename Request>
 	case mtpc_msg_resend_req:
 		return true;
 	case mtpc_invokeWithoutUpdates:
-		return BodyAllowed(from + 1, end, selfId, allows, knownBot, depth + 1);
+		return BodyAllowed(from + 1, end, selfId, allows, knownBot, content, depth + 1);
 	case mtpc_account_initTakeoutSession:
 	case mtpc_invokeWithTakeout:
 		return false;
 	case mtpc_invokeAfterMsg:
 		return (end - from > 3)
-			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, depth + 1);
+			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, content, depth + 1);
 	case mtpc_invokeWithLayer:
 		return (end - from > 2)
-			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, depth + 1);
+			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, content, depth + 1);
 	case mtpc_messages_forwardMessages:
-		return ReadForwardAllowed(from, end, selfId, allows);
+		return ReadForwardAllowed(from, end, selfId, allows, content);
+	case mtpc_upload_saveFilePart:
+	case mtpc_upload_saveBigFilePart: {
+		const auto big = type == mtpc_upload_saveBigFilePart;
+		if (!content || !(big
+			? ValidateRequest<MTPupload_SaveBigFilePart>(from, end)
+			: ValidateRequest<MTPupload_SaveFilePart>(from, end))) {
+			return false;
+		}
+		++from;
+		auto id = MTPlong();
+		auto part = MTPint();
+		auto total = MTPint();
+		auto bytes = MTPbytes();
+		return id.read(from, end) && part.read(from, end)
+			&& (!big || total.read(from, end)) && bytes.read(from, end)
+			&& content->recordUploadPart(id.v, part.v, bytes.v);
+	}
 	case mtpc_messages_getSavedDialogs:
 		return ReadSavedParentAllowed<MTPmessages_GetSavedDialogs>(
 			from, end, selfId, allows, 1U << 1);
@@ -513,11 +668,153 @@ template <typename Request>
 
 } // namespace
 
+bool AllowlistDocumentContentAllowed(
+		const QString &mime,
+		const QVector<MTPDocumentAttribute> &attributes) {
+	const auto normalized = mime.toLower();
+	if (normalized.isEmpty() || normalized == u"image/gif"_q
+		|| normalized == u"application/x-tgsticker"_q
+		|| normalized == u"application/x-tgsdice"_q
+		|| normalized == u"video/webm"_q) {
+		return false;
+	}
+	for (const auto &attribute : attributes) {
+		switch (attribute.type()) {
+		case mtpc_documentAttributeAnimated:
+		case mtpc_documentAttributeSticker:
+		case mtpc_documentAttributeCustomEmoji:
+		case mtpc_documentAttributeHasStickers:
+			return false;
+		case mtpc_documentAttributeFilename: {
+			const auto &name = attribute.c_documentAttributeFilename().vfile_name();
+			const auto lower = qs(name).toLower();
+			if (!TextAllowed(name) || lower.endsWith(u".gif"_q)
+				|| lower.endsWith(u".tgs"_q) || lower.endsWith(u".webm"_q)) {
+				return false;
+			}
+		} break;
+		case mtpc_documentAttributeImageSize:
+		case mtpc_documentAttributeVideo:
+		case mtpc_documentAttributeAudio:
+			break;
+		default:
+			return false;
+		}
+	}
+	return true;
+}
+
+bool AllowlistUploadPrefixAllowed(const QByteArray &bytes) {
+	return !bytes.isEmpty()
+		&& !bytes.startsWith("GIF87a") && !bytes.startsWith("GIF89a")
+		&& !bytes.startsWith(QByteArray::fromHex("1f8b"))
+		&& !bytes.startsWith(QByteArray::fromHex("1a45dfa3"))
+		&& !(bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WEBP"
+			&& ((bytes.mid(12, 4) == "VP8X" && bytes.size() > 20 && (bytes[20] & 2))
+				|| bytes.contains("ANIM")));
+}
+
+void AllowlistContentContext::recordDocument(
+		uint64 id,
+		const QString &mime,
+		const QVector<MTPDocumentAttribute> &attributes) {
+	_documents[id] = AllowlistDocumentContentAllowed(mime, attributes);
+}
+
+void AllowlistContentContext::recordMessage(const MTPDmessage &message, bool scheduled) {
+	if (message.vid().v <= 0) {
+		return;
+	}
+	const auto documentAllowed = [](const MTPDocument &document) {
+		return document.type() == mtpc_document
+			&& AllowlistDocumentContentAllowed(qs(document.c_document().vmime_type()),
+				document.c_document().vattributes().v);
+	};
+	const auto mediaAllowed = [&](const MTPMessageMedia &media) {
+		return media.match([](const MTPDmessageMediaEmpty &) {
+			return true;
+		}, [&](const MTPDmessageMediaPhoto &data) {
+			return !data.vvideo();
+		}, [&](const MTPDmessageMediaDocument &data) {
+			return data.vdocument() && documentAllowed(*data.vdocument())
+				&& !data.valt_documents();
+		}, [](const auto &) {
+			return false;
+		});
+	};
+	_messages[{ peerFromMTP(message.vpeer_id()), scheduled ? -message.vid().v : message.vid().v }]
+		= TextAllowed(message.vmessage()) && !message.vrich_message()
+		&& (!message.ventities() || EntitiesAllowed(*message.ventities()))
+		&& (!message.vmedia() || mediaAllowed(*message.vmedia()));
+}
+
+void AllowlistContentContext::forgetMessage(PeerId peer, int id, bool scheduled) {
+	if (id > 0) {
+		_messages.erase({ peer, scheduled ? -id : id });
+	}
+}
+
+bool AllowlistContentContext::documentAllowed(const MTPInputDocument &document) const {
+	return document.match([&](const MTPDinputDocument &data) {
+		const auto found = _documents.find(data.vid().v);
+		return found != _documents.end() && found->second;
+	}, [](const auto &) {
+		return false;
+	});
+}
+
+bool AllowlistContentContext::messageAllowed(PeerId peer, int id, bool scheduled) const {
+	if (id <= 0) {
+		return false;
+	}
+	const auto found = _messages.find({ peer, scheduled ? -id : id });
+	return found != _messages.end() && found->second;
+}
+
+bool AllowlistContentContext::uploadAllowed(const MTPInputFile &file) const {
+	const auto check = [&](const auto &data) {
+		const auto found = _uploads.find(data.vid().v);
+		if (found == _uploads.end() || !found->second.allowed
+			|| !TextAllowed(data.vname())) {
+			return false;
+		}
+		const auto &proof = found->second;
+		const auto parts = data.vparts().v;
+		return parts > 0 && proof.parts.size() == size_t(parts)
+			&& *proof.parts.begin() == 0 && *proof.parts.rbegin() == parts - 1
+			&& (parts == 1 || proof.firstPartSize >= 32);
+	};
+	return file.match([&](const MTPDinputFile &data) {
+		return check(data);
+	}, [&](const MTPDinputFileBig &data) {
+		return check(data);
+	}, [](const auto &) {
+		return false;
+	});
+}
+
+bool AllowlistContentContext::recordUploadPart(uint64 id, int part, const QByteArray &bytes) {
+	if (!id || part < 0 || part >= 16384 || bytes.isEmpty()) {
+		return false;
+	}
+	auto &proof = _uploads[id];
+	if (!part) {
+		proof.allowed = AllowlistUploadPrefixAllowed(bytes);
+		proof.firstPartSize = int(bytes.size());
+	}
+	if (!proof.allowed) {
+		return false;
+	}
+	proof.parts.insert(part);
+	return true;
+}
+
 bool AllowlistRequestAllowed(
 		const details::SerializedRequest &request,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
-		const Fn<bool(UserId)> &knownBot) {
+		const Fn<bool(UserId)> &knownBot,
+		AllowlistContentContext *content) {
 	constexpr auto offset = details::SerializedRequest::kMessageBodyPosition;
 	if (!request || request->size() <= offset) {
 		return false;
@@ -539,6 +836,7 @@ bool AllowlistRequestAllowed(
 		selfId,
 		conversationAllowed,
 		knownBot,
+		content,
 		0);
 }
 

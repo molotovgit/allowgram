@@ -696,6 +696,10 @@ void ShareBox::submit(Api::SendOptions options) {
 	const auto weak = base::make_weak(this);
 	const auto field = _comment->entity();
 	auto comment = field->getTextWithAppliedMarkdown();
+	if (!AllowgramSendTextAllowed(comment)) {
+		showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 	const auto checkPaid = [=] {
 		if (!_descriptor.countMessagesCallback) {
 			return true;

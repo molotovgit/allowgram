@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_hash.h"
 #include "api/api_text_entities.h"
 #include "main/main_session.h"
+#include "mtproto/allowlist_request_guard.h"
 #include "history/history.h"
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
@@ -552,6 +553,9 @@ HistoryItem *ScheduledMessages::append(
 		not_null<History*> history,
 		List &list,
 		const MTPMessage &message) {
+	if (message.type() == mtpc_message) {
+		_session->allowlistContent().recordMessage(message.c_message(), true);
+	}
 	const auto id = message.match([&](const auto &data) {
 		return data.vid().v;
 	});
@@ -636,6 +640,7 @@ void ScheduledMessages::remove(not_null<const HistoryItem*> item) {
 	auto &list = i->second;
 
 	if (!item->isSending() && !item->hasFailed()) {
+		_session->allowlistContent().forgetMessage(history->peer->id, int(lookupId(item).bare), true);
 		list.itemById.remove(lookupId(item));
 	}
 	const auto k = ranges::find(list.items, item, &OwnedItem::get);

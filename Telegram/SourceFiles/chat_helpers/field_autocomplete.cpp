@@ -447,30 +447,7 @@ bool FieldAutocomplete::clearFilteredBotCommands() {
 }
 
 FieldAutocomplete::StickerRows FieldAutocomplete::getStickerSuggestions() {
-	const auto data = &_session->data().stickers();
-	const auto list = data->getListByEmoji({ _emoji }, _stickersSeed);
-	auto result = ranges::views::all(
-		list
-	) | ranges::views::transform([](not_null<DocumentData*> sticker) {
-		return StickerSuggestion{
-			sticker,
-			sticker->createMediaView()
-		};
-	}) | ranges::to_vector;
-	for (auto &suggestion : _srows) {
-		if (!suggestion.lottie && !suggestion.webm) {
-			continue;
-		}
-		const auto i = ranges::find(
-			result,
-			suggestion.document,
-			&StickerSuggestion::document);
-		if (i != end(result)) {
-			i->lottie = std::move(suggestion.lottie);
-			i->webm = std::move(suggestion.webm);
-		}
-	}
-	return result;
+	return {};
 }
 
 void FieldAutocomplete::updateFiltered(bool resetScroll) {

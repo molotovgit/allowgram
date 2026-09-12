@@ -1203,6 +1203,7 @@ HistoryWidget::HistoryWidget(
 
 	_attachToggle->setAccessibleName(tr::lng_attach(tr::now));
 	_tabbedSelectorToggle->setAccessibleName(tr::lng_emoji_sticker_gif(tr::now));
+	_tabbedSelectorToggle->hide();
 	_botKeyboardShow->setAccessibleName(tr::lng_bot_keyboard_show(tr::now));
 	_botKeyboardHide->setAccessibleName(tr::lng_bot_keyboard_hide(tr::now));
 	_botCommandStart->setAccessibleName(tr::lng_bot_commands_start(tr::now));
@@ -4231,13 +4232,13 @@ void HistoryWidget::updateControlsVisibility() {
 			_botCommandStart->hide();
 		} else if (_kbReplyTo) {
 			_kbScroll->hide();
-			_tabbedSelectorToggle->show();
+			_tabbedSelectorToggle->hide();
 			_botKeyboardHide->hide();
 			_botKeyboardShow->hide();
 			_botCommandStart->hide();
 		} else {
 			_kbScroll->hide();
-			_tabbedSelectorToggle->show();
+			_tabbedSelectorToggle->hide();
 			_botKeyboardHide->hide();
 			if (_keyboard->hasMarkup()) {
 				_botKeyboardShow->show();
@@ -5419,6 +5420,10 @@ void HistoryWidget::saveEditMessage(Api::SendOptions options) {
 	}
 	const auto webPageDraft = _preview->draft();
 	const auto sending = prepareTextForEditMsg();
+	if (!AllowgramSendTextAllowed(sending)) {
+		controller()->showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 
 	const auto hasMediaWithCaption = item
 		&& item->media()
@@ -5802,6 +5807,10 @@ void HistoryWidget::sendTextWithTags(
 		bool useWebPageDraft,
 		Api::SendOptions options,
 		Fn<void()> done) {
+	if (!AllowgramSendTextAllowed(textWithTags) || options.effectId) {
+		controller()->showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 	if (!options.scheduled) {
 		_cornerButtons.clearReplyReturns();
 	}
@@ -7081,7 +7090,7 @@ void HistoryWidget::toggleKeyboard(bool manual) {
 	if (_botKeyboardHide->isHidden()
 		&& canWriteMessage()
 		&& !_showAnimation) {
-		_tabbedSelectorToggle->show();
+		_tabbedSelectorToggle->hide();
 	} else {
 		_tabbedSelectorToggle->hide();
 	}
@@ -7184,23 +7193,6 @@ bool HistoryWidget::preventsClose(Fn<void()> &&continueCallback) const {
 }
 
 void HistoryWidget::toggleTabbedSelectorMode() {
-	if (!_history) {
-		return;
-	}
-	if (_tabbedPanel) {
-		if (controller()->canShowThirdSection()
-			&& !controller()->adaptive().isOneColumn()) {
-			Core::App().settings().setTabbedSelectorSectionEnabled(true);
-			Core::App().saveSettingsDelayed();
-			pushTabbedSelectorToThirdSection(
-				_history,
-				Window::SectionShow::Way::ClearStack);
-		} else {
-			_tabbedPanel->toggleAnimated();
-		}
-	} else {
-		controller()->closeThirdSection();
-	}
 }
 
 void HistoryWidget::recountChatWidth() {
@@ -7439,7 +7431,9 @@ void HistoryWidget::moveFieldControls() {
 	_voiceRecordBar->moveToLeft(0, bottom - _voiceRecordBar->height());
 	_tabbedSelectorToggle->moveToRight(right, buttonsBottom);
 	_botKeyboardHide->moveToRight(right, buttonsBottom);
-	right += _botKeyboardHide->width();
+	if (!_botKeyboardHide->isHidden()) {
+		right += _botKeyboardHide->width();
+	}
 	_botKeyboardShow->moveToRight(right, buttonsBottom);
 	_botCommandStart->moveToRight(right, buttonsBottom);
 	if (_silent) {
@@ -7505,7 +7499,7 @@ void HistoryWidget::updateFieldSize() {
 		- _attachToggle->width()
 		- st::historySendRight
 		- _send->width()
-		- _tabbedSelectorToggle->width();
+		- (_botKeyboardHide->isHidden() ? 0 : _botKeyboardHide->width());
 	if (_botMenu.button) {
 		fieldWidth -= st::historyBotMenuSkip + _botMenu.button->width();
 	}
@@ -8801,7 +8795,7 @@ void HistoryWidget::updateBotKeyboard(History *h, bool force) {
 					showKeyboardHideButton();
 				} else {
 					_kbScroll->hide();
-					_tabbedSelectorToggle->show();
+					_tabbedSelectorToggle->hide();
 					_botKeyboardHide->hide();
 				}
 				_botKeyboardShow->hide();
@@ -8825,7 +8819,7 @@ void HistoryWidget::updateBotKeyboard(History *h, bool force) {
 		} else {
 			if (!_showAnimation) {
 				_kbScroll->hide();
-				_tabbedSelectorToggle->show();
+				_tabbedSelectorToggle->hide();
 				_botKeyboardHide->hide();
 				_botKeyboardShow->show();
 				_botCommandStart->hide();
@@ -8844,7 +8838,7 @@ void HistoryWidget::updateBotKeyboard(History *h, bool force) {
 	} else {
 		if (!_scroll->isHidden()) {
 			_kbScroll->hide();
-			_tabbedSelectorToggle->show();
+			_tabbedSelectorToggle->hide();
 			_botKeyboardHide->hide();
 			_botKeyboardShow->hide();
 			_botCommandStart->setVisible(!_editMsgId);
@@ -9958,6 +9952,11 @@ bool HistoryWidget::sendExistingDocument(
 		not_null<DocumentData*> document,
 		Api::MessageToSend messageToSend,
 		std::optional<MsgId> localId) {
+	if (!AllowgramSendDocumentAllowed(document)
+		|| !AllowgramSendTextAllowed(messageToSend.textWithTags)) {
+		controller()->showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return false;
+	}
 	const auto ephemeralReply = session().ephemeralMessages()
 		.isEphemeralBotReply(messageToSend.action.replyTo.messageId);
 	const auto error = (_peer && !ephemeralReply)

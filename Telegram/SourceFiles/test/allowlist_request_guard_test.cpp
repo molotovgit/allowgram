@@ -8,6 +8,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <cstdlib>
 #include <iostream>
+#include <QtCore/QDir>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 
 /*
 This executable checks requests before transport encryption and padding.
@@ -55,7 +58,7 @@ template <typename ...Parts>
 [[nodiscard]] Request Text(const MTPInputPeer &peer) {
 	return Packet(
 		MTP_int(mtpc_messages_sendMessage),
-		MTP_int(0),
+		MTP_int(2 | (0)),
 		peer,
 		MTP_string("test"),
 		MTP_long(1));
@@ -75,9 +78,11 @@ template <typename ...Parts>
 
 [[nodiscard]] MTPMessage IncomingMessage(
 		const MTPPeer &conversation,
-		const MTPPeer &sender) {
+		const MTPPeer &sender,
+		const QString &text = u"incoming content"_q,
+		const MTPMessageMedia &media = MTP_messageMediaEmpty()) {
 	return MTP_message(
-		MTP_flags(MTPDmessage::Flag::f_from_id),
+		MTP_flags(MTPDmessage::Flag::f_from_id | MTPDmessage::Flag::f_media),
 		MTP_int(17),
 		sender,
 		MTPint(),
@@ -90,8 +95,8 @@ template <typename ...Parts>
 		MTPPeer(),
 		MTPMessageReplyHeader(),
 		MTP_int(1700000000),
-		MTP_string("incoming content"),
-		MTPMessageMedia(),
+		MTP_string(text),
+		media,
 		MTPReplyMarkup(),
 		MTPVector<MTPMessageEntity>(),
 		MTPint(),
@@ -228,13 +233,18 @@ int main() {
 	auto checks = 0;
 	CheckIncomingMessages(checks, failures);
 	CheckAllowlistWebViews(checks, failures);
+	auto content = MTP::AllowlistContentContext();
+	for (const auto &source : { MTPPeer(MTP_peerUser(MTP_long(42))),
+		MTPPeer(MTP_peerChat(MTP_long(42))), MTPPeer(MTP_peerChannel(MTP_long(42))) }) {
+		content.recordMessage(IncomingMessage(source, MTP_peerUser(MTP_long(43))).c_message());
+	}
 	const auto checkWith = [&](
 			const char *name,
 			const Request &request,
 			bool expected,
 			const Fn<bool(PeerId)> &predicate) {
 		++checks;
-		const auto actual = MTP::AllowlistRequestAllowed(request, UserId(99), predicate);
+		const auto actual = MTP::AllowlistRequestAllowed(request, UserId(99), predicate, nullptr, &content);
 		if (actual != expected) {
 			++failures;
 			std::cerr << "FAIL: " << name << '\n';
@@ -244,8 +254,201 @@ int main() {
 		checkWith(name, request, expected, allows);
 	};
 	check("allowed text", Text(user), true);
+	auto emojiData = QFile(QFileInfo(QString::fromUtf8(__FILE__)).dir()
+		.absoluteFilePath(u"../../lib_ui/emoji.txt"_q));
+	if (!emojiData.open(QIODevice::ReadOnly)) {
+		std::cerr << "Cannot read pinned Telegram emoji test data" << std::endl;
+		return 1;
+	}
+	const auto sequences = QString::fromUtf8(emojiData.readAll()).split(QChar(34));
+	auto sequenceCount = 0;
+	for (auto index = 1; index < sequences.size(); index += 2) {
+		++sequenceCount;
+		check("complete Telegram emoji sequence denied", Packet(MTP_int(mtpc_messages_sendMessage),
+			MTP_int(2 | (0)), user, MTP_string(sequences[index]), MTP_long(1)), false);
+	}
+	if (sequenceCount < 4800) {
+		std::cerr << "Incomplete Telegram emoji sequence coverage" << std::endl;
+		return 1;
+	}
+	for (const auto &value : {
+		u"\U0001F600"_q, u"\u2764\uFE0F"_q,
+		u"\U0001F468\u200D\U0001F469\u200D\U0001F467"_q,
+		u"\U0001F1FA\U0001F1FF"_q, u"\U0001F44D\U0001F3FD"_q,
+		u"1\uFE0F\u20E3"_q, u"#\u20E3"_q, u"*\uFE0F\u20E3"_q,
+		u"\U0001FAE9"_q, u"\u263A\uFE0E"_q }) {
+		check("Unicode emoji send denied", Packet(MTP_int(mtpc_messages_sendMessage),
+			MTP_int(2 | (0)), user, MTP_string(value), MTP_long(1)), false);
+		check("Unicode emoji scheduled send denied", Packet(MTP_int(mtpc_messages_sendMessage),
+			MTP_int(2 | (1 << 10)), user, MTP_string(value), MTP_long(1), MTP_int(1900000000)), false);
+		check("Unicode emoji caption denied", Packet(MTP_int(mtpc_messages_sendMedia),
+			MTP_int(0), user, MTPInputMedia(MTP_inputMediaEmpty()), MTP_string(value), MTP_long(1)), false);
+		check("Unicode emoji edit denied", Packet(MTP_int(mtpc_messages_editMessage),
+			MTP_int(2 | (1 << 11)), user, MTP_int(1), MTP_string(value)), false);
+		check("Unicode emoji album caption denied", Packet(MTP_int(mtpc_messages_sendMultiMedia),
+			MTP_int(0), user, MTPVector<MTPInputSingleMedia>(MTP_vector<MTPInputSingleMedia>({
+				MTP_inputSingleMedia(MTP_flags(0), MTP_inputMediaEmpty(), MTP_long(1),
+					MTP_string(value), MTPVector<MTPMessageEntity>()) }))), false);
+	}
+	for (const auto &value : { u"0123456789 # * ! ?.,:; -1001234567890"_q,
+		u"O'zbekiston \u040E\u0437\u0431\u0435\u043A \u4F60\u597D \u65E5\u672C\u8A9E"_q }) {
+		check("ordinary multilingual text permitted", Packet(MTP_int(mtpc_messages_sendMessage),
+			MTP_int(2 | (0)), user, MTP_string(value), MTP_long(1)), true);
+	}
+	const auto customEntities = MTPVector<MTPMessageEntity>(MTP_vector<MTPMessageEntity>({
+		MTP_messageEntityCustomEmoji(MTP_int(0), MTP_int(1), MTP_long(123)) }));
+	check("custom emoji entity send denied", Packet(MTP_int(mtpc_messages_sendMessage),
+		MTP_int(2 | (1 << 3)), user, MTP_string("x"), MTP_long(1), customEntities), false);
+	check("custom emoji entity edit denied", Packet(MTP_int(mtpc_messages_editMessage),
+		MTP_int(2 | ((1 << 11) | (1 << 3))), user, MTP_int(1), MTP_string("x"), customEntities), false);
+	check("custom emoji entity caption denied", Packet(MTP_int(mtpc_messages_sendMedia),
+		MTP_int(1 << 3), user, MTPInputMedia(MTP_inputMediaEmpty()), MTP_string("x"),
+		MTP_long(1), customEntities), false);
 	check("blocked text", Text(blocked), false);
+	for (const auto &data : { u"python"_q, u"https://example.org"_q, u"\U0001F600"_q }) {
+		for (const auto &entity : {
+			MTPMessageEntity(MTP_messageEntityPre(MTP_int(0), MTP_int(1), MTP_string(data))),
+			MTPMessageEntity(MTP_messageEntityTextUrl(MTP_int(0), MTP_int(1), MTP_string(data))) }) {
+			check("entity-owned text uses content classifier", Packet(MTP_int(mtpc_messages_sendMessage),
+				MTP_int(2 | (1 << 3)), user, MTP_string("x"), MTP_long(1),
+				MTPVector<MTPMessageEntity>(MTP_vector<MTPMessageEntity>({ entity }))), data != u"\U0001F600"_q);
+		}
+	}
+	check("emoji interaction action denied", Packet(MTP_int(mtpc_messages_setTyping), MTP_int(0),
+		user, MTPSendMessageAction(MTP_sendMessageEmojiInteraction(MTP_string(u"\U0001F600"_q),
+			MTP_int(17), MTP_dataJSON(MTP_string("{}"))))), false);
+	check("emoji seen interaction denied", Packet(MTP_int(mtpc_messages_setTyping), MTP_int(0),
+		user, MTPSendMessageAction(MTP_sendMessageEmojiInteractionSeen(MTP_string(u"\U0001F600"_q)))), false);
+	for (const auto &text : { u"plain streamed text"_q, u"\U0001F600"_q }) {
+		check("streamed draft content classified", Packet(MTP_int(mtpc_messages_setTyping), MTP_int(0),
+			user, MTPSendMessageAction(MTP_sendMessageTextDraftAction(MTP_flags(0), MTP_long(1),
+				MTP_textWithEntities(MTP_string(text), MTPVector<MTPMessageEntity>())))), text.startsWith(u"plain"_q));
+	}
+	check("dice constructor denied", Packet(MTP_int(mtpc_messages_sendMedia),
+		MTP_int(0), user, MTPInputMedia(MTP_inputMediaDice(MTP_string("dice"))),
+		MTP_string(""), MTP_long(1)), false);
+	check("emoji reaction denied", Packet(MTP_int(mtpc_messages_sendReaction),
+		MTP_int(1), user, MTP_int(1), MTPVector<MTPReaction>(MTP_vector<MTPReaction>({
+			MTP_reactionEmoji(MTP_string(u"\U0001F44D"_q)) }))), false);
+	check("custom emoji reaction denied", Packet(MTP_int(mtpc_messages_sendReaction),
+		MTP_int(1), user, MTP_int(1), MTPVector<MTPReaction>(MTP_vector<MTPReaction>({
+			MTP_reactionCustomEmoji(MTP_long(1)) }))), false);
+	check("GIF bytes cannot upload without evidence", Request::Serialize(
+		MTPupload_SaveFilePart(MTP_long(10), MTP_int(0), MTP_bytes("GIF89a"))), false);
+	check("unknown cached document denied", Packet(MTP_int(mtpc_messages_sendMedia),
+		MTP_int(0), user, MTPInputMedia(MTP_inputMediaDocument(MTP_flags(0),
+			MTP_inputDocument(MTP_long(123), MTP_long(1), MTP_bytes("reference")),
+			MTPInputPhoto(), MTPint(), MTPint(), MTPstring())),
+		MTP_string("caption"), MTP_long(1)), false);
+	check("external document cannot be classified", Packet(MTP_int(mtpc_messages_sendMedia),
+		MTP_int(0), user, MTPInputMedia(MTP_inputMediaDocumentExternal(MTP_flags(0),
+			MTP_string("https://example.org/animation"), MTPint(), MTPInputPhoto(), MTPint())),
+		MTP_string("caption"), MTP_long(1)), false);
 	check("type-safe basic group ID", Text(group), false);
+	const auto documentReference = MTPInputDocument(MTP_inputDocument(
+		MTP_long(123), MTP_long(1), MTP_bytes("reference")));
+	const auto documentMedia = MTPInputMedia(MTP_inputMediaDocument(MTP_flags(0),
+		documentReference, MTPInputPhoto(), MTPint(), MTPint(), MTPstring()));
+	const auto documentSend = Packet(MTP_int(mtpc_messages_sendMedia), MTP_int(0),
+		user, documentMedia, MTP_string("plain caption"), MTP_long(1));
+	content.recordDocument(123, u"application/pdf"_q, { MTP_documentAttributeFilename(MTP_string("report.pdf")) });
+	check("known ordinary document permitted", documentSend, true);
+	content.recordDocument(123, u"image/gif"_q, { MTP_documentAttributeFilename(MTP_string("renamed.bin")) });
+	check("cached GIF metadata denied", documentSend, false);
+	content.recordDocument(123, u"video/mp4"_q, { MTP_documentAttributeAnimated() });
+	check("cached GIF animation attribute denied", documentSend, false);
+	content.recordDocument(123, u"image/webp"_q, { MTP_documentAttributeSticker(MTP_flags(0),
+		MTP_string("sticker"), MTP_inputStickerSetEmpty(), MTPMaskCoords()) });
+	check("cached static sticker denied", documentSend, false);
+	content.recordDocument(123, u"video/mp4"_q, { MTP_documentAttributeVideo(MTP_flags(0),
+		MTP_double(1.), MTP_int(32), MTP_int(32), MTPint(), MTPdouble(), MTPstring()) });
+	check("ordinary nonanimated video permitted", documentSend, true);
+	check("ordinary document upload part permitted", Request::Serialize(
+		MTPupload_SaveFilePart(MTP_long(11), MTP_int(0), MTP_bytes("%PDF-1.7 plain document"))), true);
+	const auto upload = MTPInputFile(MTP_inputFile(MTP_long(11), MTP_int(1),
+		MTP_string("report.pdf"), MTP_string("checksum")));
+	const auto uploadedDocument = [&](const QString &mime, const QVector<MTPDocumentAttribute> &attributes) {
+		return Packet(MTP_int(mtpc_messages_sendMedia), MTP_int(0), user,
+			MTPInputMedia(MTP_inputMediaUploadedDocument(MTP_flags(0), upload, MTPInputFile(),
+				MTP_string(mime), MTP_vector<MTPDocumentAttribute>(attributes),
+				MTPVector<MTPInputDocument>(), MTPInputPhoto(), MTPint(), MTPint())),
+			MTP_string("caption"), MTP_long(1));
+	};
+	check("ordinary uploaded PDF preserved", uploadedDocument(u"application/pdf"_q, {}), true);
+	check("uploaded GIF MIME denied", uploadedDocument(u"image/gif"_q, {}), false);
+	check("uploaded animation attribute denied", uploadedDocument(u"video/mp4"_q,
+		{ MTP_documentAttributeAnimated() }), false);
+	check("uploaded custom emoji attribute denied", uploadedDocument(u"image/webp"_q,
+		{ MTP_documentAttributeCustomEmoji(MTP_flags(0), MTP_string("x"), MTP_inputStickerSetEmpty()) }), false);
+	check("renamed compressed TGS bytes denied", Request::Serialize(MTPupload_SaveFilePart(
+		MTP_long(12), MTP_int(0), MTP_bytes(QByteArray::fromHex("1f8b080000000000")))), false);
+	check("renamed WebM sticker bytes denied", Request::Serialize(MTPupload_SaveFilePart(
+		MTP_long(13), MTP_int(0), MTP_bytes(QByteArray::fromHex("1a45dfa300000000")))), false);
+	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43)),
+		u"edited \U0001F600"_q).c_message());
+	check("cached forward rechecks edited emoji", Forward(user, user), false);
+	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43)),
+		u"scheduled \U0001F600"_q).c_message(), true);
+	check("reschedule unsafe cached message denied", Packet(MTP_int(mtpc_messages_editMessage),
+		MTP_int(1 << 15), user, MTP_int(17), MTP_int(1900000000)), false);
+	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43))).c_message());
+	check("cached plain forward preserved", Forward(user, user), true);
+	check("ordinary cache does not authorize scheduled ID", Packet(MTP_int(mtpc_messages_editMessage),
+		MTP_int(1 << 15), user, MTP_int(17), MTP_int(1900000000)), false);
+	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43))).c_message(), true);
+	check("reschedule ordinary cached message preserved", Packet(MTP_int(mtpc_messages_editMessage),
+		MTP_int(1 << 15), user, MTP_int(17), MTP_int(1900000000)), true);
+	check("reschedule unknown content denied", Packet(MTP_int(mtpc_messages_editMessage),
+		MTP_int(1 << 15), user, MTP_int(8181), MTP_int(1900000000)), false);
+	const auto photoMedia = MTPInputMedia(MTP_inputMediaPhoto(MTP_flags(0),
+		MTP_inputPhoto(MTP_long(124), MTP_long(1), MTP_bytes("reference")), MTPint(), MTPInputDocument()));
+	const auto photoSend = [&](const QString &caption) {
+		return Packet(MTP_int(mtpc_messages_sendMedia), MTP_int(0), user,
+			photoMedia, MTP_string(caption), MTP_long(1));
+	};
+	check("valid ordinary photo caption permitted", photoSend(u"plain caption"_q), true);
+	check("same photo with emoji caption denied", photoSend(u"caption \U0001F600"_q), false);
+	check("same photo with custom entity denied", Packet(MTP_int(mtpc_messages_sendMedia),
+		MTP_int(1 << 3), user, photoMedia, MTP_string("x"), MTP_long(1), customEntities), false);
+	const auto photoSingle = [&](const QString &caption) {
+		return MTP_inputSingleMedia(MTP_flags(0), photoMedia, MTP_long(1),
+			MTP_string(caption), MTPVector<MTPMessageEntity>());
+	};
+	const auto album = [&](const QString &lastCaption) {
+		return Packet(MTP_int(mtpc_messages_sendMultiMedia), MTP_int(0), user,
+			MTPVector<MTPInputSingleMedia>(MTP_vector<MTPInputSingleMedia>({
+				photoSingle(u"first"_q), photoSingle(lastCaption) })));
+	};
+	check("ordinary photo album permitted", album(u"second"_q), true);
+	check("mixed album with emoji caption denied", album(u"\U0001F600"_q), false);
+	check("embedded NUL does not hide emoji", Packet(MTP_int(mtpc_messages_sendMessage),
+		MTP_int(2 | (2)), user, MTP_bytes(QByteArray::fromHex("6f6b00f09f9880")), MTP_long(1)), false);
+	check("malformed UTF8 rejected", Packet(MTP_int(mtpc_messages_sendMessage),
+		MTP_int(2 | (2)), user, MTP_bytes(QByteArray::fromHex("f0808080")), MTP_long(1)), false);
+	check("URL with automatic preview rejected", Packet(MTP_int(mtpc_messages_sendMessage),
+		MTP_int(0), user, MTP_string("https://example.org/image"), MTP_long(1)), false);
+	check("plain URL with preview disabled permitted", Packet(MTP_int(mtpc_messages_sendMessage),
+		MTP_int(2 | (2)), user, MTP_string("https://example.org/image"), MTP_long(1)), true);
+	check("explicit opaque webpage rejected", Packet(MTP_int(mtpc_messages_sendMedia), MTP_int(0),
+		user, MTPInputMedia(MTP_inputMediaWebPage(MTP_flags(0), MTP_string("https://example.org/image"))),
+		MTP_string("caption"), MTP_long(1)), false);
+	check("URL edit with automatic preview rejected", Packet(MTP_int(mtpc_messages_editMessage),
+		MTP_int(1 << 11), user, MTP_int(17), MTP_string("https://example.org/image")), false);
+	check("text effect rejected", Packet(MTP_int(mtpc_messages_sendMessage), MTP_int(2 | (2 | (1 << 18))),
+		user, MTP_string("plain"), MTP_long(1), MTP_long(321)), false);
+	check("photo effect rejected", Packet(MTP_int(mtpc_messages_sendMedia), MTP_int(1 << 18),
+		user, photoMedia, MTP_string("plain"), MTP_long(1), MTP_long(321)), false);
+	check("album effect rejected", Packet(MTP_int(mtpc_messages_sendMultiMedia), MTP_int(1 << 18),
+		user, MTPVector<MTPInputSingleMedia>(MTP_vector<MTPInputSingleMedia>({ photoSingle(u"plain"_q) })),
+		MTP_long(321)), false);
+	check("forward effect rejected", Packet(MTP_int(mtpc_messages_forwardMessages), MTP_int(1 << 18),
+		user, MTPVector<MTPint>(MTP_vector<MTPint>({ MTP_int(17) })),
+		MTPVector<MTPlong>(MTP_vector<MTPlong>({ MTP_long(1) })), user, MTP_long(321)), false);
+	if (MTP::AllowlistRequestAllowed(Forward(user, user), UserId(99), allows)) {
+		std::cerr << "Forward accepted without content context" << std::endl;
+		++failures;
+	}
+	++checks;
 	check("type-safe channel ID", Text(channel), false);
 	check("self is not implicitly allowed", Text(MTP_inputPeerSelf()), false);
 	const auto includesSelf = Fn<bool(PeerId)>([](PeerId) { return true; });
@@ -296,7 +499,7 @@ int main() {
 		MTP_int(mtpc_help_getConfig)), false);
 	check("takeout wrapper around allowed send", Packet(
 		MTP_int(mtpc_invokeWithTakeout), MTP_long(1),
-		MTP_int(mtpc_messages_sendMessage), MTP_int(0), user,
+		MTP_int(mtpc_messages_sendMessage), MTP_int(2 | (0)), user,
 		MTP_string("test"), MTP_long(1)), false);
 	check("rich message allowed user", Request::Serialize(
 		MTPmessages_GetRichMessage(user, MTP_int(1))), true);
@@ -317,10 +520,10 @@ int main() {
 			MTP_long(1)), expected);
 		check("album", Packet(MTP_int(mtpc_messages_sendMultiMedia), MTP_int(0),
 			peer, MTPVector<MTPInputSingleMedia>()), expected);
-		check("edit", Packet(MTP_int(mtpc_messages_editMessage), MTP_int(1 << 11),
+		check("edit", Packet(MTP_int(mtpc_messages_editMessage), MTP_int(2 | (1 << 11)),
 			peer, MTP_int(1), MTP_string("replacement")), expected);
 		check("inline result", Packet(MTP_int(mtpc_messages_sendInlineBotResult),
-			MTP_int(0), peer, MTP_long(1), MTP_long(2), MTP_string("result")), expected);
+			MTP_int(0), peer, MTP_long(1), MTP_long(2), MTP_string("result")), false);
 		check("bot callback", Packet(MTP_int(mtpc_messages_getBotCallbackAnswer),
 			MTP_int(0), peer, MTP_int(1)), expected);
 		check("vote", Packet(MTP_int(mtpc_messages_sendVote), peer, MTP_int(1),
@@ -328,9 +531,9 @@ int main() {
 		check("reaction", Packet(MTP_int(mtpc_messages_sendReaction), MTP_int(0),
 			peer, MTP_int(1)), expected);
 		check("scheduled message", Packet(MTP_int(mtpc_messages_sendScheduledMessages),
-			peer, MTPVector<MTPint>()), expected);
+			peer, MTPVector<MTPint>()), false);
 		check("quick reply", Packet(MTP_int(mtpc_messages_sendQuickReplyMessages),
-			peer, MTP_int(1), MTPVector<MTPint>(), MTPVector<MTPlong>()), expected);
+			peer, MTP_int(1), MTPVector<MTPint>(), MTPVector<MTPlong>()), false);
 		check("forward destination", Forward(user, peer), expected);
 		check("forward denied source", Forward(blocked, peer), false);
 		check("typing", Packet(MTP_int(mtpc_messages_setTyping), MTP_int(0),
@@ -361,15 +564,14 @@ int main() {
 	checkWith("forward allowed group to denied destination", Forward(
 		group, blocked), false, forwardingAllows);
 	for (const auto &source : { user, blocked, group, channel }) {
-		const auto expected = source.type() == mtpc_inputPeerUser
-			&& source.c_inputPeerUser().vuser_id().v == 42;
+		const auto expected = false;
 		const auto story = MTPInputMedia(MTP_inputMediaStory(source, MTP_int(17)));
 		check("story forward source", Packet(MTP_int(mtpc_messages_sendMedia),
 			MTP_int(0), user, story, MTP_string(""), MTP_long(1)), expected);
 		check("story upload source", Packet(MTP_int(mtpc_messages_uploadMedia),
 			MTP_int(0), user, story), expected);
 		check("story edit source", Packet(MTP_int(mtpc_messages_editMessage),
-			MTP_int((1 << 11) | (1 << 14)), user, MTP_int(1),
+			MTP_int(2 | ((1 << 11) | (1 << 14))), user, MTP_int(1),
 			MTP_string("edited"), story), expected);
 		const auto single = MTP_inputSingleMedia(MTP_flags(0), story,
 			MTP_long(1), MTP_string(""), MTPVector<MTPMessageEntity>());
@@ -400,7 +602,7 @@ int main() {
 	check("from-message context is not destination", Text(MTP_inputPeerUserFromMessage(
 		blocked, MTP_int(1), MTP_long(42))), true);
 	check("monoforum recipient", Packet(MTP_int(mtpc_messages_sendMessage),
-		MTP_int(1), user, MTPInputReplyTo(MTP_inputReplyToMonoForum(blocked)),
+		MTP_int(2 | (1)), user, MTPInputReplyTo(MTP_inputReplyToMonoForum(blocked)),
 		MTP_string("test"), MTP_long(1)), false);
 	check("draft reply precedes peer", Packet(MTP_int(mtpc_messages_saveDraft),
 		MTP_int(1 << 4), MTPInputReplyTo(MTP_inputReplyToMonoForum(user)), user,
@@ -436,7 +638,7 @@ int main() {
 	(*wrongLength)[Request::kMessageLengthPosition] = 0;
 	check("corrupt body length", wrongLength, false);
 	const auto wrapped = Packet(MTP_int(mtpc_invokeWithoutUpdates),
-		MTP_int(mtpc_messages_sendMessage), MTP_int(0), blocked,
+		MTP_int(mtpc_messages_sendMessage), MTP_int(2 | (0)), blocked,
 		MTP_string("test"), MTP_long(1));
 	check("wrapper cannot bypass destination", wrapped, false);
 	++checks;

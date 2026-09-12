@@ -52,9 +52,15 @@ class ChatStyle;
 class GenericBox;
 class PopupMenu;
 class Show;
+struct PreparedFile;
 } // namespace Ui
 
 [[nodiscard]] QString PrepareMentionTag(not_null<UserData*> user);
+[[nodiscard]] bool AllowgramSendTextAllowed(const TextWithTags &text);
+[[nodiscard]] bool AllowgramSendTextAllowed(const TextWithEntities &text);
+[[nodiscard]] bool AllowgramSendDocumentAllowed(not_null<DocumentData*> document);
+[[nodiscard]] bool AllowgramSendFileAllowed(const Ui::PreparedFile &file);
+[[nodiscard]] bool AllowgramForwardItemAllowed(not_null<HistoryItem*> item);
 [[nodiscard]] TextWithTags PrepareEditText(not_null<HistoryItem*> item);
 [[nodiscard]] bool EditTextChanged(
 	not_null<HistoryItem*> item,

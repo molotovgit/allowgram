@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 
 #include "main/allowlist_policy.h"
+#include "mtproto/allowlist_request_guard.h"
 
 #include "apiwrap.h"
 #include "api/api_peer_colors.h"
@@ -411,6 +412,13 @@ void Session::saveSettings() {
 
 bool Session::allowlistConfigured() const {
 	return _allowlistConfigured.current();
+}
+
+MTP::AllowlistContentContext &Session::allowlistContent() {
+	if (!_allowlistContent) {
+		_allowlistContent = std::make_unique<MTP::AllowlistContentContext>();
+	}
+	return *_allowlistContent;
 }
 
 rpl::producer<bool> Session::allowlistConfiguredValue() const {

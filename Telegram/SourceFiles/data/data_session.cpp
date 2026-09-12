@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 
 #include "mtproto/allowlist_message_guard.h"
+#include "mtproto/allowlist_request_guard.h"
 
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -3103,6 +3104,7 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		existing->applyEdition(data);
 	}, [&](const auto &data) {
 		existing->applyEdition(HistoryMessageEdition(_session, data));
+		session().allowlistContent().recordMessage(data);
 	});
 }
 
@@ -3641,6 +3643,9 @@ HistoryItem *Session::addNewMessage(
 		data,
 		localFlags,
 		type);
+	if (data.type() == mtpc_message && IsServerMsgId(result->id)) {
+		session().allowlistContent().recordMessage(data.c_message());
+	}
 	if (type == NewMessageType::Unread) {
 		CheckForSwitchInlineButton(result);
 	}
@@ -4270,6 +4275,7 @@ void Session::documentApplyFields(
 	if (!date) {
 		return;
 	}
+	session().allowlistContent().recordDocument(document->id, mime, attributes);
 	document->date = date;
 	document->setMimeString(mime);
 	document->updateThumbnails(

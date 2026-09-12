@@ -8,13 +8,44 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "scheme.h"
 #include "data/data_peer_id.h"
 #include "mtproto/details/mtproto_serialized_request.h"
+#include <map>
+#include <set>
 
 namespace MTP {
+
+[[nodiscard]] bool AllowlistDocumentContentAllowed(
+	const QString &mime,
+	const QVector<MTPDocumentAttribute> &attributes);
+[[nodiscard]] bool AllowlistUploadPrefixAllowed(const QByteArray &bytes);
+
+class AllowlistContentContext final {
+public:
+	void recordDocument(uint64 id, const QString &mime,
+		const QVector<MTPDocumentAttribute> &attributes);
+	void recordMessage(const MTPDmessage &message, bool scheduled = false);
+	void forgetMessage(PeerId peer, int id, bool scheduled = false);
+	[[nodiscard]] bool documentAllowed(const MTPInputDocument &document) const;
+	[[nodiscard]] bool messageAllowed(PeerId peer, int id, bool scheduled = false) const;
+	[[nodiscard]] bool uploadAllowed(const MTPInputFile &file) const;
+	[[nodiscard]] bool recordUploadPart(uint64 id, int part, const QByteArray &bytes);
+
+private:
+	struct UploadProof {
+		bool allowed = false;
+		int firstPartSize = 0;
+		std::set<int> parts;
+	};
+	std::map<uint64, bool> _documents;
+	std::map<std::pair<PeerId, int>, bool> _messages;
+	std::map<uint64, UploadProof> _uploads;
+
+};
 
 [[nodiscard]] bool AllowlistRequestAllowed(
 	const details::SerializedRequest &request,
 	UserId selfId,
 	const Fn<bool(PeerId)> &allows,
-	const Fn<bool(UserId)> &knownBot = nullptr);
+	const Fn<bool(UserId)> &knownBot = nullptr,
+	AllowlistContentContext *content = nullptr);
 
 } // namespace MTP

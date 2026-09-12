@@ -473,18 +473,6 @@ void TabbedPanel::showAnimated() {
 }
 
 void TabbedPanel::showStarted() {
-	if (_shouldFinishHide) {
-		return;
-	}
-	if (isHidden()) {
-		_selector->showStarted();
-		moveHorizontally();
-		raise();
-		show();
-		startShowAnimation();
-	} else if (_hiding) {
-		startOpacityAnimation(false);
-	}
 }
 
 bool TabbedPanel::eventFilter(QObject *obj, QEvent *e) {
@@ -499,13 +487,6 @@ bool TabbedPanel::eventFilter(QObject *obj, QEvent *e) {
 }
 
 void TabbedPanel::showFromSelector() {
-	if (isHidden()) {
-		moveHorizontally();
-		startShowAnimation();
-		show();
-	}
-	showChildren();
-	showAnimated();
 }
 
 style::margins TabbedPanel::innerPadding() const {

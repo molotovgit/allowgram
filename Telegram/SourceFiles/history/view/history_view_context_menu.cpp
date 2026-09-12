@@ -435,6 +435,10 @@ void AddDocumentActions(
 		not_null<DocumentData*> document,
 		HistoryItem *item,
 		not_null<ListWidget*> list) {
+	if (document->sticker() || document->type == AnimatedDocument
+		|| document->hasMimeType(u"image/gif"_q)) {
+		return;
+	}
 	if (document->loading()) {
 		menu->addAction(tr::lng_context_cancel_download(tr::now), [=] {
 			document->cancel();

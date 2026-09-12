@@ -47,6 +47,7 @@ $sources = @(
     "$Repository/Telegram/SourceFiles/test/allowlist_request_guard_test.cpp",
     "$Repository/Telegram/SourceFiles/test/allowlist_webview_test.cpp",
     "$Repository/Telegram/SourceFiles/mtproto/allowlist_request_guard.cpp",
+    "$Repository/Telegram/SourceFiles/main/allowlist_policy.cpp",
     "$Repository/Telegram/SourceFiles/data/data_peer_id.cpp",
     "$scheme.cpp",
     "$Repository/Telegram/SourceFiles/mtproto/details/mtproto_serialized_request.cpp",

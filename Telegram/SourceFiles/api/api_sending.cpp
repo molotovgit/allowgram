@@ -32,6 +32,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/attach/attach_prepare.h"
 #include "main/main_session.h"
 #include "main/main_app_config.h"
+#include "mtproto/allowlist_request_guard.h"
+#include "lang/lang_keys.h"
 #include "storage/localimageloader.h"
 #include "storage/file_upload.h"
 #include "mainwidget.h"
@@ -702,6 +704,10 @@ void SendExistingDocument(
 		MessageToSend &&message,
 		not_null<DocumentData*> document,
 		std::optional<MsgId> localMessageId) {
+	if (!AllowgramSendDocumentAllowed(document)
+		|| !AllowgramSendTextAllowed(message.textWithTags)) {
+		return;
+	}
 	const auto inputMedia = [=] {
 		return MTP_inputMediaDocument(
 			MTP_flags(message.action.options.mediaSpoiler
@@ -1299,6 +1305,23 @@ void AddConfirmedLocalPlaceholder(const ConfirmedLocalFile &local) {
 void SendConfirmedFile(
 		not_null<Main::Session*> session,
 		const std::shared_ptr<FilePrepareResult> &file) {
+	auto candidate = Ui::PreparedFile();
+	candidate.path = file->filepath;
+	candidate.content = file->content;
+	candidate.caption = file->caption;
+	const auto documentAllowed = file->document.match([](const MTPDdocument &data) {
+		return MTP::AllowlistDocumentContentAllowed(qs(data.vmime_type()), data.vattributes().v);
+	}, [](const MTPDdocumentEmpty &) {
+		return true;
+	});
+	if (file->to.options.effectId || file->animationJob
+		|| !file->attachedStickers.empty() || !documentAllowed
+		|| !AllowgramSendFileAllowed(candidate)) {
+		session->api().sendMessageFail(
+			tr::lng_allowgram_content_disabled(tr::now),
+			session->data().peer(file->to.peer));
+		return;
+	}
 	const auto welcomeTemplate = file->to.options.welcomeTemplate;
 	if (welcomeTemplate && file->to.replaceMediaOf) {
 		return;

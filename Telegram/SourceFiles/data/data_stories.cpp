@@ -1122,18 +1122,6 @@ void Stories::activateStealthMode(Fn<void()> done) {
 }
 
 void Stories::sendReaction(FullStoryId id, Data::ReactionId reaction) {
-	if (const auto maybeStory = lookup(id)) {
-		const auto story = *maybeStory;
-		story->setReactionId(reaction);
-
-		const auto api = &session().api();
-		api->request(MTPstories_SendReaction(
-			MTP_flags(0),
-			story->peer()->input(),
-			MTP_int(id.story),
-			ReactionToMTP(reaction)
-		)).send();
-	}
 }
 
 std::shared_ptr<HistoryItem> Stories::resolveItem(not_null<Story*> story) {

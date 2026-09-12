@@ -46,6 +46,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "main/main_session.h"
+#include "main/allowlist_policy.h"
+#include "mtproto/allowlist_request_guard.h"
+#include "ui/chat/attach/attach_prepare.h"
 #include "settings/settings_common.h"
 #include "settings/sections/settings_premium.h"
 #include "styles/style_layers.h"
@@ -60,11 +63,63 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_common_adapters.h"
 
 #include <QtCore/QMimeData>
+#include <QtCore/QFile>
 #include <QtCore/QStack>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QTextBlock>
 #include <QtGui/QClipboard>
 #include <QtWidgets/QApplication>
+
+bool AllowgramSendTextAllowed(const TextWithEntities &text) {
+	return !Main::Allowlist::ContainsEmoji(text.text.toStdU32String())
+		&& ranges::none_of(text.entities, [](const EntityInText &entity) {
+			return entity.type() == EntityType::CustomEmoji
+				|| ((entity.type() == EntityType::Pre
+					|| entity.type() == EntityType::CustomUrl)
+					&& Main::Allowlist::ContainsEmoji(entity.data().toStdU32String()));
+		});
+}
+
+bool AllowgramSendTextAllowed(const TextWithTags &text) {
+	return AllowgramSendTextAllowed(TextWithEntities{
+		text.text,
+		TextUtilities::ConvertTextTagsToEntities(text.tags),
+	});
+}
+
+bool AllowgramSendDocumentAllowed(not_null<DocumentData*> document) {
+	return !document->sticker() && document->type != AnimatedDocument
+		&& document->owner().session().allowlistContent().documentAllowed(document->mtpInput());
+}
+
+bool AllowgramForwardItemAllowed(not_null<HistoryItem*> item) {
+	const auto history = item->history();
+	return IsServerMsgId(item->id) && history->session().allowlistAllows(history->peer->id)
+		&& AllowgramSendTextAllowed(item->originalText())
+		&& history->session().allowlistContent().messageAllowed(history->peer->id, int(item->id.bare));
+}
+
+bool AllowgramSendFileAllowed(const Ui::PreparedFile &file) {
+	if (!AllowgramSendTextAllowed(file.caption) || file.isSticker()
+		|| file.isGifv() || file.sendsVideoAsGif() || file.animationJob) {
+		return false;
+	}
+	if (file.information) {
+		const auto image = std::get_if<Ui::PreparedFileInformation::Image>(&file.information->media);
+		if (image && image->animated) {
+			return false;
+		}
+	}
+	auto prefix = file.content.left(1024);
+	if (prefix.isEmpty() && !file.path.isEmpty()) {
+		auto source = QFile(file.path);
+		if (!source.open(QIODevice::ReadOnly)) {
+			return false;
+		}
+		prefix = source.read(1024);
+	}
+	return prefix.isEmpty() || MTP::AllowlistUploadPrefixAllowed(prefix);
+}
 
 namespace {
 

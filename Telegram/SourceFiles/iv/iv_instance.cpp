@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_web_page.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "history/history_item_helpers.h"
 #include "iv/markdown/iv_markdown_article.h"
 #include "iv/markdown/iv_markdown_controller.h"
 #include "iv/iv_cached_media.h"
@@ -52,6 +53,15 @@ namespace Iv {
 namespace {
 
 constexpr auto kAllowPageReloadAfter = 3 * crl::time(1000);
+
+[[nodiscard]] bool AllowRichMessage(not_null<HistoryItem*> item) {
+	const auto history = item->history();
+	const auto &session = history->session();
+	return session.allowlistAllows(history->peer->id)
+		&& (!history->amMonoforumAdmin()
+			|| !item->sublistPeerId()
+			|| session.allowlistAllows(item->sublistPeerId()));
+}
 
 struct NativeIvChannelContext {
 	uint64 channelId = 0;
@@ -735,203 +745,11 @@ void Instance::show(
 }
 
 void Instance::showOpenedPage(
-		not_null<Main::Session*> session,
-		not_null<Data*> data,
-		QString hash,
-		bool requestFullOnOpen) {
-	if (Platform::IsMac()) {
-		// Otherwise IV is not visible under the media viewer.
-		Core::App().hideMediaView();
-	}
-
-	if (Core::App().settings().normalizeIvZoom()) {
-		Core::App().saveSettingsDelayed();
-	}
-
-	primeFullRequest(session, data);
-	const auto guard = gsl::finally([&] {
-		if (requestFullOnOpen) {
-			requestFull(session, data->id());
-		}
-	});
-	if (_shown && _shownSession == session) {
-		_shown->moveTo(data, hash);
-		return;
-	}
-	_shown = std::make_unique<Shown>(
-		_delegate,
-		session,
-		data,
-		hash,
-		[=](QString context) {
-			processOpenChannel(context);
-		},
-		[=](QString context) {
-			processJoinChannel(context);
-		});
-	_shownSession = session;
-	_shown->events() | rpl::on_next([=](Controller::Event event) {
-		using Type = Controller::Event::Type;
-		const auto lower = event.url.toLower();
-		const auto urlChecked = lower.startsWith("http://")
-			|| lower.startsWith("https://");
-		const auto tonsite = lower.startsWith("tonsite://");
-		switch (event.type) {
-		case Type::Close:
-			destroyLater(base::take(_shown));
-			break;
-		case Type::Quit:
-			Shortcuts::Launch(Shortcuts::Command::Quit);
-			break;
-		case Type::OpenChannel:
-			processOpenChannel(event.context);
-			break;
-		case Type::JoinChannel:
-			processJoinChannel(event.context);
-			break;
-		case Type::OpenLinkExternal:
-			if (urlChecked) {
-				File::OpenUrl(event.url);
-				closeLegacyWindows();
-			} else if (tonsite) {
-				showTonSite(event.url);
-			}
-			break;
-		case Type::OpenMedia:
-			if (const auto window = Core::App().activeWindow()) {
-				const auto current = window->sessionController();
-				const auto controller = (current
-					&& &current->session() == _shownSession)
-					? current
-					: nullptr;
-				const auto item = (HistoryItem*)nullptr;
-				const auto topicRootId = MsgId(0);
-				const auto monoforumPeerId = PeerId(0);
-				if (event.context.startsWith("-photo")) {
-					const auto id = event.context.mid(6).toULongLong();
-					const auto photo = _shownSession->data().photo(id);
-					if (!photo->isNull()) {
-						window->openInMediaView({
-							controller,
-							photo,
-							item,
-							topicRootId,
-							monoforumPeerId
-						});
-					}
-				} else if (event.context.startsWith("-video")) {
-					const auto id = event.context.mid(6).toULongLong();
-					const auto video = _shownSession->data().document(id);
-					if (!video->isNull()) {
-						window->openInMediaView({
-							controller,
-							video,
-							item,
-							topicRootId,
-							monoforumPeerId
-						});
-					}
-				}
-			}
-			break;
-		case Type::OpenPage:
-		case Type::OpenLink: {
-			if (tonsite) {
-				showTonSite(event.url);
-				break;
-			} else if (!urlChecked) {
-				break;
-			}
-			const auto session = _shownSession;
-			const auto url = event.url;
-			const auto parts = event.url.split('#');
-			const auto hash = (parts.size() > 1) ? parts[1] : u""_q;
-			if (event.webpageId) {
-				const auto page = session->data().webpage(
-					WebPageId(event.webpageId)).get();
-				if (page->iv) {
-					this->showOpenedPage(session, page->iv.get(), hash, false);
-					break;
-				}
-			}
-			const auto requestKey = event.webpageId
-				? QString::number(event.webpageId)
-				: url;
-			auto &requested = _fullRequested[session][requestKey];
-			if (event.webpageId) {
-				const auto page = session->data().webpage(
-					WebPageId(event.webpageId)).get();
-				if (page->iv) {
-					requested.page = page;
-					requested.hash = page->iv->hash();
-				} else {
-					requested.hash = 0;
-				}
-			}
-			requested.lastRequestedAt = crl::now();
-			const auto requestId = session->api().request(MTPmessages_GetWebPage(
-				MTP_string(url),
-				MTP_int(requested.hash)
-			)).done([=](const MTPmessages_WebPage &result, mtpRequestId id) {
-				finishInPageRequest(session, id);
-				const auto processed = processReceivedPage(
-					session,
-					requestKey,
-					result);
-				if (const auto page = processed.page; page && page->iv) {
-					if (event.webpageId && page->id != event.webpageId) {
-						const auto expected = session->data().webpage(
-							WebPageId(event.webpageId)).get();
-						if (expected->iv) {
-							this->showOpenedPage(
-								session,
-								expected->iv.get(),
-								hash,
-								false);
-						} else {
-							UrlClickHandler::Open(event.url);
-						}
-						return;
-					}
-					this->showOpenedPage(session, page->iv.get(), hash, false);
-				} else {
-					UrlClickHandler::Open(event.url);
-				}
-			}).fail([=](const MTP::Error &error, mtpRequestId id) {
-				finishInPageRequest(session, id);
-				UrlClickHandler::Open(event.url);
-			}).send();
-			_inPageRequested[session].emplace(requestId);
-		} break;
-		case Type::Report:
-			if (const auto controller = _shownSession->tryResolveWindow()) {
-				controller->window().activate();
-				controller->showPeerByLink(Window::PeerByLinkInfo{
-					.usernameOrId = "previews",
-					.resolveType = Window::ResolveType::BotStart,
-					.startToken = ("webpage"
-						+ QString::number(event.context.toULongLong())),
-				});
-			}
-			break;
-		}
-	}, _shown->lifetime());
-
-	session->changes().peerUpdates(
-		::Data::PeerUpdate::Flag::ChannelAmIn
-	) | rpl::on_next([=](const ::Data::PeerUpdate &update) {
-		if (const auto channel = update.peer->asChannel()) {
-			if (channel->amIn()) {
-				const auto i = _joining.find(session);
-				const auto value = not_null{ channel };
-				if (i != end(_joining) && i->second.remove(value)) {
-					_shown->showJoinedTooltip();
-				}
-			}
-		}
-	}, _shown->lifetime());
-
-	trackSession(session);
+		not_null<Main::Session*>,
+		not_null<Data*>,
+		QString,
+		bool) {
+	// URL-only pages have no conversation identity to authorize.
 }
 
 void Instance::primeFullRequest(
@@ -1106,115 +924,21 @@ void Instance::openWithIvPreferred(
 }
 
 void Instance::openWithIvPreferred(
-		not_null<Main::Session*> session,
+		not_null<Main::Session*>,
 		QString uri,
 		QVariant context) {
-	const auto openExternal = [=] {
-		auto my = context.value<ClickHandlerContext>();
-		my.ignoreIv = true;
-		const auto updated = QVariant::fromValue(my);
-		if (my.forceExternalUrlConfirmation) {
-			HiddenUrlClickHandler::Open(uri, updated);
-		} else {
-			UrlClickHandler::Open(uri, updated);
-		}
-	};
-	const auto parts = uri.split('#');
-	if (parts.isEmpty() || parts[0].isEmpty()) {
-		return;
+	auto my = context.value<ClickHandlerContext>();
+	my.ignoreIv = true;
+	const auto updated = QVariant::fromValue(my);
+	if (my.forceExternalUrlConfirmation) {
+		HiddenUrlClickHandler::Open(uri, updated);
+	} else {
+		UrlClickHandler::Open(uri, updated);
 	}
-	trackSession(session);
-	const auto hash = (parts.size() > 1) ? parts[1] : u""_q;
-	const auto url = parts[0];
-	const auto &cache = _ivCache[session];
-	if (const auto i = cache.find(url); i != end(cache)) {
-		const auto page = i->second;
-		if (page && page->iv) {
-			auto my = context.value<ClickHandlerContext>();
-			if (const auto window = my.sessionWindow.get()) {
-				show(window, page->iv.get(), hash);
-			} else {
-				show(session, page->iv.get(), hash);
-			}
-		} else {
-			openExternal();
-		}
-		return;
-	} else if (_ivRequestSession == session.get() && _ivRequestUri == uri) {
-		return;
-	}
-	cancelIvRequest();
-	const auto finish = [=](WebPageData *page) {
-		Expects(_ivRequestSession == session);
-
-		cancelIvRequest();
-		_ivCache[session][url] = page;
-		if (page && page->iv) {
-			this->showOpenedPage(session, page->iv.get(), hash, false);
-		} else {
-			openExternal();
-		}
-	};
-	_ivRequestSession = session;
-	_ivRequestUri = uri;
-	auto &requested = _fullRequested[session][url];
-	requested.lastRequestedAt = crl::now();
-	_ivRequestId = session->api().request(MTPmessages_GetWebPage(
-		MTP_string(url),
-		MTP_int(requested.hash)
-	)).done([=](const MTPmessages_WebPage &result) {
-		finish(processReceivedPage(session, url, result).page);
-	}).fail([=] {
-		finish(nullptr);
-	}).send();
 }
 
-void Instance::showTonSite(
-		const QString &uri,
-		QVariant context) {
-	if (!Controller::IsGoodTonSiteUrl(uri)) {
-		Ui::Toast::Show(tr::lng_iv_not_supported(tr::now));
-		return;
-	} else if (Platform::IsMac()) {
-		// Otherwise IV is not visible under the media viewer.
-		Core::App().hideMediaView();
-	}
-	if (_tonSite) {
-		_tonSite->moveTo(uri);
-		return;
-	}
-	_tonSite = std::make_unique<TonSite>(_delegate, uri);
-	_tonSite->events() | rpl::on_next([=](Controller::Event event) {
-		using Type = Controller::Event::Type;
-		const auto lower = event.url.toLower();
-		const auto urlChecked = lower.startsWith("http://")
-			|| lower.startsWith("https://");
-		const auto tonsite = lower.startsWith("tonsite://");
-		switch (event.type) {
-		case Type::Close:
-			destroyLater(base::take(_tonSite));
-			break;
-		case Type::Quit:
-			Shortcuts::Launch(Shortcuts::Command::Quit);
-			break;
-		case Type::OpenLinkExternal:
-			if (urlChecked) {
-				File::OpenUrl(event.url);
-				closeLegacyWindows();
-			} else if (tonsite) {
-				showTonSite(event.url);
-			}
-			break;
-		case Type::OpenPage:
-		case Type::OpenLink:
-			if (urlChecked) {
-				UrlClickHandler::Open(event.url);
-			} else if (tonsite) {
-				showTonSite(event.url);
-			}
-			break;
-		}
-	}, _tonSite->lifetime());
+void Instance::showTonSite(const QString &, QVariant) {
+	// Embedded sites cannot enforce a Telegram conversation allowlist.
 }
 
 Instance::RichMessageGeneration Instance::CaptureRichMessageGeneration(
@@ -1238,6 +962,10 @@ void Instance::resolveRichMessage(
 		not_null<Main::Session*> session,
 		not_null<HistoryItem*> item,
 		RichMessageResolved done) {
+	if (!AllowRichMessage(item)) {
+		done(nullptr);
+		return;
+	}
 	if (const auto page = item->fullRichPage()) {
 		done(page);
 		return;
@@ -1298,6 +1026,10 @@ void Instance::resolveRichMessage(
 void Instance::exportRichMessageHtml(
 		not_null<Window::SessionController*> controller,
 		FullMsgId itemId) {
+	const auto item = controller->session().data().message(itemId);
+	if (!item || !AllowRichMessage(item)) {
+		return;
+	}
 	if (Core::App().settings().askDownloadPath()) {
 		const auto weak = base::make_weak(controller);
 		const auto initialPath = [] {
@@ -1344,7 +1076,7 @@ void Instance::exportRichMessageHtml(
 		const QString &basePath) {
 	const auto session = &controller->session();
 	const auto item = session->data().message(itemId);
-	if (basePath.isEmpty() || !item) {
+	if (basePath.isEmpty() || !item || !AllowRichMessage(item)) {
 		return;
 	}
 	eraseSettledHtmlExports();
@@ -1394,6 +1126,9 @@ void Instance::showRichMessage(
 		not_null<Window::SessionController*> controller,
 		not_null<HistoryItem*> item,
 		QString initialFragment) {
+	if (!AllowRichMessage(item)) {
+		return;
+	}
 	const auto weak = base::make_weak(controller);
 	const auto itemId = item->fullId();
 	resolveRichMessage(&controller->session(), item, [=](
@@ -1421,6 +1156,9 @@ void Instance::showRichMessage(
 		not_null<HistoryItem*> item,
 		std::shared_ptr<const RichPage> richPage,
 		QString initialFragment) {
+	if (!AllowRichMessage(item)) {
+		return;
+	}
 	if (Platform::IsMac()) {
 		Core::App().hideMediaView();
 	}
@@ -1531,6 +1269,10 @@ bool Instance::showMarkdown(
 	const auto itemId = messageContext
 		? messageContext->clickHandlerContext.itemId
 		: FullMsgId();
+	const auto item = session ? session->data().message(itemId) : nullptr;
+	if (!item || !AllowRichMessage(item)) {
+		return false;
+	}
 	auto options = PrepareLocalMarkdownOptions(context);
 	if (!target.sourceName.isEmpty()) {
 		options.sourceName = target.sourceName;
@@ -1656,6 +1398,9 @@ auto Instance::processReceivedRichMessage(
 -> ProcessReceivedRichMessageResult {
 	const auto owner = &session->data();
 	auto processed = ProcessReceivedRichMessageResult();
+	if (!session->allowlistAllows(itemId.peer)) {
+		return processed;
+	}
 	auto page = std::shared_ptr<const RichPage>();
 	result.match([&](const MTPDmessages_messagesNotModified &) {
 		LOG(("API Error: received messages.messagesNotModified!"));
@@ -1667,7 +1412,8 @@ auto Instance::processReceivedRichMessage(
 				continue;
 			}
 			const auto &parsed = message.c_message();
-			if (MsgId(parsed.vid().v) != itemId.msg) {
+			if (MsgId(parsed.vid().v) != itemId.msg
+				|| PeerFromMessage(message) != itemId.peer) {
 				continue;
 			}
 			const auto richMessage = parsed.vrich_message();
@@ -1689,6 +1435,7 @@ auto Instance::processReceivedRichMessage(
 	});
 	const auto current = owner->message(itemId);
 	if (!current
+		|| !AllowRichMessage(current)
 		|| !MatchesRichMessageGeneration(not_null{ current }, generation)) {
 		return processed;
 	}

@@ -361,6 +361,7 @@ public:
 	[[nodiscard]] UserData *globalMediaSelf() const {
 		return _globalMediaSelf;
 	}
+	[[nodiscard]] bool allowlistAllows(not_null<Main::Session*> session) const;
 	[[nodiscard]] Key key() const;
 
 	[[nodiscard]] virtual Section section() const = 0;

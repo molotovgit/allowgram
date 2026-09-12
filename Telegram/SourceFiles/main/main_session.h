@@ -243,6 +243,7 @@ public:
 	[[nodiscard]] bool allowlistConfigured() const;
 	[[nodiscard]] rpl::producer<bool> allowlistConfiguredValue() const;
 	[[nodiscard]] bool allowlistAllows(PeerId peer) const;
+	[[nodiscard]] bool canPresentPeerProfile(PeerId peer) const;
 	[[nodiscard]] const base::flat_set<PeerId> &allowlistPeers() const;
 	[[nodiscard]] QString configureAllowlist(
 		const QString &userIds,

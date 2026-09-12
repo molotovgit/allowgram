@@ -624,7 +624,7 @@ bool ContentMemento::allowlistAllows(
 	}
 	if (const auto peer = this->peer()) {
 		return &peer->session() == session
-			&& session->allowlistAllows(peer->id)
+			&& session->canPresentPeerProfile(peer->id)
 			&& (!migratedPeerId()
 				|| session->allowlistAllows(migratedPeerId()));
 	} else if (savedMessages()) {

@@ -26,6 +26,16 @@ void CheckInvalid(std::string_view value, bool users, Error expected) {
 
 int main() {
 	using namespace Main::Allowlist;
+	Check(!CanPresentPeerProfile(Kind::User, true),
+		"Allowlisted member profile presentation accepted");
+	Check(!CanPresentPeerProfile(Kind::User, false),
+		"Nonallowlisted member profile presentation accepted");
+	Check(CanPresentPeerProfile(Kind::Chat, true),
+		"Allowed group information rejected");
+	Check(CanPresentPeerProfile(Kind::Channel, true),
+		"Allowed channel information rejected");
+	Check(!CanPresentPeerProfile(Kind::Chat, false),
+		"Denied group information accepted");
 	const auto parsed = Parse(
 		"123, user:456\n123; 000123",
 		"-789 channel:42 -1000000000042 chat:789");

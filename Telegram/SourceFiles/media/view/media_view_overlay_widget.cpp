@@ -4510,6 +4510,14 @@ void OverlayWidget::show(OpenRequest request) {
 	const auto call = story ? story->call() : request.call();
 	const auto contextItem = request.item();
 	const auto contextPeer = request.peer();
+	if ((contextPeer
+			&& !contextPeer->session().canPresentPeerProfile(contextPeer->id))
+		|| (contextItem
+			&& !contextItem->history()->session().allowlistAllows(
+				contextItem->history()->peer->id))
+		|| (photo && !contextItem && !contextPeer && !story)) {
+		return;
+	}
 	const auto contextTopicRootId = request.topicRootId();
 	const auto contextMonoforumPeerId = request.monoforumPeerId();
 	_drawButtonEnabled = request.showDrawButton();

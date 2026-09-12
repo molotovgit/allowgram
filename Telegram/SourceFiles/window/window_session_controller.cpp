@@ -155,11 +155,11 @@ base::options::toggle OptionExternalMediaViewer({
 	return v::match(origin.data, [&](const Data::FileOriginMessage &value) {
 		return session->allowlistAllows(value.peer);
 	}, [&](const Data::FileOriginUserPhoto &value) {
-		return session->allowlistAllows(peerFromUser(value.userId));
+		return session->canPresentPeerProfile(peerFromUser(value.userId));
 	}, [&](const Data::FileOriginFullUser &value) {
-		return session->allowlistAllows(peerFromUser(value.userId));
+		return session->canPresentPeerProfile(peerFromUser(value.userId));
 	}, [&](const Data::FileOriginPeerPhoto &value) {
-		return session->allowlistAllows(value.peerId);
+		return session->canPresentPeerProfile(value.peerId);
 	}, [&](const Data::FileOriginCloudDraft &value) {
 		return session->allowlistAllows(value.peerId);
 	}, [](const Data::FileOriginStory &) {
@@ -1442,7 +1442,7 @@ void SessionNavigation::showPeerInfo(
 		not_null<PeerData*> peer,
 		const SectionShow &params) {
 	if (&peer->session() != _session
-		|| !_session->allowlistAllows(peer->id)) {
+		|| !_session->canPresentPeerProfile(peer->id)) {
 		return;
 	}
 
@@ -3587,7 +3587,7 @@ void SessionController::openPhoto(
 void SessionController::openPhoto(
 		not_null<PhotoData*> photo,
 		not_null<PeerData*> peer) {
-	if (!session().allowlistAllows(peer->id)) {
+	if (!session().canPresentPeerProfile(peer->id)) {
 		return;
 	}
 

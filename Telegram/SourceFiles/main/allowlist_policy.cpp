@@ -97,6 +97,10 @@ namespace {
 
 } // namespace
 
+bool CanPresentPeerProfile(Kind kind, bool conversationAllowed) {
+	return kind != Kind::User && conversationAllowed;
+}
+
 ParseResult Parse(std::string_view users, std::string_view groups) {
 	if (users.size() > kMaximumInputBytes
 		|| groups.size() > kMaximumInputBytes

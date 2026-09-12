@@ -424,6 +424,13 @@ bool Session::allowlistAllows(PeerId peer) const {
 		&& _settings->allowlistPeers().contains(peer);
 }
 
+bool Session::canPresentPeerProfile(PeerId peer) const {
+	using Kind = Allowlist::Kind;
+	return Allowlist::CanPresentPeerProfile(
+		peerIsUser(peer) ? Kind::User : peerIsChat(peer) ? Kind::Chat : Kind::Channel,
+		allowlistAllows(peer));
+}
+
 const base::flat_set<PeerId> &Session::allowlistPeers() const {
 	return _settings->allowlistPeers();
 }

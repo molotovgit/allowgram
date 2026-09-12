@@ -1361,6 +1361,10 @@ void WebViewInstance::requestButton() {
 }
 
 void WebViewInstance::requestSimple() {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	using Flag = MTPmessages_RequestSimpleWebView::Flag;
 	_requestId = _api.request(MTPmessages_RequestSimpleWebView(
 		MTP_flags(Flag::f_theme_params
@@ -1389,6 +1393,10 @@ void WebViewInstance::requestSimple() {
 }
 
 void WebViewInstance::requestMain() {
+	if (!checkAllowlist()) {
+		return;
+	}
+
 	using Flag = MTPmessages_RequestMainWebView::Flag;
 	_requestId = _api.request(MTPmessages_RequestMainWebView(
 		MTP_flags(Flag::f_theme_params
@@ -1419,6 +1427,13 @@ void WebViewInstance::requestMain() {
 void WebViewInstance::requestApp(bool allowWrite) {
 	Expects(_app != nullptr);
 	Expects(_context.action.has_value());
+	if (!checkAllowlist()
+		|| !MTP::AllowlistBotAppMatches(
+			peerToUser(_bot->id), peerToUser(_app->botId), _appName,
+			_app->shortName, _app->owner == &_session->data())) {
+		close();
+		return;
+	}
 
 	using Flag = MTPmessages_RequestAppWebView::Flag;
 	const auto app = _app;
@@ -1430,7 +1445,7 @@ void WebViewInstance::requestApp(bool allowWrite) {
 	_requestId = _api.request(MTPmessages_RequestAppWebView(
 		MTP_flags(flags),
 		_context.action->history->peer->input(),
-		MTP_inputBotAppID(MTP_long(app->id), MTP_long(app->accessHash)),
+		MTP_inputBotAppShortName(_bot->inputUser(), MTP_string(_appName)),
 		MTP_string(_appStartParam),
 		MTP_dataJSON(MTP_bytes(botThemeParams().json)),
 		MTP_string("tdesktop")
@@ -1539,6 +1554,9 @@ void WebViewInstance::maybeChooseAndRequestButton(PeerTypes supported) {
 }
 
 void WebViewInstance::show(ShowArgs &&args) {
+	if (!checkAllowlist()) {
+		return;
+	}
 	if (!_bot->isFullLoaded()) {
 		_botFullWaitingArgs.emplace(std::move(args));
 		return;

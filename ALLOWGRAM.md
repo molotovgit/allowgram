@@ -49,7 +49,24 @@ default. A bot queried through inline search must also be allowed. Saved
 Messages requires your own user ID. Channel comments require the ID of the
 linked discussion group.
 
-Calls, aggregate stories/global discovery views, mini apps/webviews, broad
+Mini Apps can open only for server-resolved bots explicitly included under
+Users. The launching conversation, reply sources and send-as identities must
+also be allowed. Bot message/keyboard buttons, bot menu/main apps and supported
+Telegram app links use the same account-specific checks. App links resolve
+their own target bot; an allowed group or app does not authorize another bot.
+Opaque app IDs and unresolved or mismatched owners are rejected. Existing
+windows revalidate their context and close when the active account changes.
+
+Telegram authentication URLs, initData, origin checks and consent remain in
+use. Opening an app or accepting its Terms does not grant write access.
+Permission requests still require the relevant Telegram confirmation.
+Third-party web content has its own backend permissions; Allowgram does not
+assign dashboard roles or override server authorization. Payments, arbitrary
+custom bridge methods (including cloud storage), prepared-message sharing,
+chat/contact chooser bridges, managed-bot creation and emoji-status changes
+remain unavailable. Device storage and bot-bound send-data remain supported.
+
+Calls, aggregate stories/global discovery views, broad
 story publishing, automated business messages, and other communication
 features without a supported destination check are disabled. Raw account/chat
 exports, takeout sessions and arbitrary URL previews/instant views are also
@@ -82,19 +99,23 @@ a signing certificate is added to the packaging process.
 ## Verification status
 
 The C++ ID parser passed 80 checks under MSVC 14.44 with warnings treated as
-errors. The request and incoming-message guards passed 135 native checks
+errors. The request, incoming-message and Mini App guards passed 451 native checks
 using the generated Telegram schema and real serialization, plus 6 schema
 audits. Incoming cases include matching numeric IDs across different peer
 types, normal/service messages, denied authors inside allowed groups,
 allowed authors inside denied groups, and an unconfigured allow-list.
-The native policy checks used Qt 6.8.3.
+Mini App cases cover two allowed 64-bit bot IDs, excluded/unknown/human
+identities, group/forwarded contexts, reply/send-as peers, opaque/mismatched
+apps, policy/account changes and unsafe bridge links. The native policy
+checks used Qt 6.8.3.
 
 The Windows x64 Release build passed with MSVC 14.44 and upstream patched
 Qt 6.11.2. The resulting client passed a startup check with fresh, isolated
 account data and no fatal startup log errors.
 
 Interactive phone-login, allow-list setup and persistence, and real
-allowed/blocked messaging have not been tested with a signed-in account.
+allowed/blocked messaging and Mini App dashboard loading have not been tested
+with a signed-in account for this release.
 
 Telegram Desktop and its dependencies retain their upstream licenses. The
 packaging workflow produces a corresponding source archive with the installer.

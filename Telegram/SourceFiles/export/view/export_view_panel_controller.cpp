@@ -24,7 +24,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_info.h"
 #include "base/unixtime.h"
 #include "base/qt/qt_common_adapters.h"
-#include "boxes/abstract_box.h" // Ui::show().
 #include "styles/style_export.h"
 #include "styles/style_layers.h"
 
@@ -33,53 +32,6 @@ namespace View {
 namespace {
 
 constexpr auto kSaveSettingsTimeout = crl::time(1000);
-
-class SuggestBox : public Ui::BoxContent {
-public:
-	SuggestBox(QWidget*, not_null<Main::Session*> session);
-
-protected:
-	void prepare() override;
-
-private:
-	const not_null<Main::Session*> _session;
-
-};
-
-SuggestBox::SuggestBox(QWidget*, not_null<Main::Session*> session)
-: _session(session) {
-}
-
-void SuggestBox::prepare() {
-	setTitle(tr::lng_export_suggest_title());
-
-	addButton(tr::lng_box_ok(), [=] {
-		const auto session = _session;
-		closeBox();
-		Core::App().exportManager().start(
-			session,
-			session->local().readExportSettings().singlePeer);
-	});
-	addButton(tr::lng_export_suggest_cancel(), [=] { closeBox(); });
-	setCloseByOutsideClick(false);
-
-	const auto content = Ui::CreateChild<Ui::FlatLabel>(
-		this,
-		tr::lng_export_suggest_text(tr::now),
-		st::boxLabel);
-	widthValue(
-	) | rpl::on_next([=](int width) {
-		const auto contentWidth = width
-			- st::boxPadding.left()
-			- st::boxPadding.right();
-		content->resizeToWidth(contentWidth);
-		content->moveToLeft(st::boxPadding.left(), 0);
-	}, content->lifetime());
-	content->heightValue(
-	) | rpl::on_next([=](int height) {
-		setDimensions(st::boxWidth, height + st::boxPadding.bottom());
-	}, content->lifetime());
-}
 
 } // namespace
 
@@ -97,13 +49,8 @@ Environment PrepareEnvironment(not_null<Main::Session*> session) {
 }
 
 base::weak_qptr<Ui::BoxContent> SuggestStart(not_null<Main::Session*> session) {
-	if (Core::App().passcodeLocked()) {
-		return {};
-	}
 	ClearSuggestStart(session);
-	return Ui::show(
-		Box<SuggestBox>(session),
-		Ui::LayerOption::KeepOther).get();
+	return {};
 }
 
 void ClearSuggestStart(not_null<Main::Session*> session) {

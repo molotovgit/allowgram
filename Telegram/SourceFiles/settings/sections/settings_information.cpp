@@ -1044,61 +1044,7 @@ not_null<Ui::SlideWrap<Ui::SettingsButton>*> AccountsList::setupAdd() {
 					IconType::Round,
 					&st::windowBgActive
 				})))->setDuration(0);
-	const auto button = result->entity();
-
-	using Environment = MTP::Environment;
-	const auto add = [=](Environment environment, bool newWindow = false) {
-		auto &domain = _controller->session().domain();
-		domain.removeRedundantAccounts();
-
-		auto found = false;
-		for (const auto &[index, account] : domain.accounts()) {
-			const auto raw = account.get();
-			if (!raw->sessionExists()
-				&& raw->mtp().environment() == environment) {
-				found = true;
-			}
-		}
-		if (!found && domain.accounts().size() >= domain.maxAccounts()) {
-			_controller->show(
-				Box(AccountsLimitBox, &_controller->session()));
-		} else if (newWindow) {
-			domain.addActivated(environment, true);
-		} else {
-			_controller->window().preventOrInvoke([=] {
-				Core::App().setActivePrimaryWindow(&_controller->window());
-				_controller->session().domain().addActivated(environment);
-			});
-		}
-	};
-
-	button->setAcceptBoth(true);
-	button->clicks(
-	) | rpl::on_next([=](Qt::MouseButton which) {
-		if (which == Qt::LeftButton) {
-			const auto modifiers = button->clickModifiers();
-			const auto newWindow = (modifiers & Qt::ControlModifier);
-			add(Environment::Production, newWindow);
-			return;
-		} else if (which != Qt::RightButton
-			|| !IsAltShift(button->clickModifiers())) {
-#ifdef _DEBUG
-			if (which != Qt::RightButton) {
-				return;
-			}
-#else // _DEBUG
-			return;
-#endif // !_DEBUG
-		}
-		_contextMenu = base::make_unique_q<Ui::PopupMenu>(_outer);
-		_contextMenu->addAction("Production Server", [=] {
-			add(Environment::Production);
-		});
-		_contextMenu->addAction("Test Server", [=] {
-			add(Environment::Test);
-		});
-		_contextMenu->popup(QCursor::pos());
-	}, button->lifetime());
+	result->toggle(false, anim::type::instant);
 
 	return result;
 }
@@ -1192,7 +1138,7 @@ void AccountsList::rebuild() {
 		std::max(1, count - premiumLimit));
 
 	_addAccount->toggle(
-		(count < ::Main::Domain::kPremiumMaxAccounts),
+		false,
 		anim::type::instant);
 
 	_reorder->start();

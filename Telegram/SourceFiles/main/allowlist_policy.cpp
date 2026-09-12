@@ -101,6 +101,10 @@ bool CanPresentPeerProfile(Kind kind, bool conversationAllowed) {
 	return kind != Kind::User && conversationAllowed;
 }
 
+bool CanStartUserSession(int authorizedAccounts) {
+	return authorizedAccounts == 0;
+}
+
 ParseResult Parse(std::string_view users, std::string_view groups) {
 	if (users.size() > kMaximumInputBytes
 		|| groups.size() > kMaximumInputBytes

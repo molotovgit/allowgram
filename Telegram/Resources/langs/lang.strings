@@ -8794,6 +8794,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_wrong_type" = "ID {name} is in the wrong field. Put people in Users and groups or channels in Groups.";
 "lng_allowgram_too_long" = "The allow-list input is too long.";
 "lng_allowgram_save_failed" = "The allow-list could not be saved. Check free disk space and try again.";
+"lng_allowgram_single_account" = "Adding another account is disabled in Allowgram. Log out of the current account before signing in again.";
 
 "lng_allowlist_write_restricted" = "This chat is not on your allow-list. Access is disabled.";
 

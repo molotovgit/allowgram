@@ -22,6 +22,7 @@ enum class Kind { User, Chat, Channel };
 enum class Error { None, Empty, InvalidId, WrongField, TooMany, TooLong };
 
 [[nodiscard]] bool CanPresentPeerProfile(Kind kind, bool conversationAllowed);
+[[nodiscard]] bool CanStartUserSession(int authorizedAccounts);
 
 struct Entry {
 	Kind kind = Kind::User;

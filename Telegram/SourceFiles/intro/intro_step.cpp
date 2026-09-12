@@ -240,7 +240,10 @@ void Step::createSession(
 	settings->setDialogsFiltersEnabled(hasFilters);
 
 	const auto account = _account;
-	account->createSession(user, std::move(settings));
+	if (!account->createSession(user, std::move(settings))) {
+		showError(tr::lng_allowgram_single_account());
+		return;
+	}
 
 	// "this" is already deleted here by creating the main widget.
 	account->local().enforceModernStorageIdBots();

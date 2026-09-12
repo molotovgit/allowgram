@@ -36,6 +36,10 @@ int main() {
 		"Allowed channel information rejected");
 	Check(!CanPresentPeerProfile(Kind::Chat, false),
 		"Denied group information accepted");
+	Check(CanStartUserSession(0), "Initial login or relogin rejected");
+	Check(!CanStartUserSession(1), "Additional authenticated account accepted");
+	Check(!CanStartUserSession(2), "Legacy multi-account state permits addition");
+	Check(!CanStartUserSession(-1), "Invalid account count permits login");
 	const auto parsed = Parse(
 		"123, user:456\n123; 000123",
 		"-789 channel:42 -1000000000042 chat:789");

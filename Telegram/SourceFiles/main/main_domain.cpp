@@ -136,6 +136,14 @@ void Domain::activateAfterStarting() {
 		watchSession(account.get());
 	}
 
+	if (!toActivate->sessionExists()) {
+		for (const auto &[index, account] : _accounts) {
+			if (account->sessionExists()) {
+				toActivate = account.get();
+				break;
+			}
+		}
+	}
 	activate(toActivate);
 	removePasscodeIfEmpty();
 }
@@ -267,76 +275,11 @@ void Domain::scheduleUpdateUnreadBadge() {
 	}));
 }
 
-not_null<Main::Account*> Domain::add(MTP::Environment environment) {
-	Expects(started());
-	Expects(_accounts.size() < kPremiumMaxAccounts);
-
-	static const auto cloneConfig = [](const MTP::Config &config) {
-		return std::make_unique<MTP::Config>(config);
-	};
-	auto mainDcId = MTP::Instance::Fields::kNotSetMainDc;
-	const auto accountConfig = [&](not_null<Account*> account) {
-		mainDcId = account->mtp().mainDcId();
-		return cloneConfig(account->mtp().config());
-	};
-	auto config = [&] {
-		if (_active.current()->mtp().environment() == environment) {
-			return accountConfig(_active.current());
-		}
-		for (const auto &[index, account] : _accounts) {
-			if (account->mtp().environment() == environment) {
-				return accountConfig(account.get());
-			}
-		}
-		return (environment == MTP::Environment::Production)
-			? cloneConfig(Core::App().fallbackProductionConfig())
-			: std::make_unique<MTP::Config>(environment);
-	}();
-	auto index = 0;
-	while (ranges::contains(_accounts, index, &AccountWithIndex::index)) {
-		++index;
-	}
-	_accounts.push_back(AccountWithIndex{
-		.index = index,
-		.account = std::make_unique<Account>(this, _dataName, index)
-	});
-	const auto account = _accounts.back().account.get();
-	account->setMtpMainDcId(mainDcId);
-	_local->startAdded(account, std::move(config));
-	watchSession(account);
-	_accountsChanges.fire({});
-
-	auto &settings = Core::App().settings();
-	if (_accounts.size() == 2 && !settings.mainMenuAccountsShown()) {
-		settings.setMainMenuAccountsShown(true);
-		Core::App().saveSettingsDelayed();
-	}
-
-	return account;
+Main::Account *Domain::add(MTP::Environment) {
+	return nullptr;
 }
 
-void Domain::addActivated(MTP::Environment environment, bool newWindow) {
-	const auto added = [&](not_null<Main::Account*> account) {
-		if (newWindow) {
-			Core::App().ensureSeparateWindowFor(account);
-		} else if (const auto window = Core::App().separateWindowFor(
-				account)) {
-			window->activate();
-		} else {
-			activate(account);
-		}
-	};
-	if (accounts().size() < maxAccounts()) {
-		added(add(environment));
-	} else {
-		for (auto &[index, account] : accounts()) {
-			if (!account->sessionExists()
-				&& account->mtp().environment() == environment) {
-				added(account.get());
-				break;
-			}
-		}
-	}
+void Domain::addActivated(MTP::Environment, bool) {
 }
 
 void Domain::watchSession(not_null<Account*> account) {
@@ -469,6 +412,9 @@ void Domain::maybeActivate(not_null<Main::Account*> account) {
 }
 
 void Domain::activate(not_null<Main::Account*> account) {
+	if (!account->sessionExists() && accountsAuthedCount() > 0) {
+		return;
+	}
 	if (const auto window = Core::App().separateWindowFor(account)) {
 		window->activate();
 	}

@@ -2,6 +2,42 @@
 
 [Back to Allowgram](../../README.md)
 
+## Repeat the native form regression
+
+After building the Windows client, use the same x64 MSVC environment to build
+a separate test executable. The configured Ninja Release objects and generated
+styles must match the checked-out application source.
+
+```powershell
+python Telegram/build/allowgram/build_ui_regression.py --repository . --output out/ui-regression
+python Telegram/build/allowgram/test_ui_layout.py --executable out/ui-regression/Allowgram-Docs.exe --output out/ui-results
+```
+
+The result directory must be new. The runner uses a fresh unsigned-in profile
+for every case and exits nonzero on failed geometry or interaction checks. It
+tests the actual `AllowlistLockWidget` and `Ui::InputField`, including the
+`QTextEdit` document, viewport and caret. A working upstream default field is
+measured as a control. This is not a source-string or screenshot fixture test.
+
+The disposable overlay only exposes the existing form before sign-in, supplies
+example values, invokes the real parser without saving, selects the process-local
+style scale and includes the test body. It does not alter field styles, row
+geometry, fonts, layout or interaction handlers. It suppresses OS registration
+from this test process. The normal release executable is hashed before and
+after linking and must remain unchanged.
+
+The matrix uses Telegram style scales 100%, 125%, 150% and 200% with minimum
+380x480, compact 800x598 and desktop 1100x800 logical base sizes, multiplied by
+the requested scale. It records the actual style scale, widget dimensions and
+Qt device pixel ratio. Windows display settings are not changed. This checks
+application scaling; it does not claim cross-monitor DPI migration coverage.
+
+Geometry and event checks cover empty, focused, filled and invalid fields;
+long, negative and prefixed numeric values; selection; Remove alignment and
+containment; plus and Remove callbacks; last-row protection; Enter and Tab;
+repeated-row spacing; and scrolling to a new row, wrapped errors and Save.
+Pixel-level label, focus and text appearance still needs native visual review.
+
 ## Recorded 7.2.8.3 results
 
 These are local Windows release results, not a claim that GitHub Actions has run:

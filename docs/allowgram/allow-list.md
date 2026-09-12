@@ -12,6 +12,12 @@ Complete Telegram's normal phone-number, verification-code and, if enabled, two-
 
 ## Add a user or bot
 
+Version 7.2.8.4 gives each ID row Telegram's native field height and aligns
+**Remove** beside the editable text. If your older build clips entered IDs,
+install the updated package when available. Use normal scrolling to reach
+additional rows, validation messages and **Save and continue**; an arbitrary
+number of rows is not expected to fit on one screen.
+
 1. In **Allowed users**, enter the numeric Telegram user ID in the first row.
 2. Press **+ Add user** to create another row. Enter one ID per row. Pressing Enter in an ID field also adds a row in that section.
 3. Use **Remove** beside an unwanted extra row. The final row in each section stays present and can be left blank.
@@ -65,6 +71,6 @@ After a successful save, the setup lock closes and only permitted conversations 
 
 ## Later changes
 
-**Version 7.2.8.3 has no in-session allow-list editor.** The list survives restarts in encrypted local account settings and remains fixed until logout. Logging out clears that local account data; the next sign-in requires setup again. Do not log out just to view this guide or enable an app for a bot already on your saved list. Adding a new bot later requires planning a deliberate reconfiguration and being able to authenticate again.
+**Version 7.2.8.4 has no in-session allow-list editor.** The list survives restarts in encrypted local account settings and remains fixed until logout. Logging out clears that local account data; the next sign-in requires setup again. Do not log out just to view this guide or enable an app for a bot already on your saved list. Adding a new bot later requires planning a deliberate reconfiguration and being able to authenticate again.
 
 See [Mini Apps](mini-apps.md), [FAQ](faq.md) and [client-side boundaries](security.md).

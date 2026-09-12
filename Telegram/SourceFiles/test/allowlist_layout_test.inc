@@ -56,7 +56,7 @@ const auto inspect = [&](IdRow *row, const QString &state) {
 };
 const auto scale = style::Scale();
 check(scale == qEnvironmentVariableIntValue("ALLOWGRAM_UI_SCALE"), "requested style scale applied");
-check(!window()->maybeSession(), "isolated unsigned-in widget");
+check(!this->window()->maybeSession(), "isolated unsigned-in widget");
 resize(qEnvironmentVariableIntValue("ALLOWGRAM_UI_WIDTH"),
 	qEnvironmentVariableIntValue("ALLOWGRAM_UI_HEIGHT"));
 show();

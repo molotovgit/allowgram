@@ -75,13 +75,15 @@ widget = widget.replace(old, '\tif (!session) {\n' + validation + '\t\treturn;\n
 main = main.replace('resize(720, 1000);', 'QTimer::singleShot(800, this, [=] {\n\t\t\tresize(qEnvironmentVariableIntValue("ALLOWGRAM_UI_WIDTH"),\n\t\t\t\tqEnvironmentVariableIntValue("ALLOWGRAM_UI_HEIGHT"));\n\t\t\tupdateControlsGeometry();\n\t\t});')
 main = '#include <QtCore/QTimer>\n' + main
 widget = '#include <QtCore/QTimer>\n#include <QtCore/QFile>\n#include <QtCore/QJsonDocument>\n#include <QtCore/QJsonArray>\n#include <QtCore/QJsonObject>\n#include <QtGui/QTextDocument>\n#include <QtWidgets/QTextEdit>\n#include <cmath>\n' + widget
-anchor = '\taddRow(false, false);'
+anchor = '\tconst auto scene = qEnvironmentVariable("ALLOWGRAM_DOCS_SCENE");'
 assert widget.count(anchor) == 1
 widget = widget.replace(anchor, anchor + '\n\tQTimer::singleShot(1200, this, [=] {\n#include "test/allowlist_layout_test.inc"\n\t});')
 application = (root / 'Telegram/SourceFiles/core/application.cpp').read_text(encoding='utf-8')
 assert application.count('style::StartManager(cScale());') == 1
 application = application.replace('style::StartManager(cScale());',
     'style::StartManager(qEnvironmentVariableIntValue("ALLOWGRAM_UI_SCALE"));')
+application = application.replace('autoRegisterUrlScheme();', '')
+application = application.replace('Platform::NewVersionLaunched(old);', '')
 (fixture / 'application.cpp').write_text(application, encoding='utf-8')
 
 (fixture / 'mainwindow.cpp').write_text(main, encoding='utf-8')

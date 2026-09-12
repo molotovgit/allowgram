@@ -364,7 +364,8 @@ bool Controller::locked() const {
 	if (Core::App().passcodeLocked()/* || Core::App().setupEmailLocked()*/) {
 		return true;
 	} else if (const auto controller = sessionController()) {
-		return controller->session().termsLocked().has_value();
+		return !controller->session().allowlistConfigured()
+			|| controller->session().termsLocked().has_value();
 	}
 	return false;
 }

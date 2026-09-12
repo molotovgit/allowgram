@@ -80,9 +80,13 @@ template <typename ...Parts>
 		const MTPPeer &conversation,
 		const MTPPeer &sender,
 		const QString &text = u"incoming content"_q,
-		const MTPMessageMedia &media = MTP_messageMediaEmpty()) {
+		const MTPMessageMedia &media = MTP_messageMediaEmpty(),
+		uint64 effect = 0,
+		const std::optional<MTPReplyMarkup> &markup = std::nullopt) {
 	return MTP_message(
-		MTP_flags(MTPDmessage::Flag::f_from_id | MTPDmessage::Flag::f_media),
+		MTP_flags(MTPDmessage::Flag::f_from_id | MTPDmessage::Flag::f_media
+			| (effect ? MTPDmessage::Flag::f_effect : MTPDmessage::Flags())
+			| (markup ? MTPDmessage::Flag::f_reply_markup : MTPDmessage::Flags())),
 		MTP_int(17),
 		sender,
 		MTPint(),
@@ -97,7 +101,7 @@ template <typename ...Parts>
 		MTP_int(1700000000),
 		MTP_string(text),
 		media,
-		MTPReplyMarkup(),
+		markup.value_or(MTPReplyMarkup()),
 		MTPVector<MTPMessageEntity>(),
 		MTPint(),
 		MTPint(),
@@ -109,7 +113,7 @@ template <typename ...Parts>
 		MTPVector<MTPRestrictionReason>(),
 		MTPint(),
 		MTPint(),
-		MTPlong(),
+		MTP_long(effect),
 		MTPFactCheck(),
 		MTPint(),
 		MTPlong(),
@@ -358,6 +362,12 @@ int main() {
 	check("cached metadata alone is not content evidence", documentSend, false);
 	documentBytes[123] = "%PDF-1.7 ordinary";
 	check("known ordinary document permitted", documentSend, true);
+	for (const auto &query : { u"ordinary query"_q, u"query \U0001F600"_q }) {
+		check("referenced document query uses text policy", Packet(MTP_int(mtpc_messages_sendMedia),
+			MTP_int(0), user, MTPInputMedia(MTP_inputMediaDocument(MTP_flags(MTPDinputMediaDocument::Flag::f_query),
+				documentReference, MTPInputPhoto(), MTPint(), MTPint(), MTP_string(query))),
+			MTP_string("caption"), MTP_long(1)), query.startsWith(u"ordinary"_q));
+	}
 	documentBytes[123] = "GIF89a renamed report.pdf";
 	check("cached renamed GIF bytes override benign metadata", documentSend, false);
 	documentBytes[123] = "%PDF-1.7 ordinary";
@@ -416,6 +426,14 @@ int main() {
 		MTP_int(1 << 15), user, MTP_int(17), MTP_int(1900000000)), false);
 	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43))).c_message());
 	check("cached plain forward preserved", Forward(user, user), true);
+	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43)),
+		u"plain body"_q, MTP_messageMediaEmpty(), 123).c_message());
+	check("cached forward with effect denied", Forward(user, user), false);
+	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43)),
+		u"plain body"_q, MTP_messageMediaEmpty(), 0,
+		MTP_replyInlineMarkup(MTP_flags(0), MTP_vector<MTPKeyboardInlineButtonRow>({}))).c_message());
+	check("cached forward with opaque reply markup denied", Forward(user, user), false);
+	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43))).c_message());
 	check("ordinary cache does not authorize scheduled ID", Packet(MTP_int(mtpc_messages_editMessage),
 		MTP_int(1 << 15), user, MTP_int(17), MTP_int(1900000000)), false);
 	content.recordMessage(IncomingMessage(MTP_peerUser(MTP_long(42)), MTP_peerUser(MTP_long(43))).c_message(), true);

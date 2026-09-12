@@ -130,7 +130,8 @@ struct PeerRequestLayout {
 			&& !data.vstickers() && !data.is_nosound_video()
 			&& AllowlistDocumentContentAllowed(qs(data.vmime_type()), data.vattributes().v);
 	}, [&](const MTPDinputMediaDocument &data) {
-		return content && content->documentAllowed(data.vid());
+		return content && content->documentAllowed(data.vid())
+			&& (!data.vquery() || TextAllowed(*data.vquery()));
 	}, [](const MTPDinputMediaGeoPoint &) {
 		return true;
 	}, [](const MTPDinputMediaGeoLive &) {
@@ -775,6 +776,7 @@ void AllowlistContentContext::recordMessage(const MTPDmessage &message, bool sch
 	};
 	_messages[key]
 		= TextAllowed(message.vmessage()) && !message.vrich_message()
+		&& !message.veffect() && !message.vreply_markup()
 		&& (!message.ventities() || EntitiesAllowed(*message.ventities()))
 		&& (!message.vmedia() || mediaAllowed(*message.vmedia()));
 }

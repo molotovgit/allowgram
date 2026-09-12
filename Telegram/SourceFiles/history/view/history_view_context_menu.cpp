@@ -436,7 +436,6 @@ void AddDocumentActions(
 	}
 	const auto controller = list->controller();
 	const auto contextId = item ? item->fullId() : FullMsgId();
-	const auto session = &document->session();
 	if (item && document->isGifv()) {
 		const auto notAutoplayedGif = !Data::AutoDownload::ShouldAutoPlay(
 			document->session().settings().autoDownload(),

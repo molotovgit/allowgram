@@ -21,7 +21,8 @@ for previously scheduled items are not accepted without inspectable content.
 Normal plain-text/attachment scheduling at creation remains supported.
 Known cached documents and forwards require production content evidence, including
 locally available document bytes; metadata alone is insufficient. Unknown objects
-fail closed. Gzip/TGS, WebM and animated WebP upload prefixes are rejected
+fail closed. Cached effects and opaque interactive reply markup cannot be forwarded.
+Gzip/TGS, WebM and animated WebP upload prefixes are rejected
 conservatively, so ordinary gzip/WebM attachments are also unavailable.
 
 These restrictions apply to this client, not Telegram servers or other clients.

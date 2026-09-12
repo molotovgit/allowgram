@@ -65,6 +65,9 @@ std::optional<GlobalMediaRequest> PrepareGlobalMediaRequest(
 		Data::MessagePosition offsetPosition,
 		Storage::SharedMediaType type,
 		const QString &query) {
+	if (!session->allowlistConfigured()) {
+		return std::nullopt;
+	}
 	const auto filter = PrepareSearchFilter(type);
 	if (query.isEmpty() && filter.type() == mtpc_inputMessagesFilterEmpty) {
 		return std::nullopt;
@@ -73,9 +76,7 @@ std::optional<GlobalMediaRequest> PrepareGlobalMediaRequest(
 	const auto minDate = 0;
 	const auto maxDate = 0;
 	const auto folderId = 0;
-	const auto limit = offsetPosition.fullId.peer
-		? kSharedMediaLimit
-		: kFirstSharedMediaLimit;
+	const auto limit = kSharedMediaLimit;
 	return MTPmessages_SearchGlobal(
 		MTP_flags(MTPmessages_SearchGlobal::Flag::f_folder_id), // No archive
 		MTP_int(folderId),
@@ -97,6 +98,9 @@ GlobalMediaResult ParseGlobalMediaResult(
 		const MTPmessages_Messages &data,
 		bool onlyForwardable) {
 	auto result = GlobalMediaResult();
+	if (!session->allowlistConfigured()) {
+		return result;
+	}
 
 	auto messages = (const QVector<MTPMessage>*)nullptr;
 	data.match([&](const MTPDmessages_messagesNotModified &) {
@@ -119,15 +123,26 @@ GlobalMediaResult ParseGlobalMediaResult(
 			"no channel was passed! (ParseSearchResult)"));
 	}, [](const auto &) {});
 
+	if (!messages) {
+		return result;
+	}
+
 	const auto addType = NewMessageType::Existing;
 	result.messageIds.reserve(messages->size());
 	for (const auto &message : *messages) {
+		const auto peerId = PeerFromMessage(message);
+		result.offsetPosition = {
+			FullMsgId(peerId, IdFromMessage(message)),
+			DateFromMessage(message),
+		};
+		if (!session->allowlistAllows(peerId)) {
+			continue;
+		}
 		const auto item = session->data().addNewMessage(
 			message,
 			MessageFlags(),
 			addType);
 		if (item) {
-			result.offsetPosition = item->position();
 			if (onlyForwardable && !item->allowsForward()) {
 				++result.filteredCount;
 			} else {
@@ -135,6 +150,7 @@ GlobalMediaResult ParseGlobalMediaResult(
 			}
 		}
 	}
+	result.fullCount = int(result.messageIds.size());
 	return result;
 }
 
@@ -146,6 +162,9 @@ std::optional<SearchRequest> PrepareSearchRequest(
 		const QString &query,
 		MsgId messageId,
 		Data::LoadDirection direction) {
+	if (!peer->session().allowlistAllows(peer->id)) {
+		return std::nullopt;
+	}
 	const auto filter = PrepareSearchFilter(type);
 	if (query.isEmpty() && filter.type() == mtpc_inputMessagesFilterEmpty) {
 		return std::nullopt;
@@ -207,6 +226,10 @@ SearchResult ParseSearchResult(
 		const SearchRequestResult &data) {
 	auto result = SearchResult();
 	result.noSkipRange = MsgRange{ messageId, messageId };
+	if (!peer->session().allowlistAllows(peer->id)) {
+		result.noSkipRange = { 0, ServerMaxMsgId };
+		return result;
+	}
 
 	auto messages = [&] {
 		switch (data.type()) {

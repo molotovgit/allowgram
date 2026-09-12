@@ -38,7 +38,25 @@ containment; plus and Remove callbacks; last-row protection; Enter and Tab;
 repeated-row spacing; and scrolling to a new row, wrapped errors and Save.
 Pixel-level label, focus and text appearance still needs native visual review.
 
-## Recorded 7.2.8.3 results
+## Recorded 7.2.8.4 UI results
+
+The unfixed 100% form gave a 19px text document only 12px of viewport height.
+Remove was centered 12px above the editable region. The real widget failed
+27 geometry checks in the minimum-size baseline.
+
+The corrected form passes **1,284 checks in 12 cases**, covering all four
+requested application scales and three window sizes. Every final process
+exited normally with code zero. The native request/message/Mini App suite
+also passed 451 checks, the parser 80 checks and the schema audit six tests.
+See [measured UI results](ui-layout-results.json) for dimensions, text and
+caret measurements, the exact baseline and the isolated-test scope.
+
+The early test harness exposed a teardown error from a parented stack control;
+the test now uses normal Qt ownership. The 150% caret check also caught a
+one-pixel rounding edge, fixed in the production row with a document inset
+based on its native border width. Neither failure was waived to get a pass.
+
+## Historical 7.2.8.3 results
 
 These are local Windows release results, not a claim that GitHub Actions has run:
 

@@ -1,0 +1,1448 @@
+{
+  "version": "7.2.8.4",
+  "platform": "Windows x64, MSVC 14.44, patched Qt 6.11.2",
+  "productionWidget": "Window::AllowlistLockWidget with Ui::InputField and generated window styles",
+  "baselineApplication": "c691b2b80cade2c25050116beae3def78226bca1",
+  "fixedApplication": "2250b847ef",
+  "scope": "Unsigned-in isolated native test processes; no saved owner profile, live messages or permission grants.",
+  "red": {
+    "scale": 100,
+    "width": 380,
+    "height": 480,
+    "failedGeometryChecks": 27,
+    "totalChecks": 107,
+    "measurements": [
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "empty",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "focused",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "8558994389",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "1099511627775",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "-123456789",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "-1001234567890",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "chat:123456789",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "channel:1099511627775",
+        "viewportHeight": 12
+      },
+      {
+        "caretHeight": 19,
+        "documentHeight": 19,
+        "editableCenter": 33,
+        "fieldHeight": 44,
+        "removeCenter": 21,
+        "state": "invalid",
+        "viewportHeight": 12
+      }
+    ],
+    "note": "The original harness also had a parented stack-control teardown failure. The final harness uses normal Qt ownership and requires process exit zero; the recorded geometry failure is independent of that harness correction."
+  },
+  "green": {
+    "cases": 12,
+    "checks": 1284,
+    "failures": 0,
+    "processExitCodes": [
+      0
+    ],
+    "scales": [
+      100,
+      125,
+      150,
+      200
+    ],
+    "caseResults": [
+      {
+        "case": "100-minimum",
+        "scale": 100,
+        "width": 380,
+        "height": 480,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "empty",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "focused",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "8558994389",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "1099511627775",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "-123456789",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "-1001234567890",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "chat:123456789",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "channel:1099511627775",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "invalid",
+            "viewportHeight": 23
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "100-compact",
+        "scale": 100,
+        "width": 800,
+        "height": 598,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "empty",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "focused",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "8558994389",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "1099511627775",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "-123456789",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "-1001234567890",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "chat:123456789",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "channel:1099511627775",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "invalid",
+            "viewportHeight": 23
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "100-desktop",
+        "scale": 100,
+        "width": 1100,
+        "height": 800,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "empty",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "focused",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "8558994389",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "1099511627775",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "-123456789",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "-1001234567890",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "chat:123456789",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "channel:1099511627775",
+            "viewportHeight": 23
+          },
+          {
+            "caretBottom": 19,
+            "caretHeight": 19,
+            "caretTop": 1,
+            "documentHeight": 21,
+            "editableCenter": 39,
+            "fieldHeight": 55,
+            "removeCenter": 39,
+            "state": "invalid",
+            "viewportHeight": 23
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "125-minimum",
+        "scale": 125,
+        "width": 475,
+        "height": 600,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "empty",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "focused",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "8558994389",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "1099511627775",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "-123456789",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "-1001234567890",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "chat:123456789",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "channel:1099511627775",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "invalid",
+            "viewportHeight": 29
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "125-compact",
+        "scale": 125,
+        "width": 1000,
+        "height": 748,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "empty",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "focused",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "8558994389",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "1099511627775",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "-123456789",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "-1001234567890",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "chat:123456789",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "channel:1099511627775",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "invalid",
+            "viewportHeight": 29
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "125-desktop",
+        "scale": 125,
+        "width": 1375,
+        "height": 1000,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "empty",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "focused",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "8558994389",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "1099511627775",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "-123456789",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "-1001234567890",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "chat:123456789",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "channel:1099511627775",
+            "viewportHeight": 29
+          },
+          {
+            "caretBottom": 23,
+            "caretHeight": 23,
+            "caretTop": 1,
+            "documentHeight": 25,
+            "editableCenter": 49,
+            "fieldHeight": 69,
+            "removeCenter": 49,
+            "state": "invalid",
+            "viewportHeight": 29
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "150-minimum",
+        "scale": 150,
+        "width": 570,
+        "height": 720,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "empty",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "focused",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "8558994389",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "1099511627775",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "-123456789",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "-1001234567890",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "chat:123456789",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "channel:1099511627775",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "invalid",
+            "viewportHeight": 34
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "150-compact",
+        "scale": 150,
+        "width": 1200,
+        "height": 897,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "empty",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "focused",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "8558994389",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "1099511627775",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "-123456789",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "-1001234567890",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "chat:123456789",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "channel:1099511627775",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "invalid",
+            "viewportHeight": 34
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "150-desktop",
+        "scale": 150,
+        "width": 1650,
+        "height": 1200,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "empty",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "focused",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "8558994389",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "1099511627775",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "-123456789",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "-1001234567890",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "chat:123456789",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "channel:1099511627775",
+            "viewportHeight": 34
+          },
+          {
+            "caretBottom": 28,
+            "caretHeight": 29,
+            "caretTop": 0,
+            "documentHeight": 30,
+            "editableCenter": 59,
+            "fieldHeight": 82,
+            "removeCenter": 58,
+            "state": "invalid",
+            "viewportHeight": 34
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "200-minimum",
+        "scale": 200,
+        "width": 760,
+        "height": 960,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "empty",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "focused",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "8558994389",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "1099511627775",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "-123456789",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "-1001234567890",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "chat:123456789",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "channel:1099511627775",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "invalid",
+            "viewportHeight": 46
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "200-compact",
+        "scale": 200,
+        "width": 1600,
+        "height": 1196,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "empty",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "focused",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "8558994389",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "1099511627775",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "-123456789",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "-1001234567890",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "chat:123456789",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "channel:1099511627775",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "invalid",
+            "viewportHeight": 46
+          }
+        ],
+        "checks": 107
+      },
+      {
+        "case": "200-desktop",
+        "scale": 200,
+        "width": 2200,
+        "height": 1600,
+        "devicePixelRatio": 1,
+        "failures": 0,
+        "processExitCode": 0,
+        "measurements": [
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "empty",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "focused",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "8558994389",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "1099511627775",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "-123456789",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "-1001234567890",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "chat:123456789",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "channel:1099511627775",
+            "viewportHeight": 46
+          },
+          {
+            "caretBottom": 39,
+            "caretHeight": 38,
+            "caretTop": 2,
+            "documentHeight": 42,
+            "editableCenter": 79,
+            "fieldHeight": 110,
+            "removeCenter": 79,
+            "state": "invalid",
+            "viewportHeight": 46
+          }
+        ],
+        "checks": 107
+      }
+    ]
+  },
+  "scalingLimit": "Telegram application scales were selected per process. Host Windows DPI settings and cross-monitor migration were not changed or tested."
+}

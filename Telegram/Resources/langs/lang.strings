@@ -8778,11 +8778,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_intro_about" = "A Telegram client with a messaging allowlist.";
 
 "lng_allowgram_setup_title" = "Set up your allow-list";
-"lng_allowgram_setup_about" = "Choose who this account can message from this app. Add at least one user or group ID. Separate IDs with commas, spaces, or new lines. This list stays fixed until you log out.";
-"lng_allowgram_users" = "Users";
-"lng_allowgram_users_hint" = "Use numeric Telegram user IDs, not phone numbers or usernames. Example: 123456789 or user:123456789.";
-"lng_allowgram_groups" = "Groups and channels";
-"lng_allowgram_groups_hint" = "Use signed group IDs, such as -123456789 or -1001234567890. You can also use chat:123456789 or channel:1234567890.";
+"lng_allowgram_setup_about" = "Choose the chats you can see and message in Allowgram. Enter an ID in each row and press + to add more users or groups, up to 10,000 IDs total. Other chats and their notifications are hidden. This list stays fixed until you log out.";
+"lng_allowgram_users" = "Allowed users";
+"lng_allowgram_users_hint" = "Enter a numeric Telegram user ID in each row, such as 123456789. Use + Add user for another person. Phone numbers and usernames are not accepted.";
+"lng_allowgram_groups" = "Allowed groups and channels";
+"lng_allowgram_groups_hint" = "Enter a group or channel ID in each row, such as -123456789 or -1001234567890. Use + Add group/channel for another chat. The chat: and channel: prefixes are also accepted.";
+"lng_allowgram_add_user" = "+ Add user";
+"lng_allowgram_add_group" = "+ Add group/channel";
+"lng_allowgram_remove_id" = "Remove";
 "lng_allowgram_save_continue" = "Save and continue";
 "lng_allowgram_already_configured" = "This account already has an allow-list. Log out to set up a different list.";
 "lng_allowgram_empty" = "Add at least one user or group ID.";
@@ -8792,6 +8795,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_too_long" = "The allow-list input is too long.";
 "lng_allowgram_save_failed" = "The allow-list could not be saved. Check free disk space and try again.";
 
-"lng_allowlist_write_restricted" = "This chat is not on your allow list. You can read messages, but sending is disabled.";
+"lng_allowlist_write_restricted" = "This chat is not on your allow-list. Access is disabled.";
 
 // Keys finished

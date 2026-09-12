@@ -26,6 +26,16 @@ void CheckInvalid(std::string_view value, bool users, Error expected) {
 
 int main() {
 	using namespace Main::Allowlist;
+	for (const auto text : { U"\U0001F600", U"\u2764\uFE0F", U"\u263A\uFE0E",
+		U"\U0001F468\u200D\U0001F469\u200D\U0001F467", U"\U0001F1FA\U0001F1FF",
+		U"\U0001F44D\U0001F3FD", U"1\uFE0F\u20E3", U"#\u20E3", U"*\uFE0F\u20E3",
+		U"\U0001FAE9" }) {
+		Check(ContainsEmoji(text), "Telegram emoji sequence accepted");
+	}
+	Check(!ContainsEmoji(U"0123456789 # * ! ?.,:; -1001234567890"),
+		"Ordinary digits or punctuation rejected");
+	Check(!ContainsEmoji(U"O'zbekiston \u040E\u0437\u0431\u0435\u043A \u4F60\u597D \u65E5\u672C\u8A9E"),
+		"Multilingual text rejected");
 	Check(!CanPresentPeerProfile(Kind::User, true),
 		"Allowlisted member profile presentation accepted");
 	Check(!CanPresentPeerProfile(Kind::User, false),

@@ -23,6 +23,7 @@ enum class Error { None, Empty, InvalidId, WrongField, TooMany, TooLong };
 
 [[nodiscard]] bool CanPresentPeerProfile(Kind kind, bool conversationAllowed);
 [[nodiscard]] bool CanStartUserSession(int authorizedAccounts);
+[[nodiscard]] bool ContainsEmoji(std::u32string_view text);
 
 struct Entry {
 	Kind kind = Kind::User;

@@ -105,6 +105,26 @@ bool CanStartUserSession(int authorizedAccounts) {
 	return authorizedAccounts == 0;
 }
 
+bool ContainsEmoji(std::u32string_view text) {
+	struct Range {
+		char32_t first;
+		char32_t last;
+	};
+	static constexpr Range ranges[] = {
+#include "main/allowlist_emoji_ranges.inc"
+	};
+	for (const auto scalar : text) {
+		for (const auto &range : ranges) {
+			if (scalar < range.first) {
+				break;
+			} else if (scalar <= range.last) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 ParseResult Parse(std::string_view users, std::string_view groups) {
 	if (users.size() > kMaximumInputBytes
 		|| groups.size() > kMaximumInputBytes

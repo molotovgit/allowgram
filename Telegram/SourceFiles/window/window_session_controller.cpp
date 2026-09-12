@@ -33,7 +33,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "history/view/reactions/history_view_reactions.h"
 //#include "history/view/reactions/history_view_reactions_button.h"
+#include "history/admin_log/history_admin_log_section.h"
 #include "history/view/history_view_chat_section.h"
+#include "history/view/history_view_pinned_section.h"
+#include "history/view/history_view_welcome_messages_section.h"
 #include "history/view/history_view_scheduled_section.h"
 #include "history/view/history_view_subsection_tabs.h"
 #include "media/player/media_player_instance.h"
@@ -69,6 +72,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_search_calendar.h"
 #include "dialogs/ui/chat_search_in.h"
 #include "passport/passport_form_controller.h"
+#include "chat_helpers/tabbed_section.h"
 #include "chat_helpers/tabbed_selector.h"
 #include "chat_helpers/emoji_interactions.h"
 #include "core/shortcuts.h"
@@ -141,6 +145,29 @@ base::options::toggle OptionExternalMediaViewer({
 	.name = "External media viewer",
 	.description = "Use system media viewer instead of the internal one.",
 });
+
+[[nodiscard]] bool AllowlistAllowsOrigin(
+		not_null<Main::Session*> session,
+		const Data::FileOrigin &origin) {
+	if (!session->allowlistConfigured()) {
+		return false;
+	}
+	return v::match(origin.data, [&](const Data::FileOriginMessage &value) {
+		return session->allowlistAllows(value.peer);
+	}, [&](const Data::FileOriginUserPhoto &value) {
+		return session->allowlistAllows(peerFromUser(value.userId));
+	}, [&](const Data::FileOriginFullUser &value) {
+		return session->allowlistAllows(peerFromUser(value.userId));
+	}, [&](const Data::FileOriginPeerPhoto &value) {
+		return session->allowlistAllows(value.peerId);
+	}, [&](const Data::FileOriginCloudDraft &value) {
+		return session->allowlistAllows(value.peerId);
+	}, [](const Data::FileOriginStory &) {
+		return false;
+	}, [](const auto &) {
+		return true;
+	});
+}
 
 [[nodiscard]] bool HasSavingRestriction(HistoryItem *item) {
 	return item
@@ -302,14 +329,18 @@ bool MainWindowShow::showMediaPreview(
 		Data::FileOrigin origin,
 		not_null<DocumentData*> document) const {
 	const auto window = _window.get();
-	return window && window->widget()->showMediaPreview(origin, document);
+	return window
+		&& AllowlistAllowsOrigin(&window->session(), origin)
+		&& window->widget()->showMediaPreview(origin, document);
 }
 
 bool MainWindowShow::showMediaPreview(
 		Data::FileOrigin origin,
 		not_null<PhotoData*> photo) const {
 	const auto window = _window.get();
-	return window && window->widget()->showMediaPreview(origin, photo);
+	return window
+		&& AllowlistAllowsOrigin(&window->session(), origin)
+		&& window->widget()->showMediaPreview(origin, photo);
 }
 
 void MainWindowShow::processChosenSticker(
@@ -425,6 +456,10 @@ bool SessionNavigation::showFrozenError() {
 }
 
 void SessionNavigation::showPeerByLink(const PeerByLinkInfo &info) {
+	if (!_session->allowlistConfigured()) {
+		return;
+	}
+
 	Core::App().hideMediaView();
 	if (!info.phone.isEmpty()) {
 		resolvePhone(info.phone, [=](not_null<PeerData*> peer) {
@@ -439,6 +474,9 @@ void SessionNavigation::showPeerByLink(const PeerByLinkInfo &info) {
 		});
 	} else if (const auto name = std::get_if<QString>(&info.usernameOrId)) {
 		resolveUsername(*name, [=](not_null<PeerData*> peer) {
+			if (!_session->allowlistAllows(peer->id)) {
+				return;
+			}
 			if (info.startAutoSubmit) {
 				peer->session().api().blockedPeers().unblock(
 					peer,
@@ -621,6 +659,11 @@ void SessionNavigation::showMessageByLinkResolved(
 void SessionNavigation::showPeerByLinkResolved(
 		not_null<PeerData*> peer,
 		const PeerByLinkInfo &info) {
+	if (&peer->session() != _session
+		|| !_session->allowlistAllows(peer->id)) {
+		return;
+	}
+
 	auto params = SectionShow{
 		SectionShow::Way::Forward
 	};
@@ -1236,6 +1279,10 @@ void SessionNavigation::showRepliesForMessage(
 		MsgId rootId,
 		MsgId commentId,
 		const SectionShow &params) {
+	if (!_session->allowlistAllows(history->peer->id)) {
+		return;
+	}
+
 	if (const auto topic = history->peer->forumTopicFor(rootId)) {
 		auto replies = topic->replies();
 		if (replies->unreadCountKnown()) {
@@ -1287,7 +1334,7 @@ void SessionNavigation::showRepliesForMessage(
 			const auto peer = deleted
 				? history->peer->id
 				: PeerFromMessage(list.front());
-			if (!peer || !id) {
+			if (!peer || !id || !_session->allowlistAllows(peer)) {
 				return;
 			}
 			auto item = deleted
@@ -1391,6 +1438,11 @@ void SessionNavigation::showThread(
 void SessionNavigation::showPeerInfo(
 		not_null<PeerData*> peer,
 		const SectionShow &params) {
+	if (&peer->session() != _session
+		|| !_session->allowlistAllows(peer->id)) {
+		return;
+	}
+
 	//if (Adaptive::ThreeColumn()
 	//	&& !Core::App().settings().thirdSectionInfoEnabled()) {
 	//	Core::App().settings().setThirdSectionInfoEnabled(true);
@@ -1431,6 +1483,10 @@ void SessionNavigation::showByInitialId(
 		MsgId msgId) {
 	const auto parent = parentController();
 	const auto id = parent->window().id();
+	if (!_session->allowlistConfigured()
+		|| (id.thread && !_session->allowlistAllows(id.thread->peer()->id))) {
+		return;
+	}
 	auto instant = params;
 	instant.animated = anim::type::instant;
 	switch (id.type) {
@@ -1509,6 +1565,11 @@ void SessionNavigation::searchMessages(
 		const QString &query,
 		Dialogs::Key inChat,
 		PeerData *searchFrom) {
+	if (!_session->allowlistConfigured()
+		|| (inChat.peer() && !_session->allowlistAllows(inChat.peer()->id))) {
+		return;
+	}
+
 	parentController()->content()->searchMessages(query, inChat, searchFrom);
 }
 
@@ -1908,6 +1969,9 @@ bool SessionController::hasTabbedSelectorOwnership() const {
 }
 
 void SessionController::showEditPeerBox(PeerData *peer) {
+	if (!peer || !session().allowlistAllows(peer->id)) {
+		return;
+	}
 	_showEditPeer = peer;
 	session().api().requestFullPeer(peer);
 }
@@ -2125,6 +2189,10 @@ bool SessionController::openCommunityInDifferentWindow(
 }
 
 void SessionController::openCommunity(not_null<Data::CommunityInfo*> info) {
+	if (!session().allowlistAllows(info->channel()->id)) {
+		return;
+	}
+
 	if (openCommunityInDifferentWindow(info)) {
 		return;
 	} else if (_openedCommunity.current() != info) {
@@ -2212,6 +2280,10 @@ void SessionController::showForum(
 		not_null<Data::Forum*> forum,
 		const SectionShow &params,
 		MsgId showAtMsgId) {
+	if (!session().allowlistAllows(forum->peer()->id)) {
+		return;
+	}
+
 	const auto forced = params.forceTopicsList;
 	if (showForumInDifferentWindow(forum, params, showAtMsgId)) {
 		return;
@@ -2816,6 +2888,9 @@ void SessionController::closeThirdSection() {
 }
 
 void SessionController::showPeer(not_null<PeerData*> peer, MsgId msgId) {
+	if (!peer->session().allowlistAllows(peer->id)) {
+		return;
+	}
 	if (const auto channel = peer->asChannel()) {
 		if (channel->isCommunity()) {
 			showPeerInfo(channel, SectionShow());
@@ -2853,6 +2928,10 @@ void SessionController::startOrJoinGroupCall(
 }
 
 void SessionController::showCalendar(ShowCalendarDescriptor &&descriptor) {
+	if (!descriptor.chat.peer()
+		|| !session().allowlistAllows(descriptor.chat.peer()->id)) {
+		return;
+	}
 	const auto chat = descriptor.chat;
 	const auto requestedDate = descriptor.date;
 	const auto topic = chat.topic();
@@ -3148,6 +3227,11 @@ void SessionController::showPeerHistory(
 		PeerId peerId,
 		const SectionShow &params,
 		MsgId msgId) {
+	if (!session().allowlistConfigured()
+		|| (peerId && !session().allowlistAllows(peerId))) {
+		return;
+	}
+
 	if (const auto peer = session().data().peerLoaded(peerId)) {
 		if (const auto channel = peer->asChannel()) {
 			if (channel->isCommunity()) {
@@ -3162,6 +3246,10 @@ void SessionController::showPeerHistory(
 void SessionController::showMessage(
 		not_null<const HistoryItem*> item,
 		const SectionShow &params) {
+	if (!item->history()->session().allowlistAllows(item->history()->peer->id)) {
+		return;
+	}
+
 	_window->invokeForSessionController(
 		&item->history()->session().account(),
 		item->history()->peer,
@@ -3213,9 +3301,53 @@ void SessionController::cancelUploadLayer(not_null<HistoryItem*> item) {
 	}));
 }
 
+bool SessionController::allowlistAllowsSection(
+		not_null<SectionMemento*> memento) const {
+	if (!session().allowlistConfigured()) {
+		return false;
+	}
+	const auto raw = memento.get();
+	if (const auto info = dynamic_cast<Info::Memento*>(raw)) {
+		return info->allowlistAllows(&session());
+	} else if (const auto moved = dynamic_cast<Info::MoveMemento*>(raw)) {
+		return moved->allowlistAllows(&session());
+	} else if (const auto chat = dynamic_cast<HistoryView::ChatMemento*>(raw)) {
+		const auto history = chat->id().history;
+		const auto sublist = chat->id().sublist;
+		return &history->session() == &session()
+			&& session().allowlistAllows(history->peer->id)
+			&& (!sublist
+				|| session().allowlistAllows(sublist->sublistPeer()->id));
+	} else if (const auto scheduled = dynamic_cast<
+			HistoryView::ScheduledMemento*>(raw)) {
+		const auto history = scheduled->getHistory();
+		return &history->session() == &session()
+			&& session().allowlistAllows(history->peer->id);
+	} else if (const auto pinned = dynamic_cast<
+			HistoryView::PinnedMemento*>(raw)) {
+		const auto thread = pinned->getThread();
+		return &thread->session() == &session()
+			&& session().allowlistAllows(thread->peer()->id);
+	} else if (const auto log = dynamic_cast<AdminLog::SectionMemento*>(raw)) {
+		const auto peer = log->getChannel();
+		return &peer->session() == &session()
+			&& session().allowlistAllows(peer->id);
+	} else if (const auto welcome = dynamic_cast<
+			HistoryView::WelcomeMessagesMemento*>(raw)) {
+		const auto history = welcome->getHistory();
+		return &history->session() == &session()
+			&& session().allowlistAllows(history->peer->id);
+	}
+	return dynamic_cast<ChatHelpers::TabbedMemento*>(raw) != nullptr;
+}
+
 void SessionController::showSection(
 		std::shared_ptr<SectionMemento> memento,
 		const SectionShow &params) {
+	if (!memento || !allowlistAllowsSection(memento.get())) {
+		return;
+	}
+
 	if (!params.thirdColumn
 		&& widget()->showSectionInExistingLayer(memento.get(), params)) {
 		return;
@@ -3408,6 +3540,10 @@ void SessionController::openPhoto(
 		not_null<PhotoData*> photo,
 		MessageContext message,
 		const Data::StoriesContext *stories) {
+	if (!session().allowlistAllows(message.id.peer)) {
+		return;
+	}
+
 	const auto item = session().data().message(message.id);
 	if (openSharedStory(item) || openFakeItemStory(message.id, stories)) {
 		return;
@@ -3430,6 +3566,10 @@ void SessionController::openPhoto(
 void SessionController::openPhoto(
 		not_null<PhotoData*> photo,
 		not_null<PeerData*> peer) {
+	if (!session().allowlistAllows(peer->id)) {
+		return;
+	}
+
 	const auto origin = peer->isUser()
 		? Data::FileOrigin(Data::FileOriginUserPhoto(
 			peerToUser(peer->id),
@@ -3447,6 +3587,11 @@ void SessionController::openDocument(
 		MessageContext message,
 		const Data::StoriesContext *stories,
 		std::optional<TimeId> videoTimestampOverride) {
+	if (!session().allowlistConfigured()
+		|| (message.id.peer && !session().allowlistAllows(message.id.peer))) {
+		return;
+	}
+
 	const auto item = session().data().message(message.id);
 	if (openSharedStory(item) || openFakeItemStory(message.id, stories)) {
 		return;
@@ -3891,6 +4036,10 @@ void SessionController::openPeerStory(
 		not_null<PeerData*> peer,
 		StoryId storyId,
 		Data::StoriesContext context) {
+	if (!session().allowlistAllows(peer->id)) {
+		return;
+	}
+
 	using namespace Media::View;
 	using namespace Data;
 
@@ -3912,6 +4061,10 @@ void SessionController::openPeerStories(
 		std::optional<Data::StorySourcesList> list,
 		bool onlyLive,
 		bool afterReload) {
+	if (!session().allowlistAllows(peerId)) {
+		return;
+	}
+
 	using namespace Media::View;
 	using namespace Data;
 
@@ -3979,6 +4132,13 @@ bool SessionController::showChatPreview(
 		Fn<void(bool shown)> callback,
 		QPointer<QWidget> parentOverride,
 		std::optional<QPoint> positionOverride) {
+	if (!row.key.peer() || !session().allowlistAllows(row.key.peer()->id)) {
+		if (callback) {
+			callback(false);
+		}
+		return false;
+	}
+
 	return _chatPreviewManager->show(
 		std::move(row),
 		std::move(callback),
@@ -3991,6 +4151,13 @@ bool SessionController::scheduleChatPreview(
 		Fn<void(bool shown)> callback,
 	QPointer<QWidget> parentOverride,
 	std::optional<QPoint> positionOverride) {
+	if (!row.key.peer() || !session().allowlistAllows(row.key.peer()->id)) {
+		if (callback) {
+			callback(false);
+		}
+		return false;
+	}
+
 	return _chatPreviewManager->schedule(
 		std::move(row),
 		std::move(callback),

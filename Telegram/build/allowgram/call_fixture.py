@@ -21,7 +21,14 @@ def probe(name):
 def instrument_calls(root, includes):
     instance = (root / 'Telegram/SourceFiles/calls/calls_instance.cpp').read_text(encoding='utf-8')
     instance = replace_once(instance, '\tusing Type = Platform::PermissionType;',
-        '\t' + probe('allowgramCallPermissions') + '\n\tonSuccess();\n\treturn;\n\tusing Type = Platform::PermissionType;')
+        '\t' + probe('allowgramCallPermissions') + '''
+    if (QCoreApplication::instance()->property("allowgramDeferCallPermissions").toBool()) {
+        crl::on_main(QCoreApplication::instance(), std::move(onSuccess));
+        return;
+    }
+    onSuccess();
+    return;
+    using Type = Platform::PermissionType;''')
     for anchor, name in (
         ('\tconfirmLeaveCurrent(show, peer, args, [=](StartGroupCallArgs args) {', 'allowgramGroupStart'),
         ('\tExpects(args.call || args.show);', 'allowgramConferenceStart'),

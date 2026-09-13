@@ -30,6 +30,15 @@ const auto setAllowed = [&](bool allowed) {
 		peers.erase(user->id);
 	}
 	session.settings().addFromSerialized(session.settings().serialize());
+	if (!allowed) {
+		check(session.allowlistAllows(group->id) && !session.canCallPeer(user->id),
+			"allowed group with same numeric ID does not authorize its removed user");
+		const auto before = effects();
+		const auto existing = Core::App().calls().currentCall();
+		Core::App().calls().startOutgoingCall(user, { .video = true, .isConfirmed = true });
+		check(effects() == before && Core::App().calls().currentCall() == existing,
+			"fresh call to removed group member creates no effects or replacement context");
+	}
 };
 auto &testPeers = const_cast<base::flat_set<PeerId>&>(session.settings().allowlistPeers());
 testPeers.insert(peerFromUser(UserId(44)));
@@ -52,8 +61,9 @@ for (const auto target : { denied, bot, unresolved, session.user() }) {
 }
 const auto protocol = MTP_phoneCallProtocol(MTP_flags(0), MTP_int(65), MTP_int(100),
 	MTP_vector<MTPstring>({ MTP_string("synthetic") }));
-const auto requested = [&](uint64 id, uint64 hash, uint64 admin, uint64 participant, int date, int hashSize = 32) {
-	return MTPPhoneCall(MTP_phoneCallRequested(MTP_flags(0), MTP_long(id), MTP_long(hash),
+const auto requested = [&](uint64 id, uint64 hash, uint64 admin, uint64 participant, int date, int hashSize = 32, bool video = false) {
+	return MTPPhoneCall(MTP_phoneCallRequested(MTP_flags(video
+		? MTPDphoneCallRequested::Flag::f_video : MTPDphoneCallRequested::Flags()), MTP_long(id), MTP_long(hash),
 		MTP_int(date), MTP_long(admin), MTP_long(participant), MTP_bytes(QByteArray(hashSize, 'a')), protocol));
 };
 const auto update = [&](const MTPPhoneCall &call) {
@@ -89,6 +99,35 @@ const auto confirmed = [&](uint64 id, uint64 hash, uint64 admin, uint64 particip
 		MTP_long(admin), MTP_long(participant), MTP_bytes(QByteArray(256, 'a')), MTP_long(1), protocol,
 		MTP_vector<MTPPhoneConnection>({}), MTP_int(base::unixtime::now()), MTPDataJSON()));
 };
+const auto confirmationRequest = rpcCount(mtpc_phone_requestCall);
+Core::App().calls().startOutgoingCall(user, {});
+check(Core::App().calls().currentCall()
+	&& Core::App().calls().currentCall()->state() == Calls::Call::State::WaitingUserConfirmation
+	&& rpcCount(mtpc_phone_requestCall) == confirmationRequest,
+	"normal private-chat call route waits for user confirmation without signaling");
+Core::App().calls().startOutgoingCall(user, { .isConfirmed = true });
+drainCalls();
+if (const auto call = Core::App().calls().currentCall()) {
+	check(call->state() == Calls::Call::State::Waiting && rpcCount(mtpc_phone_requestCall) == confirmationRequest + 1,
+		"confirmed normal route creates one approved outgoing call");
+	call->hangup();
+	drainCalls();
+} else {
+	check(false, "confirmed normal route retains its actual Call");
+}
+application->setProperty("allowgramDeferCallPermissions", true);
+const auto permissionRequest = rpcCount(mtpc_phone_requestCall);
+Core::App().calls().startOutgoingCall(user, { .isConfirmed = true });
+check(!Core::App().calls().currentCall(), "deferred permission has not allocated an outgoing call");
+setAllowed(false);
+const auto beforeDelayedPermission = effects();
+drainCalls();
+check(!Core::App().calls().currentCall() && effects() == beforeDelayedPermission
+	&& rpcCount(mtpc_phone_requestCall) == permissionRequest,
+	"permission callback rechecks revocation before allocation and signaling");
+application->setProperty("allowgramDeferCallPermissions", false);
+setAllowed(true);
+
 for (const auto video : { false, true }) {
 	const auto before = rpcCount(mtpc_phone_requestCall);
 	Core::App().calls().startOutgoingCall(user, { .video = video, .isConfirmed = true });
@@ -132,43 +171,46 @@ if (const auto call = Core::App().calls().currentCall()) {
 	call->hangup();
 	drainCalls();
 }
-const auto incomingId = uint64(2001);
-const auto incomingHash = uint64(2101);
-const auto beforeReceived = rpcCount(mtpc_phone_receivedCall);
-update(requested(incomingId, incomingHash, 42, 99, base::unixtime::now()));
-drainCalls();
-if (const auto call = Core::App().calls().currentCall()) {
-	check(call->state() == Calls::Call::State::WaitingIncoming && rpcCount(mtpc_phone_receivedCall) == beforeReceived + 1,
-		"eligible incoming request creates actual pending call and approved received request");
-	const auto beforeAccept = rpcCount(mtpc_phone_acceptCall);
-	call->answer();
+for (const auto incomingVideo : { false, true }) {
+	const auto incomingId = uint64(incomingVideo ? 2011 : 2001);
+	const auto incomingHash = uint64(incomingVideo ? 2111 : 2101);
+	const auto beforeReceived = rpcCount(mtpc_phone_receivedCall);
+	update(requested(incomingId, incomingHash, 42, 99, base::unixtime::now(), 32, incomingVideo));
 	drainCalls();
-	check(call->state() == Calls::Call::State::ExchangingKeys && rpcCount(mtpc_phone_acceptCall) == beforeAccept + 1,
-		"actual incoming answer reaches approved acceptance request boundary");
-	application->setProperty("allowgramDeferSignaling", true);
-	update(confirmed(incomingId, incomingHash, 42, 99));
-	check(call->state() == Calls::Call::State::Established, "actual incoming confirmation reaches intercepted active controller boundary");
-	const auto cancelled = application->property("allowgramSignalCancelled").toInt();
-	check(application->property("allowgramPendingSignal").toInt() != 0, "synthetic signaling request remains queued before revocation");
-	const auto stop = application->property("allowgramCallControllerStop").toInt();
-	const auto discard = rpcCount(mtpc_phone_discardCall);
-	setAllowed(false);
-	check(call->state() != Calls::Call::State::Established && application->property("allowgramCallControllerStop").toInt() > stop,
-		"active allowlist revocation synchronously stops controller state");
-	check(rpcCount(mtpc_phone_discardCall) == discard + 1, "revoked actual call retains narrowly bound cleanup");
-	check(application->property("allowgramSignalCancelled").toInt() == cancelled + 1, "revocation synchronously cancels queued signaling request");
-	application->setProperty("allowgramDeferSignaling", false);
-	const auto before = effects();
-	call->answer();
-	call->redial();
-	check(!call->handleSignalingData(MTP_updatePhoneCallSignalingData(MTP_long(incomingId), MTP_bytes("synthetic")).c_updatePhoneCallSignalingData()),
-		"revoked actual call denies incoming signaling");
-	check(effects() == before, "revoked hidden answer redial and signaling produce zero new presentation ring device effects");
-	drainCalls();
-	check(!Core::App().calls().currentCall(), "revoked actual call finishes and releases its context");
-	setAllowed(true);
-} else {
-	check(false, "eligible incoming call exists for acceptance and revocation tests");
+	if (const auto call = Core::App().calls().currentCall()) {
+		check(call->state() == Calls::Call::State::WaitingIncoming && rpcCount(mtpc_phone_receivedCall) == beforeReceived + 1,
+			"eligible incoming request creates actual pending call and approved received request");
+		const auto beforeAccept = rpcCount(mtpc_phone_acceptCall);
+		call->answer();
+		drainCalls();
+		check(call->state() == Calls::Call::State::ExchangingKeys && rpcCount(mtpc_phone_acceptCall) == beforeAccept + 1,
+			"actual incoming answer reaches approved acceptance request boundary");
+		application->setProperty("allowgramPendingSignal", 0);
+		application->setProperty("allowgramDeferSignaling", true);
+		update(confirmed(incomingId, incomingHash, 42, 99));
+		check(call->state() == Calls::Call::State::Established, "actual incoming confirmation reaches intercepted active controller boundary");
+		const auto cancelled = application->property("allowgramSignalCancelled").toInt();
+		check(application->property("allowgramPendingSignal").toInt() != 0, "synthetic signaling request remains queued before revocation");
+		const auto stop = application->property("allowgramCallControllerStop").toInt();
+		const auto discard = rpcCount(mtpc_phone_discardCall);
+		setAllowed(false);
+		check(call->state() != Calls::Call::State::Established && application->property("allowgramCallControllerStop").toInt() > stop,
+			"active allowlist revocation synchronously stops controller state");
+		check(rpcCount(mtpc_phone_discardCall) == discard + 1, "revoked actual call retains narrowly bound cleanup");
+		check(application->property("allowgramSignalCancelled").toInt() == cancelled + 1, "revocation synchronously cancels queued signaling request");
+		application->setProperty("allowgramDeferSignaling", false);
+		const auto before = effects();
+		call->answer();
+		call->redial();
+		check(!call->handleSignalingData(MTP_updatePhoneCallSignalingData(MTP_long(incomingId), MTP_bytes("synthetic")).c_updatePhoneCallSignalingData()),
+			"revoked actual call denies incoming signaling");
+		check(effects() == before, "revoked hidden answer redial and signaling produce zero new presentation ring device effects");
+		drainCalls();
+		check(!Core::App().calls().currentCall(), "revoked actual call finishes and releases its context");
+		setAllowed(true);
+	} else {
+		check(false, "eligible incoming call exists for acceptance and revocation tests");
+	}
 }
 for (const auto incoming : { false, true }) {
 	const auto discard = rpcCount(mtpc_phone_discardCall);

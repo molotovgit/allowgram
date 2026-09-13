@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import argparse
+import datetime
 
 parser = argparse.ArgumentParser(description="Build a disposable real-widget regression/capture executable from a configured Windows Ninja Release build. Run in its MSVC environment.")
 parser.add_argument('--repository', type=Path, required=True)
@@ -235,6 +236,19 @@ if result.returncode:
 assert (fixture / 'Allowgram-Docs.exe').is_file()
 (fixture / 'build-evidence.json').write_text(json.dumps({
     'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
+    'sourceDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).splitlines(),
+    'compileEvidenceSha256': hashlib.sha256((fixture / 'compile-evidence.json').read_bytes()).hexdigest(),
+    'syntheticKeyExchange': args.hardening,
+    'dependencyObjects': {
+        relative: {
+            'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+            'modifiedUtc': datetime.datetime.fromtimestamp(path.stat().st_mtime, datetime.timezone.utc).isoformat(),
+        }
+        for relative in ('main/main_session.cpp', 'main/main_session_settings.cpp',
+                         'main/main_account.cpp', 'calls/calls_call.cpp',
+                         'mtproto/allowlist_request_guard.cpp')
+        for path in [build / 'Telegram/CMakeFiles/Telegram.dir/Release/SourceFiles' / (relative + '.obj')]
+    },
     'productionExecutableSha256': original_hash,
     'fixtureExecutableSha256': hashlib.sha256((fixture / 'Allowgram-Docs.exe').read_bytes()).hexdigest(),
     'fixtureInputs': {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -244,7 +258,9 @@ assert (fixture / 'Allowgram-Docs.exe').is_file()
     'mtprotoNetworkDisabled': args.hardening,
     'callDeviceAndPanelSideEffectsSuppressed': args.hardening,
     'overlay': (['synthetic account/model construction', 'real composer callbacks',
-                 'MTProto TCP/HTTP connection and request delivery disabled'] if args.hardening else
+                 'MTProto TCP/HTTP connection and request delivery disabled',
+                 'synthetic private-call server replies after production request filtering',
+                 'synthetic key-exchange values; device, ring, panel and controller effects intercepted'] if args.hardening else
                 ['unsigned-in construction', 'neutral scene values and parser-only validation'])
                + ['process-local style scale', 'real-widget regression include'],
 }, indent=2) + '\n')

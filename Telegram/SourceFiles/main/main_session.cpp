@@ -445,6 +445,27 @@ bool Session::allowlistAllows(PeerId peer) const {
 		&& _settings->allowlistPeers().contains(peer);
 }
 
+bool Session::canCallPeer(PeerId peer) const {
+	if (!peerIsUser(peer)) {
+		return false;
+	}
+	const auto user = data().userLoaded(peerToUser(peer));
+	return Allowlist::CanCallUser(
+		Allowlist::Kind::User,
+		allowlistAllows(peer),
+		user && user->isLoaded() && !user->isInaccessible() && !user->isServiceUser(),
+		peer == userPeerId(),
+		user && user->isBot());
+}
+
+MTP::AllowlistCallContext &Session::allowlistCalls() {
+	if (!_allowlistCalls) {
+		_allowlistCalls = std::make_unique<MTP::AllowlistCallContext>(
+			userId(), [=](UserId peer) { return canCallPeer(peerFromUser(peer)); });
+	}
+	return *_allowlistCalls;
+}
+
 bool Session::canPresentPeerProfile(PeerId peer) const {
 	using Kind = Allowlist::Kind;
 	return Allowlist::CanPresentPeerProfile(
@@ -509,6 +530,7 @@ QString Session::configureAllowlist(
 	}
 	_settings->_allowlistPeers = std::move(peers);
 	_allowlistConfigured = true;
+	_settings->_allowlistChanges.fire({});
 	return QString();
 }
 

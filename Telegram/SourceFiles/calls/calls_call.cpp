@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "calls/calls_call.h"
+#include "main/allowlist_policy.h"
+#include "mtproto/allowlist_request_guard.h"
 
 #include "apiwrap.h"
 #include "base/openssl_help.h"
@@ -206,7 +208,8 @@ Call::Call(
 	not_null<Delegate*> delegate,
 	not_null<UserData*> user,
 	Type type,
-	bool video)
+	bool video,
+	uint64 allowlistToken)
 : _delegate(delegate)
 , _user(user)
 , _api(&_user->session().mtp())
@@ -234,6 +237,11 @@ Call::Call(
 , _videoOutgoing(
 	std::make_unique<Webrtc::VideoTrack>(
 		StartVideoState(video))) {
+	_allowlistToken = allowlistToken;
+	if (!_user->session().allowlistCalls().authorized(_allowlistToken)) {
+		_state = State::Failed;
+		return;
+	}
 	if (_type == Type::Outgoing) {
 		setState(State::WaitingUserConfirmation);
 	} else {
@@ -288,6 +296,20 @@ Call::Call(
 	setupOutgoingVideo();
 }
 
+bool Call::revalidateAuthorization() {
+	if (!conferenceInvite() && !_authorizationRevoked
+		&& _user->session().allowlistCalls().authorized(_allowlistToken)) {
+		return true;
+	}
+	_authorizationRevoked = true;
+	_waitingTrack.reset();
+	destroyController();
+	_videoCapture.reset();
+	_user->session().allowlistCalls().close(_allowlistToken);
+	finish(FinishType::Ended);
+	return false;
+}
+
 void Call::generateModExpFirst(bytes::const_span randomSeed) {
 	Expects(!conferenceInvite());
 
@@ -316,6 +338,9 @@ bool Call::isIncomingWaiting() const {
 }
 
 void Call::start(bytes::const_span random) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(!conferenceInvite());
 
 	// Save config here, because it is possible that it changes between
@@ -339,6 +364,9 @@ void Call::start(bytes::const_span random) {
 }
 
 void Call::startOutgoing() {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(_type == Type::Outgoing);
 	Expects(_state.current() == State::Requesting);
 	Expects(_gaHash.size() == kSha256Size);
@@ -361,8 +389,6 @@ void Call::startOutgoing() {
 	)).done([=](const MTPphone_PhoneCall &result) {
 		Expects(result.type() == mtpc_phone_phoneCall);
 
-		setState(State::Waiting);
-
 		const auto &call = result.c_phone_phoneCall();
 		_user->session().data().processUsers(call.vusers());
 		if (call.vphone_call().type() != mtpc_phoneCallWaiting) {
@@ -374,8 +400,16 @@ void Call::startOutgoing() {
 
 		const auto &phoneCall = call.vphone_call();
 		const auto &waitingCall = phoneCall.c_phoneCallWaiting();
+		if (!_user->session().allowlistCalls().bind(_allowlistToken, phoneCall)) {
+			setState(State::Failed);
+			return;
+		}
 		_id = waitingCall.vid().v;
 		_accessHash = waitingCall.vaccess_hash().v;
+		setState(State::Waiting);
+		if (!revalidateAuthorization()) {
+			return;
+		}
 		if (_finishAfterRequestingCall != FinishType::None) {
 			if (_finishAfterRequestingCall == FinishType::Failed) {
 				finish(_finishAfterRequestingCall);
@@ -394,6 +428,9 @@ void Call::startOutgoing() {
 }
 
 void Call::startIncoming() {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(_type == Type::Incoming);
 	Expects(_state.current() == State::Starting);
 	Expects(!conferenceInvite());
@@ -410,6 +447,9 @@ void Call::startIncoming() {
 }
 
 void Call::applyUserConfirmation() {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(!conferenceInvite());
 
 	if (_state.current() == State::WaitingUserConfirmation) {
@@ -418,6 +458,9 @@ void Call::applyUserConfirmation() {
 }
 
 void Call::answer() {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	const auto video = isSharingVideo();
 	_delegate->callRequestPermissionsOrFail(crl::guard(this, [=] {
 		actuallyAnswer();
@@ -462,6 +505,9 @@ void Call::acceptConferenceInvite() {
 }
 
 void Call::actuallyAnswer() {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(_type == Type::Incoming);
 
 	if (conferenceInvite()) {
@@ -482,6 +528,9 @@ void Call::actuallyAnswer() {
 		return;
 	} else {
 		_answerAfterDhConfigReceived = false;
+	}
+	if (!_user->session().allowlistCalls().exchange(_allowlistToken)) {
+		return;
 	}
 	_api.request(MTPphone_AcceptCall(
 		MTP_inputPhoneCall(MTP_long(_id), MTP_long(_accessHash)),
@@ -558,6 +607,9 @@ void Call::setupOutgoingVideo() {
 	}
 	_videoOutgoing->stateValue(
 	) | rpl::on_next([=](Webrtc::VideoState state) {
+		if (!revalidateAuthorization()) {
+			return;
+		}
 		if (state != Webrtc::VideoState::Inactive
 			&& cameraId().isEmpty()
 			&& !_videoCaptureIsScreencast) {
@@ -690,6 +742,10 @@ void Call::showRatingBox() {
 }
 
 void Call::hangup(Data::GroupCall *migrateCall, const QString &migrateSlug) {
+	if (migrateCall || !migrateSlug.isEmpty()) {
+		finish(FinishType::Ended);
+		return;
+	}
 	if (_ratingInPanel) {
 		finishRating();
 		return;
@@ -717,9 +773,18 @@ void Call::hangup(Data::GroupCall *migrateCall, const QString &migrateSlug) {
 void Call::redial() {
 	Expects(!conferenceInvite());
 
-	if (_state.current() != State::Busy) {
+	if (_state.current() != State::Busy || !_user->session().canCallPeer(_user->id)) {
 		return;
 	}
+	auto &permissions = _user->session().allowlistCalls();
+	permissions.forget(_allowlistToken);
+	_allowlistToken = permissions.begin(peerToUser(_user->id), true);
+	if (!_allowlistToken) {
+		return;
+	}
+	_id = 0;
+	_accessHash = 0;
+	_authorizationRevoked = false;
 	Assert(_instance == nullptr);
 	_type = Type::Outgoing;
 	setState(State::Requesting);
@@ -735,6 +800,9 @@ QString Call::getDebugLog() const {
 }
 
 void Call::startWaitingTrack() {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	_waitingTrack = Media::Audio::Current().createTrack();
 	const auto trackFileName = Core::App().settings().getSoundPath(
 		(_type == Type::Outgoing)
@@ -746,6 +814,9 @@ void Call::startWaitingTrack() {
 }
 
 void Call::sendSignalingData(const QByteArray &data) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(!conferenceInvite());
 
 	_api.request(MTPphone_SendSignalingData(
@@ -793,14 +864,17 @@ bytes::vector Call::getKeyShaForFingerprint() const {
 }
 
 bool Call::handleUpdate(const MTPPhoneCall &call) {
+	if (!revalidateAuthorization()
+		|| !_user->session().allowlistCalls().validate(_allowlistToken, call)) {
+		return false;
+	}
 	switch (call.type()) {
 	case mtpc_phoneCallRequested: {
 		const auto &data = call.c_phoneCallRequested();
 		if (_type != Type::Incoming
 			|| _id != 0
 			|| peerToUser(_user->id) != UserId(data.vadmin_id())) {
-			Unexpected("phoneCallRequested call inside an existing call "
-				"handleUpdate()");
+			return false;
 		}
 		if (_user->session().userId() != UserId(data.vparticipant_id())) {
 			LOG(("Call Error: Wrong call participant_id %1, expected %2."
@@ -864,22 +938,6 @@ bool Call::handleUpdate(const MTPPhoneCall &call) {
 		if (data.vid().v != _id) {
 			return false;
 		}
-		if (data.is_need_debug()) {
-			const auto debugLog = _instance
-				? _instance->getDebugInfo()
-				: std::string();
-			if (!debugLog.empty()) {
-				user()->session().api().request(MTPphone_SaveCallDebug(
-					MTP_inputPhoneCall(
-						MTP_long(_id),
-						MTP_long(_accessHash)),
-					MTP_dataJSON(MTP_string(debugLog))
-				)).send();
-			}
-		}
-		if (data.is_need_rating() && _id && _accessHash) {
-			_ratingRequested = true;
-		}
 		if (const auto duration = data.vduration()) {
 			_discardedDuration = duration->v;
 		}
@@ -922,33 +980,8 @@ bool Call::handleUpdate(const MTPPhoneCall &call) {
 	Unexpected("phoneCall type inside an existing call handleUpdate()");
 }
 
-void Call::finishByMigration(const QString &slug) {
-	Expects(!conferenceInvite());
-
-	if (_state.current() == State::MigrationHangingUp) {
-		return;
-	}
-	setState(State::MigrationHangingUp);
-	const auto limit = 5;
-	const auto session = &_user->session();
-	session->api().request(MTPphone_GetGroupCall(
-		MTP_inputGroupCallSlug(MTP_string(slug)),
-		MTP_int(limit)
-	)).done([=](const MTPphone_GroupCall &result) {
-		result.data().vcall().match([&](const auto &data) {
-			const auto call = session->data().sharedConferenceCall(
-				data.vid().v,
-				data.vaccess_hash().v);
-			call->processFullCall(result);
-			Core::App().calls().startOrJoinConferenceCall(
-				migrateConferenceInfo({
-					.call = call,
-					.linkSlug = slug,
-				}));
-		});
-	}).fail(crl::guard(this, [=] {
-		setState(State::Failed);
-	})).send();
+void Call::finishByMigration(const QString &) {
+	finish(FinishType::Ended);
 }
 
 void Call::updateRemoteMediaState(
@@ -977,7 +1010,8 @@ void Call::updateRemoteMediaState(
 
 bool Call::handleSignalingData(
 		const MTPDupdatePhoneCallSignalingData &data) {
-	if (data.vphone_call_id().v != _id || !_instance) {
+	if (!revalidateAuthorization()
+		|| data.vphone_call_id().v != _id || !_instance) {
 		return false;
 	}
 	auto prepared = ranges::views::all(
@@ -990,6 +1024,9 @@ bool Call::handleSignalingData(
 }
 
 void Call::confirmAcceptedCall(const MTPDphoneCallAccepted &call) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(_type == Type::Outgoing);
 	Expects(!conferenceInvite());
 
@@ -1014,6 +1051,9 @@ void Call::confirmAcceptedCall(const MTPDphoneCallAccepted &call) {
 	_keyFingerprint = ComputeFingerprint(_authKey);
 
 	setState(State::ExchangingKeys);
+	if (!_user->session().allowlistCalls().exchange(_allowlistToken)) {
+		return;
+	}
 	_api.request(MTPphone_ConfirmCall(
 		MTP_inputPhoneCall(MTP_long(_id), MTP_long(_accessHash)),
 		MTP_bytes(_ga),
@@ -1043,6 +1083,9 @@ void Call::confirmAcceptedCall(const MTPDphoneCallAccepted &call) {
 }
 
 void Call::startConfirmedCall(const MTPDphoneCall &call) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(_type == Type::Incoming);
 	Expects(!conferenceInvite());
 
@@ -1071,6 +1114,9 @@ void Call::startConfirmedCall(const MTPDphoneCall &call) {
 }
 
 void Call::createAndStartController(const MTPDphoneCall &call) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(!conferenceInvite());
 
 	_discardByTimeoutTimer.cancel();
@@ -1078,7 +1124,10 @@ void Call::createAndStartController(const MTPDphoneCall &call) {
 		return;
 	}
 
-	_conferenceSupported = call.is_conference_supported();
+	if (!_user->session().allowlistCalls().activate(_allowlistToken)) {
+		return;
+	}
+	_conferenceSupported = false;
 
 	const auto &protocol = call.vprotocol().c_phoneCallProtocol();
 	const auto &serverConfig = _user->session().serverConfig();
@@ -1272,6 +1321,9 @@ void Call::createAndStartController(const MTPDphoneCall &call) {
 }
 
 void Call::handleControllerStateChange(tgcalls::State state) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	Expects(!conferenceInvite());
 
 	switch (state) {
@@ -1317,7 +1369,7 @@ bool Call::checkCallCommonFields(const T &call) {
 		finish(FinishType::Failed);
 		return false;
 	};
-	if (call.vaccess_hash().v != _accessHash) {
+	if (call.vid().v != _id || call.vaccess_hash().v != _accessHash) {
 		LOG(("Call Error: Wrong call access_hash."));
 		return checkFailed();
 	}
@@ -1373,6 +1425,10 @@ void Call::setState(State state) {
 		return;
 	}
 	if (was != state) {
+		if (state == State::Busy || state == State::Ended
+			|| state == State::EndedByOtherDevice || state == State::Failed) {
+			_user->session().allowlistCalls().forget(_allowlistToken);
+		}
 		_state = state;
 
 		if (true
@@ -1397,10 +1453,12 @@ void Call::setState(State state) {
 			_startTime = crl::now();
 			break;
 		case State::ExchangingKeys:
-			_delegate->callPlaySound(Delegate::CallSound::Connecting);
+			if (!_authorizationRevoked) {
+				_delegate->callPlaySound(Delegate::CallSound::Connecting);
+			}
 			break;
 		case State::Ended:
-			if (was != State::WaitingUserConfirmation) {
+			if (was != State::WaitingUserConfirmation && !_authorizationRevoked) {
 				_delegate->callPlaySound(Delegate::CallSound::Ended);
 			}
 			[[fallthrough]];
@@ -1408,11 +1466,15 @@ void Call::setState(State state) {
 			_delegate->callFinished(this);
 			break;
 		case State::Failed:
-			_delegate->callPlaySound(Delegate::CallSound::Ended);
+			if (!_authorizationRevoked) {
+				_delegate->callPlaySound(Delegate::CallSound::Ended);
+			}
 			_delegate->callFailed(this);
 			break;
 		case State::Busy:
-			_delegate->callPlaySound(Delegate::CallSound::Busy);
+			if (!_authorizationRevoked) {
+				_delegate->callPlaySound(Delegate::CallSound::Busy);
+			}
 			_discardByTimeoutTimer.cancel();
 			break;
 		}
@@ -1456,6 +1518,9 @@ QString Call::screenSharingDeviceId() const {
 }
 
 void Call::toggleCameraSharing(bool enabled) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	if (isSharingCamera() == enabled) {
 		return;
 	} else if (!enabled) {
@@ -1484,6 +1549,9 @@ void Call::toggleCameraSharing(bool enabled) {
 void Call::toggleScreenSharing(
 		std::optional<QString> uniqueId,
 		bool withAudio) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	if (!uniqueId) {
 		if (isSharingScreen()) {
 			if (_videoCapture) {
@@ -1563,6 +1631,8 @@ void Call::finish(
 		Data::GroupCall *migrateCall) {
 	Expects(type != FinishType::None);
 
+	_user->session().allowlistCalls().close(_allowlistToken);
+	_waitingTrack.reset();
 	setSignalBarCount(kSignalBarFinished);
 
 	const auto finalState = (type == FinishType::Ended)
@@ -1603,6 +1673,8 @@ void Call::finish(
 	const auto connectionId = _instance
 		? _instance->getPreferredRelayId()
 		: 0;
+	destroyController();
+	_videoCapture.reset();
 	_finishByTimeoutTimer.call(kHangupTimeoutMs, [this, finalState] {
 		setState(finalState);
 	});
@@ -1714,6 +1786,7 @@ void Call::destroyController() {
 }
 
 Call::~Call() {
+	_user->session().allowlistCalls().forget(_allowlistToken);
 	destroyController();
 }
 

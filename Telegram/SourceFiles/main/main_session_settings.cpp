@@ -202,6 +202,7 @@ QByteArray SessionSettings::serialize() const {
 }
 
 void SessionSettings::addFromSerialized(const QByteArray &serialized) {
+	const auto notifyAllowlist = gsl::finally([&] { _allowlistChanges.fire({}); });
 	_allowlistPeers.clear();
 	if (serialized.isEmpty()) {
 		return;

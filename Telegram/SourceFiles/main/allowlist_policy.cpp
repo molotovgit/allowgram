@@ -113,6 +113,15 @@ bool CanUseCalls() {
 	return false;
 }
 
+bool CanCallUser(
+		Kind kind,
+		bool conversationAllowed,
+		bool knownUser,
+		bool self,
+		bool bot) {
+	return kind == Kind::User && conversationAllowed && knownUser && !self && !bot;
+}
+
 bool ContainsEmoji(std::u32string_view text) {
 	struct Range {
 		char32_t first;

@@ -168,7 +168,8 @@ private:
 	void createCall(
 		not_null<UserData*> user,
 		CallType type,
-		StartOutgoingCallArgs);
+		StartOutgoingCallArgs,
+		std::optional<MTPPhoneCall> incoming = std::nullopt);
 	void destroyCall(not_null<Call*> call);
 	void finishConferenceInvitations(const StartConferenceInfo &args);
 

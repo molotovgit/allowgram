@@ -104,7 +104,8 @@ public:
 		not_null<Delegate*> delegate,
 		not_null<UserData*> user,
 		Type type,
-		bool video);
+		bool video,
+		uint64 allowlistToken);
 	Call(
 		not_null<Delegate*> delegate,
 		not_null<UserData*> user,
@@ -137,6 +138,7 @@ public:
 	}
 	[[nodiscard]] bool isIncomingWaiting() const;
 
+	[[nodiscard]] bool revalidateAuthorization();
 	void start(bytes::const_span random);
 	bool handleUpdate(const MTPPhoneCall &call);
 	bool handleSignalingData(const MTPDupdatePhoneCallSignalingData &data);
@@ -374,6 +376,8 @@ private:
 	bytes::vector _randomPower;
 	MTP::AuthKey::Data _authKey;
 
+	uint64 _allowlistToken = 0;
+	bool _authorizationRevoked = false;
 	CallId _id = 0;
 	uint64 _accessHash = 0;
 	int _rating = 0;

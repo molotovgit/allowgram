@@ -169,7 +169,7 @@ if args.hardening:
         ('\tconfirmLeaveCurrent(show, peer, args, [=](StartGroupCallArgs args) {', 'allowgramGroupStart'),
         ('\tExpects(args.call || args.show);', 'allowgramConferenceStart'),
         ('\t_startWithRtmp->start(peer, show, [=](Group::JoinInfo info) {', 'allowgramRtmpStart'),
-        ('\t\t\tcreateCall(user, Call::Type::Incoming, { phoneCall.is_video() });', 'allowgramIncomingCall'),
+        ('\t\tcreateCall(user, Call::Type::Incoming, { phoneCall.is_video() }, call);', 'allowgramIncomingCall'),
     ):
         assert calls.count(anchor) == 1
         probe = ('\tQCoreApplication::instance()->setProperty(' + chr(34) + property_name

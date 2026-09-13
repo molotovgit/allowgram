@@ -216,7 +216,7 @@ if (firstCreated) {
 		Core::App().calls().handleUpdate(&session, MTP_updatePhoneCall(
 			MTP_phoneCallRequested(MTP_flags(0), MTP_long(1), MTP_long(1),
 				MTP_int(base::unixtime::now()), MTP_long(42), MTP_long(99),
-				MTP_bytes("synthetic"), MTP_phoneCallProtocol(MTP_flags(0),
+				MTP_bytes(QByteArray(32, 'a')), MTP_phoneCallProtocol(MTP_flags(0),
 					MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("synthetic") })))));
 		check(application->property("allowgramIncomingCall").toInt() == 1, "allowed incoming call reaches intercepted creation boundary");
 		auto pixels = QImage(32, 32, QImage::Format_RGB32);

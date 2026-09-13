@@ -345,7 +345,12 @@ private:
 
 	const not_null<Delegate*> _delegate;
 	const not_null<UserData*> _user;
-	MTP::Sender _api;
+	// The requestCall response first supplies the authenticated call identity.
+	// Keep that response alive while closing an outgoing call so its exact
+	// server-validated identity can be discarded. Other queued lifecycle
+	// requests use the revocable sender and are canceled immediately.
+	std::unique_ptr<MTP::Sender> _api;
+	MTP::Sender _requestCallApi;
 	Type _type = Type::Outgoing;
 	rpl::variable<State> _state = State::Starting;
 	rpl::variable<bool> _conferenceSupported = false;

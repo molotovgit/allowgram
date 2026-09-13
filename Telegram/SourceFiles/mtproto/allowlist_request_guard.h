@@ -45,7 +45,6 @@ private:
 
 };
 
-
 class AllowlistCallContext final {
 public:
 	AllowlistCallContext(UserId self, Fn<bool(UserId)> eligible);

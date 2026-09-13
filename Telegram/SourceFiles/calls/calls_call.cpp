@@ -212,7 +212,8 @@ Call::Call(
 	uint64 allowlistToken)
 : _delegate(delegate)
 , _user(user)
-, _api(&_user->session().mtp())
+, _api(std::make_unique<MTP::Sender>(&_user->session().mtp()))
+, _requestCallApi(&_user->session().mtp())
 , _type(type)
 , _discardByTimeoutTimer([=] { hangup(); })
 , _playbackDeviceId(
@@ -262,7 +263,8 @@ Call::Call(
 	bool video)
 : _delegate(delegate)
 , _user(user)
-, _api(&_user->session().mtp())
+, _api(std::make_unique<MTP::Sender>(&_user->session().mtp()))
+, _requestCallApi(&_user->session().mtp())
 , _type(Type::Incoming)
 , _state(State::WaitingIncoming)
 , _discardByTimeoutTimer([=] { hangup(); })
@@ -301,11 +303,14 @@ bool Call::revalidateAuthorization() {
 		&& _user->session().allowlistCalls().authorized(_allowlistToken)) {
 		return true;
 	}
-	_authorizationRevoked = true;
-	_waitingTrack.reset();
-	destroyController();
-	_videoCapture.reset();
-	_user->session().allowlistCalls().close(_allowlistToken);
+	if (!_authorizationRevoked) {
+		_authorizationRevoked = true;
+		_api.reset();
+		_waitingTrack.reset();
+		destroyController();
+		_videoCapture.reset();
+		_user->session().allowlistCalls().close(_allowlistToken);
+	}
 	finish(FinishType::Ended);
 	return false;
 }
@@ -375,7 +380,7 @@ void Call::startOutgoing() {
 	const auto flags = _videoCapture
 		? MTPphone_RequestCall::Flag::f_video
 		: MTPphone_RequestCall::Flag(0);
-	_api.request(MTPphone_RequestCall(
+	_requestCallApi.request(MTPphone_RequestCall(
 		MTP_flags(flags),
 		_user->inputUser(),
 		MTP_int(base::RandomValue<int32>()),
@@ -435,10 +440,10 @@ void Call::startIncoming() {
 	Expects(_state.current() == State::Starting);
 	Expects(!conferenceInvite());
 
-	_api.request(MTPphone_ReceivedCall(
+	_api->request(MTPphone_ReceivedCall(
 		MTP_inputPhoneCall(MTP_long(_id), MTP_long(_accessHash))
 	)).done([=] {
-		if (_state.current() == State::Starting) {
+		if (revalidateAuthorization() && _state.current() == State::Starting) {
 			setState(State::WaitingIncoming);
 		}
 	}).fail([=](const MTP::Error &error) {
@@ -484,7 +489,7 @@ void Call::acceptConferenceInvite() {
 	setState(State::ExchangingKeys);
 	const auto limit = 5;
 	const auto messageId = _conferenceInviteMsgId;
-	_api.request(MTPphone_GetGroupCall(
+	_api->request(MTPphone_GetGroupCall(
 		MTP_inputGroupCallInviteMessage(MTP_int(messageId.bare)),
 		MTP_int(limit)
 	)).done([=](const MTPphone_GroupCall &result) {
@@ -532,7 +537,7 @@ void Call::actuallyAnswer() {
 	if (!_user->session().allowlistCalls().exchange(_allowlistToken)) {
 		return;
 	}
-	_api.request(MTPphone_AcceptCall(
+	_api->request(MTPphone_AcceptCall(
 		MTP_inputPhoneCall(MTP_long(_id), MTP_long(_accessHash)),
 		MTP_bytes(_gb),
 		MTP_phoneCallProtocol(
@@ -785,6 +790,7 @@ void Call::redial() {
 	_id = 0;
 	_accessHash = 0;
 	_authorizationRevoked = false;
+	_api = std::make_unique<MTP::Sender>(&_user->session().mtp());
 	Assert(_instance == nullptr);
 	_type = Type::Outgoing;
 	setState(State::Requesting);
@@ -819,7 +825,7 @@ void Call::sendSignalingData(const QByteArray &data) {
 	}
 	Expects(!conferenceInvite());
 
-	_api.request(MTPphone_SendSignalingData(
+	_api->request(MTPphone_SendSignalingData(
 		MTP_inputPhoneCall(
 			MTP_long(_id),
 			MTP_long(_accessHash)),
@@ -987,6 +993,9 @@ void Call::finishByMigration(const QString &) {
 void Call::updateRemoteMediaState(
 		tgcalls::AudioState audio,
 		tgcalls::VideoState video) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	_remoteAudioState = [&] {
 		using From = tgcalls::AudioState;
 		using To = RemoteAudioState;
@@ -1054,7 +1063,7 @@ void Call::confirmAcceptedCall(const MTPDphoneCallAccepted &call) {
 	if (!_user->session().allowlistCalls().exchange(_allowlistToken)) {
 		return;
 	}
-	_api.request(MTPphone_ConfirmCall(
+	_api->request(MTPphone_ConfirmCall(
 		MTP_inputPhoneCall(MTP_long(_id), MTP_long(_accessHash)),
 		MTP_bytes(_ga),
 		MTP_long(_keyFingerprint),
@@ -1631,6 +1640,7 @@ void Call::finish(
 		Data::GroupCall *migrateCall) {
 	Expects(type != FinishType::None);
 
+	_api.reset();
 	_user->session().allowlistCalls().close(_allowlistToken);
 	_waitingTrack.reset();
 	setSignalBarCount(kSignalBarFinished);
@@ -1716,7 +1726,9 @@ void Call::finish(
 
 void Call::setStateQueued(State state) {
 	crl::on_main(this, [=] {
-		setState(state);
+		if (revalidateAuthorization()) {
+			setState(state);
+		}
 	});
 }
 
@@ -1727,6 +1739,9 @@ void Call::setFailedQueued(const QString &error) {
 }
 
 void Call::handleRequestError(const QString &error) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	const auto inform = (error == u"USER_PRIVACY_RESTRICTED"_q)
 		? tr::lng_call_error_not_available(tr::now, lt_user, _user->name())
 		: (error == u"PARTICIPANT_VERSION_OUTDATED"_q)
@@ -1748,6 +1763,9 @@ void Call::handleRequestError(const QString &error) {
 }
 
 void Call::handleControllerError(const QString &error) {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	const auto inform = (error == u"ERROR_INCOMPATIBLE"_q)
 		? Lang::Hard::CallErrorIncompatible().replace(
 			"{user}",

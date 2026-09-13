@@ -14,8 +14,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/mtp_instance.h"
 #include "mtproto/facade.h"
 #include "main/main_account.h"
+#include "base/unixtime.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/update_channel.h"
 #include "core/update_checker.h"
 #include "boxes/connection_box.h"
 #include "boxes/abstract_box.h"
@@ -213,7 +215,10 @@ bool ConnectionState::State::operator==(const State &other) const {
 		&& (exposed == other.exposed)
 		&& (underCursor == other.underCursor)
 		&& (updateReady == other.updateReady)
-		&& (waitTillRetry == other.waitTillRetry);
+		&& (waitTillRetry == other.waitTillRetry)
+		&& (mandatoryUpdate == other.mandatoryUpdate)
+		&& (mandatoryExpired == other.mandatoryExpired)
+		&& (mandatoryRemaining == other.mandatoryRemaining);
 }
 
 ConnectionState::ConnectionState(
@@ -241,6 +246,10 @@ ConnectionState::ConnectionState(
 			rpl::single(rpl::empty),
 			checker.ready()
 		) | rpl::on_next([=] {
+			refreshState();
+		}, _lifetime);
+		checker.mandatoryUpdate(
+		) | rpl::on_next([=](const Core::Updates::MandatoryUpdateState &) {
 			refreshState();
 		}, _lifetime);
 	}
@@ -306,7 +315,7 @@ void ConnectionState::setBottomSkip(int skip) {
 
 void ConnectionState::refreshState() {
 	using Checker = Core::UpdateChecker;
-	const auto state = [&]() -> State {
+	auto state = [&]() -> State {
 		const auto exposed = _parent->window()->windowHandle()
 			&& _parent->window()->windowHandle()->isExposed();
 		const auto under = _widget && _widget->isOver();
@@ -328,7 +337,21 @@ void ConnectionState::refreshState() {
 		}
 		return { State::Type::Connected, proxy, exposed, under, ready };
 	}();
-	if (state.exposed && state.waitTillRetry > 0) {
+	if (!Core::UpdaterDisabled()) {
+		const auto checker = Core::UpdateChecker();
+		const auto now = base::unixtime::now();
+		const auto mandatory = checker.mandatoryUpdateState();
+		const auto status = Core::Updates::MandatoryStatus(
+			mandatory,
+			Core::RunningUpdateVersion(),
+			now);
+		state.mandatoryUpdate = (status != Core::Updates::MandatoryUpdateStatus::None);
+		state.mandatoryExpired = (status == Core::Updates::MandatoryUpdateStatus::Expired);
+		state.mandatoryRemaining = Core::Updates::MandatorySecondsRemaining(
+			mandatory,
+			now);
+	}
+	if (state.exposed && (state.waitTillRetry > 0 || state.mandatoryUpdate)) {
 		_refreshTimer.callOnce(kRefreshTimeout);
 	}
 	if (state == _state) {
@@ -440,26 +463,39 @@ rpl::producer<float64> ConnectionState::visibility() const {
 auto ConnectionState::computeLayout(const State &state) const -> Layout {
 	auto result = Layout();
 	result.proxyEnabled = state.useProxy;
-	result.progressShown = (state.type != State::Type::Connected);
-	result.visible = state.exposed
-		&& !state.updateReady
-		&& (state.useProxy
-			|| state.type == State::Type::Connecting
-			|| state.type == State::Type::Waiting);
-	switch (state.type) {
-	case State::Type::Connecting:
-		result.text = state.underCursor
-			? tr::lng_connecting(tr::now)
-			: QString();
-		break;
+	result.mandatoryUpdate = state.mandatoryUpdate;
+	result.progressShown = !state.mandatoryUpdate
+		&& (state.type != State::Type::Connected);
+	if (state.mandatoryUpdate) {
+		result.visible = state.exposed;
+		result.text = state.mandatoryExpired
+			? u"Update Allowgram to continue"_q
+			: u"Allowgram updates in %1"_q.arg(
+				Core::Updates::FormatMandatoryUpdateTime(
+					state.mandatoryRemaining));
+		result.actionText = u"Update now"_q;
+	} else {
+		result.visible = state.exposed
+			&& !state.updateReady
+			&& (state.useProxy
+				|| state.type == State::Type::Connecting
+				|| state.type == State::Type::Waiting);
+		switch (state.type) {
+		case State::Type::Connecting:
+			result.text = state.underCursor
+				? tr::lng_connecting(tr::now)
+				: QString();
+			break;
 
-	case State::Type::Waiting:
-		Assert(state.waitTillRetry > 0);
-		result.text = tr::lng_reconnecting(
-			tr::now,
-			lt_count,
-			state.waitTillRetry);
-		break;
+		case State::Type::Waiting:
+			Assert(state.waitTillRetry > 0);
+			result.text = tr::lng_reconnecting(
+				tr::now,
+				lt_count,
+				state.waitTillRetry);
+			result.actionText = tr::lng_reconnecting_try_now(tr::now);
+			break;
+		}
 	}
 	result.textWidth = st::normalFont->width(result.text);
 	result.contentWidth = (result.textWidth > 0)
@@ -467,13 +503,13 @@ auto ConnectionState::computeLayout(const State &state) const -> Layout {
 			+ result.textWidth
 			+ st::connectingTextPadding.right())
 		: 0;
-	if (state.type == State::Type::Waiting) {
+	result.hasRetry = state.mandatoryUpdate
+		|| (state.type == State::Type::Waiting);
+	if (result.hasRetry) {
 		result.contentWidth += st::connectingRetryLink.padding.left()
-			+ st::connectingRetryLink.font->width(
-				tr::lng_reconnecting_try_now(tr::now))
+			+ st::connectingRetryLink.font->width(result.actionText)
 			+ st::connectingRetryLink.padding.right();
 	}
-	result.hasRetry = (state.type == State::Type::Waiting);
 	return result;
 }
 
@@ -621,7 +657,12 @@ void ConnectionState::Widget::updateRetryGeometry() {
 }
 
 void ConnectionState::Widget::setLayout(const Layout &layout) {
+	const auto recreateRetry = _retry
+		&& (_currentLayout.actionText != layout.actionText);
 	_currentLayout = layout;
+	if (recreateRetry) {
+		_retry = nullptr;
+	}
 	_proxyIcon->setToggled(_currentLayout.proxyEnabled);
 	refreshRetryLink(_currentLayout.hasRetry);
 	setAccessibleName(_currentLayout.text);
@@ -637,10 +678,14 @@ void ConnectionState::Widget::refreshRetryLink(bool hasRetry) {
 	if (hasRetry && !_retry) {
 		_retry = base::make_unique_q<Ui::LinkButton>(
 			this,
-			tr::lng_reconnecting_try_now(tr::now),
+			_currentLayout.actionText,
 			st::connectingRetryLink);
 		_retry->addClickHandler([=] {
-			_account->mtp().restart();
+			if (_currentLayout.mandatoryUpdate) {
+				Core::UpdateChecker().applyMandatoryUpdateNow();
+			} else {
+				_account->mtp().restart();
+			}
 		});
 		updateRetryGeometry();
 	} else if (!hasRetry) {

@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "mtproto/dedicated_file_loader.h"
+#include "core/update_mandatory.h"
 
 namespace Main {
 class Session;
@@ -36,6 +37,11 @@ public:
 	rpl::producer<Progress> progress() const;
 	rpl::producer<> failed() const;
 	rpl::producer<> ready() const;
+	rpl::producer<Updates::MandatoryUpdateState> mandatoryUpdate() const;
+
+	Updates::MandatoryUpdateState mandatoryUpdateState() const;
+	void dismissMandatoryUpdatePopup();
+	void applyMandatoryUpdateNow();
 
 	void start(bool forceWait = false);
 	void stop();

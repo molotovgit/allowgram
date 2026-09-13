@@ -50,6 +50,9 @@ private:
 		bool underCursor = false;
 		bool updateReady = false;
 		int waitTillRetry = 0;
+		bool mandatoryUpdate = false;
+		bool mandatoryExpired = false;
+		int mandatoryRemaining = 0;
 
 		bool operator==(const State &other) const;
 
@@ -58,9 +61,11 @@ private:
 		bool visible = false;
 		bool hasRetry = false;
 		bool proxyEnabled = false;
+		bool mandatoryUpdate = false;
 		bool progressShown = false;
 		int contentWidth = 0;
 		QString text;
+		QString actionText;
 		int textWidth = 0;
 
 	};

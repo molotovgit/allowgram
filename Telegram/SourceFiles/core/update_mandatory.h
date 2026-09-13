@@ -73,6 +73,8 @@ enum class MandatoryUpdateStatus {
 	const MandatoryUpdateState &state,
 	qint64 now);
 
+[[nodiscard]] QString FormatMandatoryUpdateTime(int seconds);
+
 [[nodiscard]] QString MandatoryUpdateStatePath(const QString &workingDir);
 
 [[nodiscard]] std::optional<MandatoryUpdateState> ReadMandatoryUpdateState(

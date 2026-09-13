@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/update_channel.h"
 #include "core/update_feed.h"
 #include "core/update_keys.h"
+#include "core/update_mandatory.h"
 #include "core/update_verify.h"
 #include "core/version.h"
 #include "data/data_channel.h"
@@ -35,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_advanced.h"
 #include "settings/settings_intro.h"
 #include "ui/layers/box_content.h"
+#include "ui/boxes/confirm_box.h"
 
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
@@ -132,6 +134,7 @@ public:
 	virtual bool poll() const;
 
 	rpl::producer<std::shared_ptr<Loader>> ready() const;
+	rpl::producer<Updates::StableReleaseAsset> mandatoryRelease() const;
 	rpl::producer<> failed() const;
 
 	rpl::lifetime &lifetime();
@@ -141,11 +144,13 @@ public:
 protected:
 	bool testing() const;
 	void done(std::shared_ptr<Loader> result);
+	void notifyMandatoryRelease(Updates::StableReleaseAsset asset);
 	void fail();
 
 private:
 	bool _testing = false;
 	rpl::event_stream<std::shared_ptr<Loader>> _ready;
+	rpl::event_stream<Updates::StableReleaseAsset> _mandatoryRelease;
 	rpl::event_stream<> _failed;
 
 	rpl::lifetime _lifetime;
@@ -881,6 +886,10 @@ rpl::producer<std::shared_ptr<Loader>> Checker::ready() const {
 	return _ready.events();
 }
 
+rpl::producer<Updates::StableReleaseAsset> Checker::mandatoryRelease() const {
+	return _mandatoryRelease.events();
+}
+
 rpl::producer<> Checker::failed() const {
 	return _failed.events();
 }
@@ -895,6 +904,10 @@ bool Checker::testing() const {
 
 void Checker::done(std::shared_ptr<Loader> result) {
 	_ready.fire(std::move(result));
+}
+
+void Checker::notifyMandatoryRelease(Updates::StableReleaseAsset asset) {
+	_mandatoryRelease.fire(std::move(asset));
 }
 
 void Checker::fail() {
@@ -982,6 +995,7 @@ bool HttpChecker::handleResponse(const QByteArray &response) {
 		return true;
 	}
 	const auto &asset = parsed->asset;
+	notifyMandatoryRelease(asset);
 	done(std::make_shared<HttpLoader>(
 		asset.url,
 		asset.size,
@@ -1693,7 +1707,11 @@ bool UpdaterDisabled() {
 void SetUpdaterDisabledAtStartup() {
 	Expects(UpdaterInstance.lock() == nullptr);
 
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+	LOG(("Update Info: ignoring legacy startup updater disable."));
+#else // TDESKTOP_DISABLE_AUTOUPDATE
 	UpdaterIsDisabled = true;
+#endif // TDESKTOP_DISABLE_AUTOUPDATE
 }
 
 class Updater : public base::has_weak_ptr {
@@ -1705,6 +1723,11 @@ public:
 	rpl::producer<Progress> progress() const;
 	rpl::producer<> failed() const;
 	rpl::producer<> ready() const;
+	rpl::producer<Updates::MandatoryUpdateState> mandatoryUpdate() const;
+
+	Updates::MandatoryUpdateState mandatoryUpdateState() const;
+	void dismissMandatoryUpdatePopup();
+	void applyMandatoryUpdateNow();
 
 	void start(bool forceWait);
 	void stop();
@@ -1746,22 +1769,31 @@ private:
 	void handleFailed();
 	void handleReady();
 	void scheduleNext();
+	void handleMandatoryRelease(const Updates::StableReleaseAsset &asset);
+	void loadMandatoryUpdate();
+	void refreshMandatoryUpdate();
+	void publishMandatoryUpdate(Updates::MandatoryUpdateState state);
+	void maybeShowMandatoryUpdatePopup();
 
 	bool _testing = false;
 	Action _action = Action::Waiting;
 	base::Timer _timer;
 	base::Timer _retryTimer;
+	base::Timer _mandatoryTimer;
 	rpl::event_stream<> _checking;
 	rpl::event_stream<> _isLatest;
 	rpl::event_stream<Progress> _progress;
 	rpl::event_stream<> _failed;
 	rpl::event_stream<> _ready;
+	rpl::event_stream<Updates::MandatoryUpdateState> _mandatoryUpdate;
 	Implementation _httpImplementation;
 	Implementation _mtpImplementation;
 	Implementation _flatpakImplementation;
 	std::shared_ptr<Loader> _activeLoader;
 	bool _usingMtprotoLoader = (cAlphaVersion() != 0);
 	base::weak_ptr<Main::Session> _session;
+	Updates::MandatoryUpdateState _mandatory;
+	bool _mandatoryPopupShown = false;
 
 	rpl::lifetime _lifetime;
 
@@ -1769,7 +1801,8 @@ private:
 
 Updater::Updater()
 : _timer([=] { check(); })
-, _retryTimer([=] { handleTimeout(); }) {
+, _retryTimer([=] { handleTimeout(); })
+, _mandatoryTimer([=] { refreshMandatoryUpdate(); }) {
 	checking() | rpl::on_next([=] {
 		handleChecking();
 	}, _lifetime);
@@ -1806,6 +1839,15 @@ rpl::producer<> Updater::failed() const {
 
 rpl::producer<> Updater::ready() const {
 	return _ready.events();
+}
+
+rpl::producer<Updates::MandatoryUpdateState> Updater::mandatoryUpdate() const {
+	auto state = _mandatory;
+	return _mandatoryUpdate.events_starting_with(std::move(state));
+}
+
+Updates::MandatoryUpdateState Updater::mandatoryUpdateState() const {
+	return _mandatory;
 }
 
 void Updater::check() {
@@ -1850,6 +1892,130 @@ void Updater::scheduleNext() {
 	}
 }
 
+void Updater::publishMandatoryUpdate(Updates::MandatoryUpdateState state) {
+	if (state == _mandatory) {
+		return;
+	}
+	_mandatory = std::move(state);
+	_mandatoryUpdate.fire_copy(_mandatory);
+}
+
+void Updater::loadMandatoryUpdate() {
+	const auto now = base::unixtime::now();
+	const auto stored = Updates::ReadMandatoryUpdateState(cWorkingDir());
+	auto state = stored.value_or(Updates::MandatoryUpdateState());
+	if (stored
+		&& Updates::MandatoryStatus(*stored, RunningUpdateVersion(), now)
+			== Updates::MandatoryUpdateStatus::None) {
+		Updates::ClearMandatoryUpdateState(cWorkingDir());
+		state = Updates::MandatoryUpdateState();
+	}
+	publishMandatoryUpdate(std::move(state));
+	_mandatoryTimer.cancel();
+	if (_mandatory.active && !Quitting()) {
+		_mandatoryTimer.callOnce(crl::time(1000));
+	}
+	maybeShowMandatoryUpdatePopup();
+}
+
+void Updater::refreshMandatoryUpdate() {
+	loadMandatoryUpdate();
+	const auto now = base::unixtime::now();
+	if (Updates::MandatoryStatus(_mandatory, RunningUpdateVersion(), now)
+		== Updates::MandatoryUpdateStatus::Expired) {
+		applyMandatoryUpdateNow();
+	}
+}
+
+void Updater::handleMandatoryRelease(
+		const Updates::StableReleaseAsset &asset) {
+	const auto now = base::unixtime::now();
+	const auto current = Updates::ReadMandatoryUpdateState(cWorkingDir());
+	const auto next = Updates::RegisterMandatoryUpdate(
+		current,
+		Updates::MandatoryTargetFromAsset(asset),
+		now);
+	if (!next.active) {
+		return;
+	}
+	auto error = QString();
+	if (!Updates::WriteMandatoryUpdateState(cWorkingDir(), next, &error)) {
+		LOG(("Update Error: Could not persist mandatory update: %1"
+			).arg(error));
+		return;
+	}
+	publishMandatoryUpdate(next);
+	_mandatoryTimer.callOnce(crl::time(1000));
+	maybeShowMandatoryUpdatePopup();
+}
+
+void Updater::dismissMandatoryUpdatePopup() {
+	const auto now = base::unixtime::now();
+	if (Updates::MandatoryStatus(_mandatory, RunningUpdateVersion(), now)
+		== Updates::MandatoryUpdateStatus::None) {
+		return;
+	}
+	const auto next = Updates::DismissMandatoryUpdatePopup(_mandatory);
+	auto error = QString();
+	if (Updates::WriteMandatoryUpdateState(cWorkingDir(), next, &error)) {
+		publishMandatoryUpdate(next);
+	}
+}
+
+void Updater::applyMandatoryUpdateNow() {
+	const auto now = base::unixtime::now();
+	if (Updates::MandatoryStatus(_mandatory, RunningUpdateVersion(), now)
+		== Updates::MandatoryUpdateStatus::None) {
+		return;
+	}
+	const auto next = Updates::MarkMandatoryUpdateApplyStarted(_mandatory);
+	auto error = QString();
+	if (Updates::WriteMandatoryUpdateState(cWorkingDir(), next, &error)) {
+		publishMandatoryUpdate(next);
+	}
+	if (checkReadyUpdate()) {
+		_action = Action::Ready;
+		Restart();
+		return;
+	}
+	cSetLastUpdateCheck(0);
+	if (_action == Action::Waiting) {
+		start(false);
+	}
+}
+
+void Updater::maybeShowMandatoryUpdatePopup() {
+	const auto now = base::unixtime::now();
+	if (_mandatoryPopupShown
+		|| _mandatory.popupDismissed
+		|| Updates::MandatoryStatus(_mandatory, RunningUpdateVersion(), now)
+			== Updates::MandatoryUpdateStatus::None
+		|| !IsAppLaunched()) {
+		return;
+	}
+	const auto window = App().activePrimaryWindow();
+	if (!window) {
+		return;
+	}
+	_mandatoryPopupShown = true;
+	const auto remaining = Updates::FormatMandatoryUpdateTime(
+		Updates::MandatorySecondsRemaining(_mandatory, now));
+	window->show(Ui::MakeConfirmBox({
+		.text = u"A new Allowgram update is available. Allowgram will update automatically in %1. Save your work; active calls will end when the countdown finishes."_q.arg(remaining),
+		.confirmed = [=] {
+			_mandatoryPopupShown = false;
+			applyMandatoryUpdateNow();
+		},
+		.cancelled = [=] {
+			_mandatoryPopupShown = false;
+			dismissMandatoryUpdatePopup();
+		},
+		.confirmText = u"Update now"_q,
+		.cancelText = u"Close"_q,
+		.title = u"Update Allowgram"_q,
+	}));
+}
+
 auto Updater::state() const -> State {
 	if (_action == Action::Ready) {
 		return State::Ready;
@@ -1887,18 +2053,25 @@ void Updater::start(bool forceWait) {
 	}
 
 	_timer.cancel();
-	if (!cAutoUpdate() || _action != Action::Waiting) {
+	loadMandatoryUpdate();
+	if (_action != Action::Waiting) {
 		return;
 	}
 
 	_retryTimer.cancel();
+	const auto now = base::unixtime::now();
+	const auto mandatoryKnown = Updates::MandatoryStatus(
+		_mandatory,
+		RunningUpdateVersion(),
+		now) != Updates::MandatoryUpdateStatus::None;
 	const auto constDelay = cAlphaVersion() ? 600 : UpdateDelayConstPart;
 	const auto randDelay = cAlphaVersion() ? 300 : UpdateDelayRandPart;
 	const auto updateInSecs = cLastUpdateCheck()
 		+ constDelay
 		+ int(rand() % randDelay)
-		- base::unixtime::now();
-	auto sendRequest = (updateInSecs <= 0)
+		- now;
+	auto sendRequest = mandatoryKnown
+		|| (updateInSecs <= 0)
 		|| (updateInSecs > constDelay + randDelay);
 	if (!sendRequest && !forceWait) {
 		if (!FindUpdateFile().isEmpty()) {
@@ -1962,6 +2135,10 @@ void Updater::startImplementation(
 	checker->failed(
 	) | rpl::on_next([=] {
 		checkerFail(which);
+	}, checker->lifetime());
+	checker->mandatoryRelease(
+	) | rpl::on_next([=](Updates::StableReleaseAsset asset) {
+		handleMandatoryRelease(asset);
 	}, checker->lifetime());
 
 	*which = Implementation{ std::move(checker) };
@@ -2124,6 +2301,22 @@ rpl::producer<> UpdateChecker::failed() const {
 
 rpl::producer<> UpdateChecker::ready() const {
 	return _updater->ready();
+}
+
+rpl::producer<Updates::MandatoryUpdateState> UpdateChecker::mandatoryUpdate() const {
+	return _updater->mandatoryUpdate();
+}
+
+Updates::MandatoryUpdateState UpdateChecker::mandatoryUpdateState() const {
+	return _updater->mandatoryUpdateState();
+}
+
+void UpdateChecker::dismissMandatoryUpdatePopup() {
+	_updater->dismissMandatoryUpdatePopup();
+}
+
+void UpdateChecker::applyMandatoryUpdateNow() {
+	_updater->applyMandatoryUpdateNow();
 }
 
 void UpdateChecker::start(bool forceWait) {
@@ -2305,6 +2498,17 @@ bool checkReadyUpdate() {
 }
 
 void UpdateApplication() {
+	{
+		Core::UpdateChecker checker;
+		const auto mandatory = checker.mandatoryUpdateState();
+		if (Updates::MandatoryStatus(
+				mandatory,
+				RunningUpdateVersion(),
+				base::unixtime::now()) != Updates::MandatoryUpdateStatus::None) {
+			checker.applyMandatoryUpdateNow();
+			return;
+		}
+	}
 	if (UpdaterDisabled()) {
 		UrlClickHandler::Open(
 			"https://github.com/molotovgit/allowgram/releases");

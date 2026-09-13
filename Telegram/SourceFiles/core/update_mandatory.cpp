@@ -167,6 +167,15 @@ int MandatorySecondsRemaining(
 	return int(std::clamp(state.deadline - now, qint64(0), qint64(65535)));
 }
 
+QString FormatMandatoryUpdateTime(int seconds) {
+	const auto clamped = std::max(seconds, 0);
+	return QStringLiteral("%1:%2").arg(clamped / 60).arg(
+		clamped % 60,
+		2,
+		10,
+		QLatin1Char('0'));
+}
+
 QString MandatoryUpdateStatePath(const QString &workingDir) {
 	return QDir(QDir::cleanPath(workingDir)).filePath(
 		QStringLiteral("tupdates/%1").arg(QString::fromLatin1(kStateFileName)));

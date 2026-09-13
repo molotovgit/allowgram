@@ -2642,8 +2642,8 @@ void Widget::checkUpdateStatus() {
 			true);
 		_updateTelegram->show();
 		_updateTelegram->setClickedCallback([] {
-			if (Core::checkReadyUpdate()) {
-				Core::Restart();
+			if (!Core::RestartToUpdate()) {
+				return;
 			}
 		});
 		if (_connecting) {

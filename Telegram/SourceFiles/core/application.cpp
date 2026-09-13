@@ -1148,17 +1148,15 @@ Main::Session *Application::maybePrimarySession() const {
 	return _domain->started() ? activeAccount().maybeSession() : nullptr;
 }
 
-bool Application::exportPreventsQuit() {
+bool Application::exportPreventsQuit(Fn<void()> callback) {
 	if (_exportManager->inProgress()) {
-		_exportManager->stopWithConfirmation([] {
-			Quit();
-		});
+		_exportManager->stopWithConfirmation(std::move(callback));
 		return true;
 	}
 	return false;
 }
 
-bool Application::uploadPreventsQuit() {
+bool Application::uploadPreventsQuit(Fn<void()> callback) {
 	if (!_domain->started()) {
 		return false;
 	}
@@ -1167,32 +1165,40 @@ bool Application::uploadPreventsQuit() {
 			continue;
 		}
 		if (account->session().uploadsInProgress()) {
-			account->session().uploadsStopWithConfirmation([=] {
-				for (const auto &[index, account] : _domain->accounts()) {
-					if (account->sessionExists()) {
-						account->session().uploadsStop();
+			account->session().uploadsStopWithConfirmation(
+				[=, callback = std::move(callback)]() mutable {
+					for (const auto &[index, account] : _domain->accounts()) {
+						if (account->sessionExists()) {
+							account->session().uploadsStop();
+						}
 					}
-				}
-				Quit();
-			});
+					callback();
+				});
 			return true;
 		}
 	}
 	return false;
 }
 
-bool Application::downloadPreventsQuit() {
+bool Application::downloadPreventsQuit(Fn<void()> callback) {
 	if (_downloadManager->loadingInProgress()) {
-		_downloadManager->loadingStopWithConfirmation([=] { Quit(); });
+		_downloadManager->loadingStopWithConfirmation(std::move(callback));
 		return true;
 	}
 	return false;
 }
 
-bool Application::preventsQuit(QuitReason reason) {
-	if (exportPreventsQuit()
-		|| uploadPreventsQuit()
-		|| downloadPreventsQuit()) {
+bool Application::preventsQuit(QuitReason reason, Fn<void()> callback) {
+	auto continuation = [=, callback = std::move(callback)]() mutable {
+		if (!callback) {
+			Quit(reason);
+		} else if (!preventsQuit(reason, callback)) {
+			callback();
+		}
+	};
+	if (exportPreventsQuit(continuation)
+		|| uploadPreventsQuit(continuation)
+		|| downloadPreventsQuit(continuation)) {
 		return true;
 	} else if ((!_mediaView
 		|| _mediaView->isHidden()
@@ -2083,8 +2089,7 @@ Application &App() {
 void Quit(QuitReason reason) {
 	if (Quitting()) {
 		return;
-	} else if (reason != QuitReason::Update
-		&& IsAppLaunched()
+	} else if (IsAppLaunched()
 		&& App().preventsQuit(reason)) {
 		return;
 	}
@@ -2106,19 +2111,43 @@ void SetLaunchState(LaunchState state) {
    GlobalLaunchState = state;
 }
 
-void Restart() {
-	const auto updateReady = (
-		UpdateChecker().state() == UpdateChecker::State::Ready);
-	if (updateReady && IsAppLaunched()) {
-		App().materializeLocalDrafts();
+bool RestartToUpdate() {
+	if (UpdaterDisabled()
+		|| UpdateChecker().state() != UpdateChecker::State::Ready
+		|| !checkReadyUpdate()) {
+		return false;
 	}
-	if (updateReady) {
+	const auto perform = [] {
+		if (Quitting()) {
+			return;
+		} else if (!checkReadyUpdate()) {
+			return;
+		}
+		if (IsAppLaunched()) {
+			App().materializeLocalDrafts();
+		}
+		cSetRestarting(false);
+		cSetRestartingToSettings(false);
 		cSetRestartingUpdate(true);
-	} else {
-		cSetRestarting(true);
-		cSetRestartingToSettings(true);
+		SetLaunchState(LaunchState::QuitRequested);
+		QuitAttempt();
+	};
+	if (IsAppLaunched()
+		&& App().preventsQuit(QuitReason::Default, perform)) {
+		return true;
 	}
-	Quit(updateReady ? QuitReason::Update : QuitReason::Default);
+	perform();
+	return true;
+}
+
+void Restart() {
+	if (RestartToUpdate()) {
+		return;
+	}
+	cSetRestartingUpdate(false);
+	cSetRestarting(true);
+	cSetRestartingToSettings(true);
+	Quit();
 }
 
 

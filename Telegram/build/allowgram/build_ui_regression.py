@@ -1,4 +1,5 @@
 from pathlib import Path
+import base64
 import hashlib
 import json
 import re
@@ -11,6 +12,8 @@ parser.add_argument('--repository', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--hardening', action='store_true')
 parser.add_argument('--optional-update', action='store_true')
+parser.add_argument('--optional-update-restart', action='store_true')
+parser.add_argument('--optional-update-trust', type=Path)
 parser.add_argument('--test-repository', type=Path)
 parser.add_argument('--compile-only', action='store_true')
 args = parser.parse_args()
@@ -87,6 +90,34 @@ widget = widget.replace(old, '\tif (!session) {\n' + validation + '\t\treturn;\n
 
 main = main.replace('resize(720, 1000);', 'QTimer::singleShot(800, this, [=] {\n\t\t\tresize(qEnvironmentVariableIntValue("ALLOWGRAM_UI_WIDTH"),\n\t\t\t\tqEnvironmentVariableIntValue("ALLOWGRAM_UI_HEIGHT"));\n\t\t\tupdateControlsGeometry();\n\t\t});')
 main = '#include <QtCore/QTimer>\n' + main
+if args.optional_update_restart:
+    (fixture / 'test').mkdir(exist_ok=True)
+    test_root = (args.test_repository or root).resolve()
+    cascade_inc = 'allowgram_optional_restart_cascade_test.inc'
+    (fixture / 'test' / cascade_inc).write_text(
+        (test_root / 'Telegram/SourceFiles/test' / cascade_inc).read_text(encoding='utf-8'),
+        encoding='utf-8')
+    restart_includes = [
+        'main/main_session_settings.h', 'main/main_account.h', 'main/main_session.h',
+        'mtproto/mtproto_config.h',
+        'storage/file_upload.h', 'storage/localimageloader.h',
+        'data/data_download_manager.h', 'data/data_document.h', 'data/data_session.h',
+        'data/data_user.h',
+        'history/history.h', 'core/update_channel.h', 'core/update_checker.h',
+        'ui/widgets/buttons.h', 'ui/layers/generic_box.h',
+        'ui/layers/box_layer_widget.h',
+    ]
+    restart_qt = '\n'.join('#include <QtCore/' + name + '>' for name in (
+        'QCoreApplication', 'QDir', 'QFile', 'QFileInfo', 'QJsonArray',
+        'QStringList',
+        'QJsonDocument', 'QJsonObject', 'QTimer'))
+    main = (restart_qt + '\n#include <QtWidgets/QApplication>\n#include <QtWidgets/QWidget>\n#include <memory>\n'
+            + '\n'.join('#include "' + name + '"' for name in restart_includes)
+            + '\nnamespace Core { bool TestUnpackUpdateForOptionalRestartFixture(const QString &filepath); }\n'
+            + main)
+    anchor = '\t_intro = std::move(created);'
+    assert main.count(anchor) == 1
+    main = main.replace(anchor, anchor + '\n\tif (qEnvironmentVariableIsSet("ALLOWGRAM_OPTIONAL_RESTART_CASCADE_REPORT")) {\n\t\tQTimer::singleShot(1800, this, [=] {\n#include "test/allowgram_optional_restart_cascade_test.inc"\n\t\t});\n\t}')
 widget = '#include <QtCore/QTimer>\n#include <QtCore/QFile>\n#include <QtCore/QJsonDocument>\n#include <QtCore/QJsonArray>\n#include <QtCore/QJsonObject>\n#include <QtGui/QTextDocument>\n#include <QtWidgets/QTextEdit>\n#include <cmath>\n' + widget
 anchor = '\tconst auto scene = qEnvironmentVariable("ALLOWGRAM_DOCS_SCENE");'
 assert widget.count(anchor) == 1
@@ -99,6 +130,16 @@ application = application.replace('style::StartManager(cScale());',
     '\tstyle::StartManager(style::Scale());')
 application = application.replace('autoRegisterUrlScheme();', '')
 application = application.replace('Platform::NewVersionLaunched(old);', '')
+if args.optional_update_restart:
+    application = '#include <QtCore/QTimer>\n' + application
+    tail = '\tTest::Fire(u"launch_finished"_q);'
+    assert application.count(tail) == 1
+    application = application.replace(tail,
+        '\tif (qEnvironmentVariableIsSet("ALLOWGRAM_OPTIONAL_RESTART_REPORT")) {\n'
+        '\t\tCore::UpdateChecker().test();\n'
+        '\t\tQTimer::singleShot(300, [] { Core::Restart(); });\n'
+        '\t}\n'
+        + tail)
 if args.optional_update:
     application = ('#include <QtCore/QDir>\n'
                    '#include <QtCore/QFile>\n'
@@ -183,6 +224,135 @@ if args.optional_update:
 (fixture / 'application.cpp').write_text(application, encoding='utf-8')
 
 extra_sources = []
+offline_fixture = args.hardening or args.optional_update_restart
+offline_transport_sources = []
+offline_request_sources = []
+if args.optional_update_trust:
+    trust = args.optional_update_trust.resolve()
+    root_pem = (trust / 'root-public.pem').read_bytes()
+    manifest = (trust / 'manifest.min.json').read_bytes()
+    manifest_sig = (trust / 'manifest.sig').read_bytes()
+    def b64(data):
+        return base64.b64encode(data).decode('ascii')
+    update_keys = '''#include "core/update_keys.h"
+
+namespace Core::Updates {
+namespace {
+
+QByteArray Decode(const char *value) {
+	return QByteArray::fromBase64(QByteArray(value));
+}
+
+} // namespace
+
+QByteArray RootPublicKeyPem() {
+	return Decode("''' + b64(root_pem) + '''");
+}
+
+QByteArray EmbeddedManifest() {
+	return Decode("''' + b64(manifest) + '''");
+}
+
+QByteArray EmbeddedManifestSignature() {
+	return Decode("''' + b64(manifest_sig) + '''");
+}
+
+} // namespace Core::Updates
+'''
+    extra_sources.append(('update_keys', 'core/update_keys.cpp', update_keys))
+if args.optional_update_restart:
+    update_checker = (root / 'Telegram/SourceFiles/core/update_checker.cpp').read_text(encoding='utf-8')
+    old = """void Updater::test() {
+\t_testing = true;
+\tcSetLastUpdateCheck(0);
+\tstart(false);
+}
+"""
+    new = """void Updater::test() {
+\t_testing = true;
+\tif (qEnvironmentVariableIsSet("ALLOWGRAM_OPTIONAL_RESTART_REPORT")
+\t\t|| qEnvironmentVariableIsSet("ALLOWGRAM_OPTIONAL_RESTART_CASCADE_REPORT")) {
+\t\thandleReady();
+\t\treturn;
+\t}
+\tcSetLastUpdateCheck(0);
+\tstart(false);
+}
+"""
+    assert update_checker.count(old) == 1
+    update_checker = update_checker.replace(old, new)
+    bridge_anchor = """} // namespace
+
+bool UpdaterDisabled() {"""
+    bridge = """} // namespace
+
+bool TestUnpackUpdateForOptionalRestartFixture(const QString &filepath) {
+	return UnpackUpdate(filepath);
+}
+
+bool UpdaterDisabled() {"""
+    assert update_checker.count(bridge_anchor) == 1
+    update_checker = update_checker.replace(bridge_anchor, bridge)
+    extra_sources.append(('update_checker', 'core/update_checker.cpp', update_checker))
+    launcher = (root / 'Telegram/SourceFiles/platform/win/launcher_win.cpp').read_text(encoding='utf-8')
+    launcher = ('#include <QtCore/QFile>\n'
+                '#include <QtCore/QJsonDocument>\n'
+                '#include <QtCore/QJsonObject>\n'
+                + launcher)
+    old = """\tLogs::closeMain();
+\tCrashReports::Finish();
+
+\tconst auto hwnd = HWND(0);
+"""
+    new = """\tauto optionalReport = qEnvironmentVariable(
+\t\t"ALLOWGRAM_OPTIONAL_RESTART_REPORT");
+\tif (optionalReport.isEmpty()) {
+\t\toptionalReport = qEnvironmentVariable(
+\t\t\t"ALLOWGRAM_OPTIONAL_RESTART_LAUNCH_REPORT");
+\t}
+\tif (!optionalReport.isEmpty()) {
+\t\tauto report = QFile(optionalReport);
+\t\tif (report.open(QIODevice::WriteOnly)) {
+\t\t\treport.write(QJsonDocument(QJsonObject{
+\t\t\t\t{ "operation", operation },
+\t\t\t\t{ "binaryPath", binaryPath },
+\t\t\t\t{ "arguments", arguments },
+\t\t\t\t{ "restarting", cRestarting() },
+\t\t\t\t{ "restartingToSettings", cRestartingToSettings() },
+\t\t\t\t{ "restartingUpdate", cRestartingUpdate() },
+\t\t\t\t{ "readyStageHash", Core::ReadyUpdateStageHash() },
+\t\t\t}).toJson(QJsonDocument::Compact));
+\t\t}
+\t\treturn true;
+\t}
+
+\tLogs::closeMain();
+\tCrashReports::Finish();
+
+\tconst auto hwnd = HWND(0);
+"""
+    assert launcher.count(old) == 1
+    launcher = launcher.replace(old, new)
+    extra_sources.append(('launcher_win', 'platform/win/launcher_win.cpp', launcher))
+if offline_fixture:
+    for name, relative, function in (
+        ('connection_tcp', 'mtproto/connection_tcp.cpp', 'void TcpConnection::connectToServer('),
+        ('connection_http', 'mtproto/connection_http.cpp', 'void HttpConnection::connectToServer('),
+    ):
+        source = (root / 'Telegram/SourceFiles' / relative).read_text(encoding='utf-8')
+        start = source.index(function)
+        opening = source.index('{', start)
+        end = source.index('\n}', opening)
+        source = source[:opening + 1] + source[end:]
+        extra_sources.append((name, relative, source))
+        offline_transport_sources.append(relative)
+if args.optional_update_restart and not args.hardening:
+    instance = (root / 'Telegram/SourceFiles/mtproto/mtp_instance.cpp').read_text(encoding='utf-8')
+    anchor = 'if (_requestFilter && !_requestFilter(request)) {'
+    assert instance.count(anchor) == 1
+    instance = instance.replace(anchor, 'if (true) {')
+    extra_sources.append(('mtp_instance', 'mtproto/mtp_instance.cpp', instance))
+    offline_request_sources.append('mtproto/mtp_instance.cpp')
 if args.hardening:
     (fixture / 'test').mkdir(exist_ok=True)
     test_root = (args.test_repository or root).resolve()
@@ -232,18 +402,11 @@ if args.hardening:
     }
 ''')
     extra_sources.append(('history_widget', 'history/history_widget.cpp', json_includes + '\n' + history))
-    for name, relative, function in (
-        ('connection_tcp', 'mtproto/connection_tcp.cpp', 'void TcpConnection::connectToServer('),
-        ('connection_http', 'mtproto/connection_http.cpp', 'void HttpConnection::connectToServer('),
-    ):
-        source = (root / 'Telegram/SourceFiles' / relative).read_text(encoding='utf-8')
-        start = source.index(function)
-        opening = source.index('{', start)
-        end = source.index('\n}', opening)
-        source = source[:opening + 1] + source[end:]
-        extra_sources.append((name, relative, source))
+
     from call_fixture import instrument_calls, instrument_transport
-    extra_sources.append(instrument_transport(root, json_includes))
+    transport = instrument_transport(root, json_includes)
+    extra_sources.append(transport)
+    offline_request_sources.append(transport[1])
     extra_sources.extend(instrument_calls(root, json_includes))
     top_bar = (root / 'Telegram/SourceFiles/history/view/history_view_top_bar_widget.cpp').read_text(encoding='utf-8')
     start = top_bar.index('void TopBarWidget::updateControlsVisibility() {')
@@ -254,10 +417,9 @@ if args.hardening:
                    + 'allowgramCallButtonVisible' + chr(34) + ', !_call->isHidden());\n')
     top_bar = top_bar[:end] + observation + top_bar[end:]
     extra_sources.append(('top_bar', 'history/view/history_view_top_bar_widget.cpp', json_includes + '\n' + top_bar))
-    for name, relative, source in extra_sources:
-        (fixture / (name + '.cpp')).write_text(source, encoding='utf-8')
-
 (fixture / 'mainwindow.cpp').write_text(main, encoding='utf-8')
+for name, relative, source in extra_sources:
+    (fixture / (name + '.cpp')).write_text(source, encoding='utf-8')
 (fixture / 'window_allowlist.cpp').write_text(widget, encoding='utf-8')
 
 executable = root / 'out/Release/Telegram.exe'
@@ -304,7 +466,11 @@ block = re.sub(r'^  OBJECT_DIR = .*$', '  OBJECT_DIR = ' + str(fixture).replace(
     'testDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=(args.test_repository or root), text=True).splitlines(),
     'productionExecutableSha256': original_hash,
     'hardeningFixture': args.hardening,
-    'optionalFixture': args.optional_update,
+    'optionalFixture': args.optional_update or args.optional_update_restart,
+    'optionalRestartFixture': args.optional_update_restart,
+    'mtprotoNetworkDisabled': bool(offline_transport_sources and offline_request_sources),
+    'offlineTransportSources': offline_transport_sources,
+    'offlineRequestSources': offline_request_sources,
     'inputs': {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
                for path in fixture.rglob('*') if path.suffix in ('.cpp', '.inc', '.h', '.obj', '.ninja')},
 }, indent=2) + '\n')
@@ -318,6 +484,44 @@ assert hashlib.sha256(executable.read_bytes()).hexdigest() == original_hash, 'Pr
 if result.returncode:
     raise SystemExit(result.returncode)
 assert (fixture / 'Allowgram-Docs.exe').is_file()
+offline_source_set = set(offline_transport_sources + offline_request_sources)
+offline_linked_objects = {
+    name + '.obj': {
+        'source': relative,
+        'sha256': hashlib.sha256((fixture / (name + '.obj')).read_bytes()).hexdigest(),
+        'modifiedUtc': datetime.datetime.fromtimestamp(
+            (fixture / (name + '.obj')).stat().st_mtime,
+            datetime.timezone.utc).isoformat(),
+    }
+    for name, relative, source in extra_sources
+    if relative in offline_source_set and (fixture / (name + '.obj')).is_file()
+}
+fixture_linked_objects = {
+    path.name: {
+        'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+        'modifiedUtc': datetime.datetime.fromtimestamp(
+            path.stat().st_mtime,
+            datetime.timezone.utc).isoformat(),
+    }
+    for path in sorted(fixture.glob('*.obj'))
+}
+if args.hardening:
+    overlay = [
+        'synthetic account/model construction',
+        'real composer callbacks',
+        'MTProto TCP/HTTP connection and fixture request delivery disabled',
+        'synthetic private-call server replies after production request filtering',
+        'synthetic key-exchange values; device, ring, panel and controller effects intercepted',
+    ]
+elif args.optional_update_restart:
+    overlay = [
+        'synthetic account/model construction for optional updater restart',
+        'real upload/download manager callbacks and confirmation boxes',
+        'MTProto TCP/HTTP connection and fixture request delivery disabled',
+        'signed updater stage and launcher interception',
+    ]
+else:
+    overlay = ['unsigned-in construction', 'neutral scene values and parser-only validation']
 (fixture / 'build-evidence.json').write_text(json.dumps({
     'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
     'sourceDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).splitlines(),
@@ -339,15 +543,17 @@ assert (fixture / 'Allowgram-Docs.exe').is_file()
                       for path in fixture.rglob('*') if path.suffix in ('.cpp', '.inc', '.h')},
     'layoutUnmodified': True,
     'hardeningFixture': args.hardening,
-    'optionalFixture': args.optional_update,
-    'mtprotoNetworkDisabled': args.hardening,
+    'optionalFixture': args.optional_update or args.optional_update_restart,
+    'optionalRestartFixture': args.optional_update_restart,
+    'mtprotoNetworkDisabled': bool(offline_transport_sources and offline_request_sources),
+    'offlineTransportSources': offline_transport_sources,
+    'offlineRequestSources': offline_request_sources,
+    'offlineLinkedObjects': offline_linked_objects,
+    'fixtureLinkedObjects': fixture_linked_objects,
     'callDeviceAndPanelSideEffectsSuppressed': args.hardening,
-    'overlay': (['synthetic account/model construction', 'real composer callbacks',
-                 'MTProto TCP/HTTP connection and request delivery disabled',
-                 'synthetic private-call server replies after production request filtering',
-                 'synthetic key-exchange values; device, ring, panel and controller effects intercepted'] if args.hardening else
-                ['unsigned-in construction', 'neutral scene values and parser-only validation'])
+    'overlay': overlay
                + ((['optional updater stale-policy startup fixture'] if args.optional_update else [])
+                   + (['optional updater direct-restart launcher fixture'] if args.optional_update_restart else [])
                    + ['process-local style scale', 'real-widget regression include']),
 }, indent=2) + '\n')
 print('Fixture built; original Release binary unchanged.', flush=True)

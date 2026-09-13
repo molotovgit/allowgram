@@ -45,11 +45,47 @@ private:
 
 };
 
+
+class AllowlistCallContext final {
+public:
+	AllowlistCallContext(UserId self, Fn<bool(UserId)> eligible);
+	[[nodiscard]] uint64 begin(UserId peer, bool outgoing);
+	[[nodiscard]] bool bind(uint64 token, const MTPPhoneCall &call);
+	[[nodiscard]] bool validate(uint64 token, const MTPPhoneCall &call);
+	[[nodiscard]] bool authorized(uint64 token);
+	[[nodiscard]] bool exchange(uint64 token);
+	[[nodiscard]] bool activate(uint64 token);
+	void close(uint64 token);
+	void forget(uint64 token);
+	[[nodiscard]] bool bootstrapAllowed(UserId self);
+	[[nodiscard]] bool outgoingAllowed(UserId self, UserId peer);
+	[[nodiscard]] bool requestAllowed(
+		UserId self, mtpTypeId type, uint64 id, uint64 hash);
+
+private:
+	enum class Phase { Pending, Exchanging, Active, Closing };
+	struct Proof {
+		UserId peer;
+		uint64 id = 0;
+		uint64 hash = 0;
+		Phase phase = Phase::Pending;
+		bool outgoing = false;
+	};
+	[[nodiscard]] bool matches(const Proof &proof, const MTPPhoneCall &call) const;
+	const UserId _self;
+	const Fn<bool(UserId)> _eligible;
+	uint64 _nextToken = 0;
+	std::map<uint64, Proof> _proofs;
+	std::set<uint64> _usedIds;
+
+};
+
 [[nodiscard]] bool AllowlistRequestAllowed(
 	const details::SerializedRequest &request,
 	UserId selfId,
 	const Fn<bool(PeerId)> &allows,
 	const Fn<bool(UserId)> &knownBot = nullptr,
-	AllowlistContentContext *content = nullptr);
+	AllowlistContentContext *content = nullptr,
+	AllowlistCallContext *calls = nullptr);
 
 } // namespace MTP

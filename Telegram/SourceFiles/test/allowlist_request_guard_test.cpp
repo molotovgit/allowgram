@@ -333,6 +333,139 @@ int main() {
 	check("valid conference call creation denied", Request::Serialize(
 		MTPphone_CreateConferenceCall(MTP_flags(0), MTP_int(1), MTPint256(),
 			MTPbytes(), MTPDataJSON())), false);
+
+	const auto checkCall = [&](const char *name, const Request &request,
+			bool expected, MTP::AllowlistCallContext &context, UserId self = UserId(99)) {
+		++checks;
+		if (MTP::AllowlistRequestAllowed(request, self, allows, nullptr, nullptr, &context) != expected) {
+			++failures;
+			std::cerr << "FAIL: " << name << '\n';
+		}
+	};
+	const auto checkProof = [&](bool pass, const char *name) {
+		++checks;
+		if (!pass) {
+			++failures;
+			std::cerr << "FAIL: " << name << '\n';
+		}
+	};
+	auto eligible = true;
+	const auto eligibleUser = Fn<bool(UserId)>([&](UserId peer) {
+		return eligible && peer == UserId(42);
+	});
+	auto calls = MTP::AllowlistCallContext(UserId(99), eligibleUser);
+	auto otherSession = MTP::AllowlistCallContext(UserId(99), eligibleUser);
+	const auto outgoingToken = calls.begin(UserId(42), true);
+	checkProof(outgoingToken != 0, "explicitly eligible user receives outgoing token");
+	checkProof(!calls.begin(UserId(43), true), "denied user cannot create call proof");
+	checkProof(!calls.begin(UserId(99), true), "self cannot create call proof");
+	checkProof(!calls.begin(UserId(), true), "missing user cannot create call proof");
+	for (const auto video : { false, true }) {
+		const auto makeRequest = [&](const MTPInputUser &peer) {
+			return MTPphone_RequestCall(MTP_flags(video
+				? MTPphone_RequestCall::Flag::f_video : MTPphone_RequestCall::Flags()),
+				peer, MTP_int(1), MTP_bytes(QByteArray(32, 'a')), callProtocol);
+		};
+		const auto request = makeRequest(bot);
+		checkCall("allowed voice/video request reaches serialized boundary", Request::Serialize(request), true, calls);
+		checkCall("allowed request inside no-update wrapper", Packet(MTP_int(mtpc_invokeWithoutUpdates), request), true, calls);
+		checkCall("allowed request inside layer wrapper", Packet(MTP_int(mtpc_invokeWithLayer), MTP_int(222), request), true, calls);
+		checkCall("allowed request inside dependency wrapper", Packet(MTP_int(mtpc_invokeAfterMsg), MTP_long(77), request), true, calls);
+		checkCall("pending call is account scoped", Request::Serialize(request), false, calls, UserId(100));
+		checkCall("pending call cannot cross session", Request::Serialize(request), false, otherSession);
+		for (const auto &target : { MTPInputUser(blockedBot), MTPInputUser(MTP_inputUserSelf()),
+			MTPInputUser(MTP_inputUserEmpty()), MTPInputUser(MTP_inputUser(MTP_long(99), MTP_long(1))),
+			MTPInputUser(MTP_inputUserFromMessage(user, MTP_int(17), MTP_long(43))) }) {
+			checkCall("actual recipient cannot borrow allowed call", Request::Serialize(makeRequest(target)), false, calls);
+			checkCall("wrapped actual recipient cannot borrow allowed call", Packet(MTP_int(mtpc_invokeWithoutUpdates), makeRequest(target)), false, calls);
+		}
+		checkCall("from-message recipient with denied context is denied", Request::Serialize(makeRequest(
+			MTP_inputUserFromMessage(blocked, MTP_int(17), MTP_long(42)))), false, calls);
+		checkCall("from-message allowed recipient and context", Request::Serialize(makeRequest(
+			MTP_inputUserFromMessage(user, MTP_int(17), MTP_long(42)))), true, calls);
+	}
+	checkCall("authorized private bootstrap config", Request::Serialize(MTPphone_GetCallConfig()), true, calls);
+	checkCall("authorized private DH bootstrap", Request::Serialize(MTPmessages_GetDhConfig(MTP_int(0), MTP_int(256))), true, calls);
+	const auto waiting = [&](uint64 id, uint64 hash, uint64 admin, uint64 participant) {
+		return MTPPhoneCall(MTP_phoneCallWaiting(MTP_flags(0), MTP_long(id), MTP_long(hash),
+			MTP_int(1700000000), MTP_long(admin), MTP_long(participant), callProtocol, MTPint()));
+	};
+	checkProof(!calls.bind(outgoingToken, waiting(1, 1, 100, 42)), "foreign account response cannot bind");
+	checkProof(!calls.bind(outgoingToken, waiting(1, 1, 99, 43)), "mismatched recipient response cannot bind");
+	checkProof(!calls.bind(outgoingToken, waiting(0, 1, 99, 42)), "zero call ID cannot bind");
+	checkProof(!calls.bind(outgoingToken, waiting(1, 0, 99, 42)), "zero call hash cannot bind");
+	checkProof(calls.bind(outgoingToken, waiting(1, 1, 99, 42)), "validated request response binds exact identity");
+	checkProof(!calls.bind(outgoingToken, waiting(2, 2, 99, 42)), "bound proof cannot be rebound");
+	const auto confirm = Request::Serialize(MTPphone_ConfirmCall(phoneCall, MTP_bytes("synthetic"), MTP_long(1), callProtocol));
+	const auto accept = Request::Serialize(MTPphone_AcceptCall(phoneCall, MTP_bytes("synthetic"), callProtocol));
+	const auto received = Request::Serialize(MTPphone_ReceivedCall(phoneCall));
+	const auto signaling = Request::Serialize(MTPphone_SendSignalingData(phoneCall, MTP_bytes("synthetic")));
+	const auto discard = Request::Serialize(MTPphone_DiscardCall(MTP_flags(0), phoneCall, MTP_int(0), MTP_phoneCallDiscardReasonHangup(), MTP_long(0)));
+	checkCall("confirm requires key exchange phase", confirm, false, calls);
+	checkProof(calls.exchange(outgoingToken), "validated outgoing call enters exchange");
+	checkCall("associated outgoing confirmation passes", confirm, true, calls);
+	checkCall("incoming acceptance cannot use outgoing proof", accept, false, calls);
+	checkCall("incoming received cannot use outgoing proof", received, false, calls);
+	checkCall("signaling before confirmed call is denied", signaling, false, calls);
+	checkProof(calls.activate(outgoingToken), "validated outgoing exchange activates");
+	checkCall("associated active signaling passes", signaling, true, calls);
+	checkCall("associated hangup passes", discard, true, calls);
+	for (const auto id : { 0ULL, 1ULL, 2ULL }) {
+		for (const auto hash : { 0ULL, 1ULL, 2ULL }) {
+			const auto input = MTP_inputPhoneCall(MTP_long(id), MTP_long(hash));
+			const auto request = MTPphone_SendSignalingData(input, MTP_bytes("synthetic"));
+			checkCall("exact call ID and hash required", Request::Serialize(request), id == 1 && hash == 1, calls);
+			checkCall("wrapper preserves exact call identity", Packet(MTP_int(mtpc_invokeWithLayer), MTP_int(222), request), id == 1 && hash == 1, calls);
+			checkCall("same identity cannot cross account", Request::Serialize(request), false, calls, UserId(100));
+			checkCall("same identity cannot cross session", Request::Serialize(request), false, otherSession);
+		}
+	}
+	checkProof(!calls.validate(outgoingToken, waiting(1, 2, 99, 42)), "update cannot replace access hash");
+	checkProof(!calls.validate(outgoingToken, waiting(1, 1, 99, 43)), "update cannot replace peer");
+	eligible = false;
+	checkCall("revocation denies active signaling immediately", signaling, false, calls);
+	checkCall("revocation retains only exact cleanup", discard, true, calls);
+	checkCall("revocation denies call config", Request::Serialize(MTPphone_GetCallConfig()), false, calls);
+	checkProof(!calls.begin(UserId(42), false), "fresh revoked incoming user receives no proof");
+	eligible = true;
+	checkCall("reallowing peer cannot revive revoked call", signaling, false, calls);
+	calls.forget(outgoingToken);
+	checkCall("finished call cannot send cleanup", discard, false, calls);
+	const auto nextToken = calls.begin(UserId(42), true);
+	checkProof(nextToken && nextToken != outgoingToken, "new call has a new generation");
+	checkProof(!calls.bind(nextToken, waiting(1, 1, 99, 42)), "retired call identity cannot be reused");
+	checkProof(!calls.bind(outgoingToken, waiting(2, 2, 99, 42)), "stale token cannot bind a new identity");
+	eligible = false;
+	calls.close(nextToken);
+	checkProof(calls.bind(nextToken, waiting(2, 2, 99, 42)), "validated late response can bind only for cleanup");
+	checkProof(!calls.authorized(nextToken), "late response cannot revive revoked outgoing call");
+	calls.forget(nextToken);
+	eligible = true;
+	const auto incomingToken = calls.begin(UserId(42), false);
+	const auto requested = [&](uint64 id, uint64 hash, uint64 admin, uint64 participant) {
+		return MTPPhoneCall(MTP_phoneCallRequested(MTP_flags(0), MTP_long(id), MTP_long(hash),
+			MTP_int(1700000000), MTP_long(admin), MTP_long(participant), MTP_bytes(QByteArray(32, 'a')), callProtocol));
+	};
+	checkProof(!calls.bind(incomingToken, requested(3, 3, 43, 99)), "fresh denied caller cannot bind existing proof");
+	checkProof(!calls.bind(incomingToken, requested(3, 3, 42, 100)), "foreign incoming recipient cannot bind");
+	checkProof(calls.bind(incomingToken, requested(3, 3, 42, 99)), "valid incoming request binds exact peer/account");
+	const auto incoming = MTP_inputPhoneCall(MTP_long(3), MTP_long(3));
+	checkCall("associated incoming receipt passes", Request::Serialize(MTPphone_ReceivedCall(incoming)), true, calls);
+	checkProof(calls.exchange(incomingToken), "incoming acceptance enters exchange");
+	checkCall("associated incoming acceptance passes", Request::Serialize(MTPphone_AcceptCall(incoming, MTP_bytes("synthetic"), callProtocol)), true, calls);
+	checkCall("outgoing confirmation cannot borrow incoming proof", Request::Serialize(MTPphone_ConfirmCall(incoming, MTP_bytes("synthetic"), MTP_long(1), callProtocol)), false, calls);
+	checkProof(calls.activate(incomingToken), "incoming confirmed call activates");
+	checkCall("incoming active signaling passes", Request::Serialize(MTPphone_SendSignalingData(incoming, MTP_bytes("synthetic"))), true, calls);
+	for (const auto &request : { Request::Serialize(MTPphone_SaveCallDebug(incoming, MTP_dataJSON(MTP_string("{}")))),
+		Request::Serialize(MTPphone_SetCallRating(MTP_flags(0), incoming, MTP_int(5), MTP_string("test"))),
+		Request::Serialize(MTPphone_GetGroupCall(groupCall, MTP_int(5))),
+		Request::Serialize(MTPphone_DiscardCall(MTP_flags(0), incoming, MTP_int(0), MTP_phoneCallDiscardReasonMigrateConferenceCall(MTP_string("synthetic")), MTP_long(0))) }) {
+		checkCall("active call cannot permit debug rating group lookup or migration", request, false, calls);
+	}
+	calls.close(incomingToken);
+	checkCall("closing incoming call cannot accept", Request::Serialize(MTPphone_AcceptCall(incoming, MTP_bytes("synthetic"), callProtocol)), false, calls);
+	calls.forget(incomingToken);
+
 	auto emojiData = QFile(QFileInfo(QString::fromUtf8(__FILE__)).dir()
 		.absoluteFilePath(u"../../lib_ui/emoji.txt"_q));
 	if (!emojiData.open(QIODevice::ReadOnly)) {

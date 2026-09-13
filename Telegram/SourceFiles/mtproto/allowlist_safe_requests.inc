@@ -248,7 +248,6 @@ case mtpc_messages_getCommonChats:
 case mtpc_messages_getCustomEmojiDocuments:
 case mtpc_messages_getDefaultHistoryTTL:
 case mtpc_messages_getDefaultTagReactions:
-case mtpc_messages_getDhConfig:
 case mtpc_messages_getDialogFilters:
 case mtpc_messages_getDialogUnreadMarks:
 case mtpc_messages_getDialogs:
@@ -368,16 +367,6 @@ case mtpc_payments_getSuggestedStarRefBots:
 case mtpc_payments_getUniqueStarGift:
 case mtpc_payments_getUniqueStarGiftValueInfo:
 case mtpc_payments_resolveStarGiftOffer:
-case mtpc_phone_checkGroupCall:
-case mtpc_phone_discardCall:
-case mtpc_phone_getCallConfig:
-case mtpc_phone_getGroupCall:
-case mtpc_phone_getGroupCallChainBlocks:
-case mtpc_phone_getGroupCallJoinAs:
-case mtpc_phone_getGroupCallStars:
-case mtpc_phone_getGroupCallStreamChannels:
-case mtpc_phone_getGroupCallStreamRtmpUrl:
-case mtpc_phone_getGroupParticipants:
 case mtpc_photos_deletePhotos:
 case mtpc_photos_getUserPhotos:
 case mtpc_photos_updateProfilePhoto:

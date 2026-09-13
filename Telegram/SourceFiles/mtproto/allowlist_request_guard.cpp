@@ -536,6 +536,68 @@ template <typename Request>
 	return true;
 }
 
+
+template <typename Request>
+[[nodiscard]] bool ReadPrivateCallAllowed(
+		const mtpPrime *from,
+		const mtpPrime *end,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows,
+		AllowlistCallContext *calls) {
+	if (!calls || !ValidateRequest<Request>(from, end)) {
+		return false;
+	}
+	const auto type = mtpTypeId(*from++);
+	if constexpr (std::is_same_v<Request, MTPphone_GetCallConfig>) {
+		return calls->bootstrapAllowed(selfId);
+	} else if constexpr (std::is_same_v<Request, MTPmessages_GetDhConfig>) {
+		auto version = MTPint();
+		auto length = MTPint();
+		return version.read(from, end) && length.read(from, end)
+			&& version.v >= 0 && length.v == 256 && calls->bootstrapAllowed(selfId);
+	} else {
+		if constexpr (std::is_same_v<Request, MTPphone_RequestCall>
+			|| std::is_same_v<Request, MTPphone_DiscardCall>) {
+			auto flags = MTPint();
+			if (!flags.read(from, end) || (flags.v & ~1U)) {
+				return false;
+			}
+		}
+		if constexpr (std::is_same_v<Request, MTPphone_RequestCall>) {
+			auto user = MTPInputUser();
+			if (!user.read(from, end)) {
+				return false;
+			}
+			const auto peer = Destination(user, selfId);
+			const auto contextAllowed = user.match([&](const MTPDinputUserFromMessage &data) {
+				return WebViewPeerAllowed(data.vpeer(), selfId, allows);
+			}, [](const MTPDinputUser &) {
+				return true;
+			}, [](const auto &) {
+				return false;
+			});
+			return contextAllowed && peerIsUser(peer) && allows(peer)
+				&& calls->outgoingAllowed(selfId, peerToUser(peer));
+		} else {
+			auto peer = MTPInputPhoneCall();
+			if (!peer.read(from, end)) {
+				return false;
+			}
+			if constexpr (std::is_same_v<Request, MTPphone_DiscardCall>) {
+				auto duration = MTPint();
+				auto reason = MTPPhoneCallDiscardReason();
+				if (!duration.read(from, end) || duration.v < 0
+					|| !reason.read(from, end)
+					|| reason.type() == mtpc_phoneCallDiscardReasonMigrateConferenceCall) {
+					return false;
+				}
+			}
+			const auto &data = peer.data();
+			return calls->requestAllowed(selfId, type, data.vid().v, data.vaccess_hash().v);
+		}
+	}
+}
+
 [[nodiscard]] bool BodyAllowed(
 		const mtpPrime *from,
 		const mtpPrime *end,
@@ -543,6 +605,7 @@ template <typename Request>
 		const Fn<bool(PeerId)> &allows,
 		const Fn<bool(UserId)> &knownBot,
 		AllowlistContentContext *content,
+		AllowlistCallContext *calls,
 		int depth) {
 	if (from == end || depth > 8) {
 		return false;
@@ -566,16 +629,40 @@ template <typename Request>
 	case mtpc_msg_resend_req:
 		return true;
 	case mtpc_invokeWithoutUpdates:
-		return BodyAllowed(from + 1, end, selfId, allows, knownBot, content, depth + 1);
+		return BodyAllowed(from + 1, end, selfId, allows, knownBot, content, calls, depth + 1);
 	case mtpc_account_initTakeoutSession:
 	case mtpc_invokeWithTakeout:
 		return false;
 	case mtpc_invokeAfterMsg:
 		return (end - from > 3)
-			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, content, depth + 1);
+			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, content, calls, depth + 1);
 	case mtpc_invokeWithLayer:
 		return (end - from > 2)
-			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, content, depth + 1);
+			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, content, calls, depth + 1);
+	case mtpc_phone_getCallConfig:
+		return ReadPrivateCallAllowed<MTPphone_GetCallConfig>(
+			from, end, selfId, allows, calls);
+	case mtpc_messages_getDhConfig:
+		return ReadPrivateCallAllowed<MTPmessages_GetDhConfig>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_requestCall:
+		return ReadPrivateCallAllowed<MTPphone_RequestCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_receivedCall:
+		return ReadPrivateCallAllowed<MTPphone_ReceivedCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_acceptCall:
+		return ReadPrivateCallAllowed<MTPphone_AcceptCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_confirmCall:
+		return ReadPrivateCallAllowed<MTPphone_ConfirmCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_sendSignalingData:
+		return ReadPrivateCallAllowed<MTPphone_SendSignalingData>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_discardCall:
+		return ReadPrivateCallAllowed<MTPphone_DiscardCall>(
+			from, end, selfId, allows, calls);
 	case mtpc_messages_forwardMessages:
 		return ReadForwardAllowed(from, end, selfId, allows, content);
 	case mtpc_account_updateEmojiStatus: {
@@ -850,12 +937,183 @@ bool AllowlistContentContext::recordUploadPart(uint64 id, int part, const QByteA
 	return true;
 }
 
+
+AllowlistCallContext::AllowlistCallContext(
+		UserId self,
+		Fn<bool(UserId)> eligible)
+: _self(self)
+, _eligible(std::move(eligible)) {
+}
+
+uint64 AllowlistCallContext::begin(UserId peer, bool outgoing) {
+	if (!_self || !peer || peer == _self || !_eligible || !_eligible(peer)) {
+		return 0;
+	}
+	const auto token = ++_nextToken;
+	_proofs.emplace(token, Proof{ .peer = peer, .outgoing = outgoing });
+	return token;
+}
+
+bool AllowlistCallContext::matches(
+		const Proof &proof,
+		const MTPPhoneCall &call) const {
+	const auto common = [&](const auto &data) {
+		return data.vid().v && data.vaccess_hash().v
+			&& (!proof.id || (proof.id == data.vid().v
+				&& proof.hash == data.vaccess_hash().v))
+			&& UserId(data.vadmin_id()) == (proof.outgoing ? _self : proof.peer)
+			&& UserId(data.vparticipant_id()) == (proof.outgoing ? proof.peer : _self);
+	};
+	return call.match([&](const MTPDphoneCallRequested &data) {
+		return !proof.outgoing && common(data) && data.vg_a_hash().v.size() == 32;
+	}, [&](const MTPDphoneCallWaiting &data) {
+		return common(data);
+	}, [&](const MTPDphoneCallAccepted &data) {
+		return proof.id && proof.outgoing && common(data);
+	}, [&](const MTPDphoneCall &data) {
+		return proof.id && common(data);
+	}, [&](const MTPDphoneCallDiscarded &data) {
+		return proof.id && proof.id == data.vid().v;
+	}, [&](const MTPDphoneCallEmpty &data) {
+		return proof.id && proof.id == data.vid().v;
+	});
+}
+
+bool AllowlistCallContext::bind(uint64 token, const MTPPhoneCall &call) {
+	const auto i = _proofs.find(token);
+	if (i == end(_proofs) || i->second.id) {
+		return false;
+	}
+	auto &proof = i->second;
+	if (call.type() != (proof.outgoing ? mtpc_phoneCallWaiting : mtpc_phoneCallRequested)
+		|| !matches(proof, call)) {
+		return false;
+	}
+	const auto id = call.match([](const auto &data) { return data.vid().v; });
+	if (!_usedIds.insert(id).second) {
+		return false;
+	}
+	proof.id = id;
+	proof.hash = proof.outgoing
+		? call.c_phoneCallWaiting().vaccess_hash().v
+		: call.c_phoneCallRequested().vaccess_hash().v;
+	if (!_eligible(proof.peer)) {
+		proof.phase = Phase::Closing;
+	}
+	return true;
+}
+
+bool AllowlistCallContext::authorized(uint64 token) {
+	const auto i = _proofs.find(token);
+	if (i == end(_proofs)) {
+		return false;
+	}
+	auto &proof = i->second;
+	if (!_eligible(proof.peer)) {
+		proof.phase = Phase::Closing;
+	}
+	return proof.phase != Phase::Closing;
+}
+
+bool AllowlistCallContext::validate(uint64 token, const MTPPhoneCall &call) {
+	const auto i = _proofs.find(token);
+	return i != end(_proofs) && matches(i->second, call)
+		&& (call.type() == mtpc_phoneCallDiscarded
+			|| call.type() == mtpc_phoneCallEmpty
+			|| authorized(token));
+}
+
+bool AllowlistCallContext::exchange(uint64 token) {
+	if (!authorized(token) || !_proofs.at(token).id) {
+		return false;
+	}
+	_proofs.at(token).phase = Phase::Exchanging;
+	return true;
+}
+
+bool AllowlistCallContext::activate(uint64 token) {
+	if (!authorized(token) || _proofs.at(token).phase != Phase::Exchanging) {
+		return false;
+	}
+	_proofs.at(token).phase = Phase::Active;
+	return true;
+}
+
+void AllowlistCallContext::close(uint64 token) {
+	const auto i = _proofs.find(token);
+	if (i != end(_proofs)) {
+		i->second.phase = Phase::Closing;
+	}
+}
+
+void AllowlistCallContext::forget(uint64 token) {
+	_proofs.erase(token);
+}
+
+bool AllowlistCallContext::bootstrapAllowed(UserId self) {
+	if (self != _self) {
+		return false;
+	}
+	for (const auto &[token, proof] : _proofs) {
+		if (authorized(token)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AllowlistCallContext::outgoingAllowed(UserId self, UserId peer) {
+	if (self != _self) {
+		return false;
+	}
+	for (const auto &[token, proof] : _proofs) {
+		if (proof.peer == peer && proof.outgoing && !proof.id && authorized(token)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AllowlistCallContext::requestAllowed(
+		UserId self,
+		mtpTypeId type,
+		uint64 id,
+		uint64 hash) {
+	if (self != _self || !id || !hash) {
+		return false;
+	}
+	for (const auto &[token, proof] : _proofs) {
+		if (proof.id != id || proof.hash != hash) {
+			continue;
+		}
+		if (type == mtpc_phone_discardCall) {
+			return true;
+		} else if (!authorized(token)) {
+			return false;
+		}
+		switch (type) {
+		case mtpc_phone_receivedCall:
+			return !proof.outgoing && proof.phase == Phase::Pending;
+		case mtpc_phone_acceptCall:
+			return !proof.outgoing && proof.phase == Phase::Exchanging;
+		case mtpc_phone_confirmCall:
+			return proof.outgoing && proof.phase == Phase::Exchanging;
+		case mtpc_phone_sendSignalingData:
+			return proof.phase == Phase::Active;
+		default:
+			return false;
+		}
+	}
+	return false;
+}
+
 bool AllowlistRequestAllowed(
 		const details::SerializedRequest &request,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
 		const Fn<bool(UserId)> &knownBot,
-		AllowlistContentContext *content) {
+		AllowlistContentContext *content,
+		AllowlistCallContext *calls) {
 	constexpr auto offset = details::SerializedRequest::kMessageBodyPosition;
 	if (!request || request->size() <= offset) {
 		return false;
@@ -878,6 +1136,7 @@ bool AllowlistRequestAllowed(
 		conversationAllowed,
 		knownBot,
 		content,
+		calls,
 		0);
 }
 

@@ -320,7 +320,7 @@ struct StageManifest {
 		CloseHandle(file);
 		return false;
 	}
-	auto buffer = std::array<BYTE, 1024 * 1024>();
+	auto buffer = std::vector<BYTE>(1024 * 1024);
 	auto ok = true;
 	while (ok) {
 		DWORD read = 0;

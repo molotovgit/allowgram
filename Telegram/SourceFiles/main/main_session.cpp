@@ -9,7 +9,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "main/allowlist_policy.h"
 #include "mtproto/allowlist_request_guard.h"
-#include "core/update_checker.h"
 
 #include "apiwrap.h"
 #include "api/api_peer_colors.h"
@@ -440,9 +439,6 @@ rpl::producer<bool> Session::allowlistConfiguredValue() const {
 }
 
 bool Session::allowlistAllows(PeerId peer) const {
-	if (Core::MandatoryUpdateBlocksUse()) {
-		return false;
-	}
 	return allowlistConfigured()
 		&& peer
 		&& peer != userPeerId()

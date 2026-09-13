@@ -23,7 +23,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_instance.h"
 #include "core/sandbox.h"
 #include "core/application.h"
-#include "core/update_checker.h"
 #include "export/export_manager.h"
 #include "inline_bots/bot_attach_web_view.h" // AttachWebView::cancel.
 #include "intro/intro_widget.h"
@@ -69,11 +68,6 @@ void FeedLangTestingKey(int key) {
 		codeState = 0;
 		Lang::CurrentCloudManager().switchToTestLanguage();
 	}
-}
-
-[[nodiscard]] bool MandatoryUpdateLocksLayerChanges() {
-	return !Core::Quitting()
-		&& Core::UpdateChecker().mandatoryUpdateLocked();
 }
 
 base::options::toggle AutoScrollInactiveChat({
@@ -521,9 +515,6 @@ void MainWindow::destroyLayer() {
 }
 
 void MainWindow::ui_hideSettingsAndLayer(anim::type animated) {
-	if (MandatoryUpdateLocksLayerChanges()) {
-		return;
-	}
 	if (animated == anim::type::instant) {
 		destroyLayer();
 	} else if (_layer) {
@@ -550,9 +541,6 @@ void MainWindow::showOrHideBoxOrLayer(
 		anim::type animated) {
 	using UniqueLayer = std::unique_ptr<Ui::LayerWidget>;
 	using ObjectBox = object_ptr<Ui::BoxContent>;
-	if (MandatoryUpdateLocksLayerChanges()) {
-		return;
-	}
 	if (auto layerWidget = std::get_if<UniqueLayer>(&layer)) {
 		ensureLayerCreated();
 		_layer->showLayer(std::move(*layerWidget), options, animated);
@@ -856,9 +844,6 @@ void MainWindow::updateControlsGeometry() {
 void MainWindow::handleStartFiles(
 		QStringList interprets,
 		QStringList paths) {
-	if (Core::MandatoryUpdateBlocksUse()) {
-		return;
-	}
 	if (controller().locked()) {
 		return;
 	}

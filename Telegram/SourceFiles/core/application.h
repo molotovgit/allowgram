@@ -116,7 +116,6 @@ struct LocalUrlHandler;
 class ScreenshotProtection;
 class Settings;
 class Tray;
-class UpdateChecker;
 
 enum class LaunchState {
 	Running,
@@ -440,7 +439,6 @@ private:
 	using MediaControlsManager = Media::SystemMediaControlsManager;
 	std::unique_ptr<MediaControlsManager> _mediaControlsManager;
 	const std::unique_ptr<Data::DownloadManager> _downloadManager;
-	std::unique_ptr<UpdateChecker> _startupUpdateChecker;
 	const std::unique_ptr<Main::Domain> _domain;
 	const std::unique_ptr<Export::Manager> _exportManager;
 	const std::unique_ptr<Calls::Instance> _calls;

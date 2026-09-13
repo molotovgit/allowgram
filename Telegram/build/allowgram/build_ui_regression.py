@@ -10,8 +10,7 @@ parser = argparse.ArgumentParser(description="Build a disposable real-widget reg
 parser.add_argument('--repository', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--hardening', action='store_true')
-parser.add_argument('--mandatory-update', action='store_true')
-parser.add_argument('--mandatory-legacy-startup', action='store_true')
+parser.add_argument('--optional-update', action='store_true')
 parser.add_argument('--test-repository', type=Path)
 parser.add_argument('--compile-only', action='store_true')
 args = parser.parse_args()
@@ -100,44 +99,44 @@ application = application.replace('style::StartManager(cScale());',
     '\tstyle::StartManager(style::Scale());')
 application = application.replace('autoRegisterUrlScheme();', '')
 application = application.replace('Platform::NewVersionLaunched(old);', '')
-if args.mandatory_update:
-    application = ('#include <QtCore/QFile>\n'
+if args.optional_update:
+    application = ('#include <QtCore/QDir>\n'
+                   '#include <QtCore/QFile>\n'
+                   '#include <QtCore/QFileInfo>\n'
                    '#include <QtCore/QJsonArray>\n'
                    '#include <QtCore/QJsonDocument>\n'
                    '#include <QtCore/QJsonObject>\n'
-                   '#include "core/update_mandatory.h"\n'
-                   '#include "core/update_verify.h"\n'
                    + application)
     seed = r'''
-	const auto mandatoryStartupReport = qEnvironmentVariable("ALLOWGRAM_MANDATORY_STARTUP_REPORT");
-	auto mandatoryStartupSeeded = false;
-	auto mandatoryStartupError = QString();
-	auto mandatoryStartupDraftEvents = std::make_shared<int>(0);
-	auto mandatoryStartupDraftLifetime = std::make_shared<rpl::lifetime>();
-	if (!mandatoryStartupReport.isEmpty()) {
-		Core::App().materializeLocalDraftsRequests(
-		) | rpl::on_next([=] {
-			++*mandatoryStartupDraftEvents;
-		}, *mandatoryStartupDraftLifetime);
-		const auto mandatoryTargetVersion = RunningUpdateVersion() + 1;
-		const auto mandatoryNow = base::unixtime::now();
-		auto mandatoryState = Updates::MandatoryUpdateState();
-		mandatoryState.active = true;
-		mandatoryState.firstSeen = mandatoryNow - 600;
-		mandatoryState.deadline = mandatoryNow + 60;
-		mandatoryState.target.tag = u"mandatory-startup-fixture"_q;
-		mandatoryState.target.fileName = u"allowgram-update-stable-win-x64-7.2.8.9.tdup"_q;
-		mandatoryState.target.sha256 = QByteArray(64, 'c');
-		mandatoryState.target.size = 64;
-		mandatoryState.target.packedVersion = mandatoryTargetVersion;
-		mandatoryState.target.displayVersion = Updates::DisplayUpdateVersion(
-			mandatoryTargetVersion);
-		mandatoryStartupSeeded = Updates::WriteMandatoryUpdateState(
-			cWorkingDir(),
-			mandatoryState,
-			&mandatoryStartupError);
+	const auto optionalStartupReport = qEnvironmentVariable("ALLOWGRAM_OPTIONAL_STALE_UPDATE_REPORT");
+	auto optionalStartupSeeded = false;
+	if (!optionalStartupReport.isEmpty()) {
+		const auto optionalTargetVersion = QString::number(RunningUpdateVersion() + 1);
+		const auto optionalNow = base::unixtime::now();
+		const auto obsoleteStatePath = QDir(cWorkingDir()).filePath(
+			u"tupdates/mandatory-state.json"_q);
+		QDir().mkpath(QFileInfo(obsoleteStatePath).absolutePath());
+		const auto obsoleteBytes = QJsonDocument(QJsonObject{
+			{ "format", 1 },
+			{ "active", true },
+			{ "popup_dismissed", true },
+			{ "apply_started", true },
+			{ "first_seen", double(optionalNow - 600) },
+			{ "deadline", double(optionalNow - 1) },
+			{ "target", QJsonObject{
+				{ "tag", u"obsolete-mandatory-startup-fixture"_q },
+				{ "file", u"allowgram-update-stable-win-x64-7.2.8.9.tdup"_q },
+				{ "sha256", QString(QByteArray(64, 'd')) },
+				{ "size", 64. },
+				{ "packed_version", optionalTargetVersion },
+				{ "display", u"7.2.8.9"_q },
+			} },
+		}).toJson(QJsonDocument::Compact);
+		auto obsoleteState = QFile(obsoleteStatePath);
+		optionalStartupSeeded = obsoleteState.open(QIODevice::WriteOnly)
+			&& obsoleteState.write(obsoleteBytes) == obsoleteBytes.size();
 	}
-	const auto writeMandatoryStartupReport = [&](bool normalFlowContinued) {
+	const auto writeOptionalStartupReport = [&](bool normalFlowContinued) {
 		auto checks = QJsonArray();
 		auto failures = 0;
 		const auto check = [&](bool pass, const char *name) {
@@ -147,35 +146,19 @@ if args.mandatory_update:
 			});
 			failures += pass ? 0 : 1;
 		};
-		const auto state = Core::UpdateChecker().mandatoryUpdateState();
-		const auto status = Updates::MandatoryStatus(
-			state,
-			RunningUpdateVersion(),
-			base::unixtime::now());
-		check(mandatoryStartupSeeded,
-			"mandatory startup fixture writes production state");
-		check(mandatoryStartupError.isEmpty(),
-			"mandatory startup fixture records no state write error");
-		check(!normalFlowContinued,
-			"mandatory startup gate skips normal launch path");
-		check(!_domain->started(),
-			"mandatory startup gate keeps the account domain stopped");
-		check(state.active && state.applyStarted,
-			"mandatory startup gate marks update application started");
-		check(status != Updates::MandatoryUpdateStatus::None,
-			"mandatory startup gate retains a valid update target");
-		check(Core::MandatoryUpdateBlocksUse(),
-			"mandatory startup gate blocks normal app use");
-		check(*mandatoryStartupDraftEvents > 0,
-			"mandatory startup gate materializes local drafts");
-		auto report = QFile(mandatoryStartupReport);
+		check(optionalStartupSeeded,
+			"obsolete mandatory state fixture writes startup policy state");
+		check(normalFlowContinued,
+			"obsolete mandatory state does not stop normal launch");
+		check(_domain->started(),
+			"obsolete mandatory state leaves the account domain available");
+		auto report = QFile(optionalStartupReport);
 		if (report.open(QIODevice::WriteOnly)) {
 			report.write(QJsonDocument(QJsonObject{
 				{ "checks", checks },
 				{ "failures", failures },
 				{ "finished", true },
 				{ "normalFlowContinued", normalFlowContinued },
-				{ "draftEvents", *mandatoryStartupDraftEvents },
 			}).toJson());
 			report.close();
 		}
@@ -185,30 +168,25 @@ if args.mandatory_update:
     assert application.count(anchor) == 1
     application = application.replace(anchor, seed + anchor)
     gate = '''\tif (!domainStarted) {\n\t\tTest::Fire(u"mandatory_update_gate"_q);\n\t\tDEBUG_LOG(("Application Info: mandatory update gate active."));\n\t\t_lastActivePrimaryWindow->finishFirstShow();\n\t\t_lastActivePrimaryWindow->updateIsActiveFocus();\n\t\treturn;\n\t}'''
-    gated = '''\tif (!domainStarted) {\n\t\tTest::Fire(u"mandatory_update_gate"_q);\n\t\tDEBUG_LOG(("Application Info: mandatory update gate active."));\n\t\t_lastActivePrimaryWindow->finishFirstShow();\n\t\t_lastActivePrimaryWindow->updateIsActiveFocus();\n\t\tif (!mandatoryStartupReport.isEmpty()) {\n\t\t\twriteMandatoryStartupReport(false);\n\t\t\tQTimer::singleShot(200, [] { QCoreApplication::quit(); });\n\t\t}\n\t\treturn;\n\t}'''
-    assert application.count(gate) == 1
-    application = application.replace(gate, gated)
+    if application.count(gate) == 1:
+        gated = '''\tif (!domainStarted) {\n\t\tTest::Fire(u"mandatory_update_gate"_q);\n\t\tDEBUG_LOG(("Application Info: mandatory update gate active."));\n\t\t_lastActivePrimaryWindow->finishFirstShow();\n\t\t_lastActivePrimaryWindow->updateIsActiveFocus();\n\t\tif (!optionalStartupReport.isEmpty()) {\n\t\t\twriteOptionalStartupReport(false);\n\t\t\tQTimer::singleShot(200, [] { QCoreApplication::quit(); });\n\t\t}\n\t\treturn;\n\t}'''
+        application = application.replace(gate, gated)
     tail = '\tTest::Fire(u"launch_finished"_q);'
     assert application.count(tail) == 1
     application = application.replace(tail,
-        '\tif (!mandatoryStartupReport.isEmpty()) {\n'
-        '\t\twriteMandatoryStartupReport(true);\n'
+        '\tif (!optionalStartupReport.isEmpty()) {\n'
+        '\t\twriteOptionalStartupReport(true);\n'
         '\t\tQTimer::singleShot(200, [] { QCoreApplication::quit(); });\n'
         '\t\treturn;\n'
         '\t}\n'
         + tail)
-    if args.mandatory_legacy_startup:
-        old = '''bool Application::startDomain() {\n\t_startupUpdateChecker = std::make_unique<UpdateChecker>();\n\tconst auto mandatory = _startupUpdateChecker->mandatoryUpdateState();\n\tif (Updates::MandatoryStatus(\n\t\t\tmandatory,\n\t\t\tRunningUpdateVersion(),\n\t\t\tbase::unixtime::now()) != Updates::MandatoryUpdateStatus::None) {\n\t\t_startupUpdateChecker->applyMandatoryUpdateNow();\n\t\treturn false;\n\t}\n\t_startupUpdateChecker = nullptr;\n\n\tconst auto state = _domain->start(QByteArray());\n\tif (state != Storage::StartResult::IncorrectPasscodeLegacy) {\n\t\t// In case of non-legacy passcoded app all global settings are ready.\n\t\tstartSettingsAndBackground();\n\t}\n\tif (state != Storage::StartResult::Success) {\n\t\tlockByPasscode();\n\t\tDEBUG_LOG(("Application Info: passcode needed..."));\n\t}\n\treturn true;\n}'''
-        legacy = '''bool Application::startDomain() {\n\tif (MandatoryUpdateKnown()) {\n\t\tUpdateChecker().applyMandatoryUpdateNow();\n\t\treturn true;\n\t}\n\tconst auto state = _domain->start(QByteArray());\n\tif (state != Storage::StartResult::IncorrectPasscodeLegacy) {\n\t\t// In case of non-legacy passcoded app all global settings are ready.\n\t\tstartSettingsAndBackground();\n\t}\n\tif (state != Storage::StartResult::Success) {\n\t\tlockByPasscode();\n\t\tDEBUG_LOG(("Application Info: passcode needed..."));\n\t}\n\treturn true;\n}'''
-        assert application.count(old) == 1
-        application = application.replace(old, legacy)
 (fixture / 'application.cpp').write_text(application, encoding='utf-8')
 
 extra_sources = []
 if args.hardening:
     (fixture / 'test').mkdir(exist_ok=True)
     test_root = (args.test_repository or root).resolve()
-    for name in ('allowgram_hardening_native_test.inc', 'allowgram_hardening_composer_test.inc', 'allowgram_calls_native_test.inc', 'allowgram_mandatory_update_native_test.inc'):
+    for name in ('allowgram_hardening_native_test.inc', 'allowgram_hardening_composer_test.inc', 'allowgram_calls_native_test.inc'):
         (fixture / 'test' / name).write_text((test_root / 'Telegram/SourceFiles/test' / name).read_text(encoding='utf-8'), encoding='utf-8')
     includes = [
         'main/main_account.h', 'main/main_domain.h', 'main/main_session.h',
@@ -229,7 +207,6 @@ if args.hardening:
         'info/settings/info_settings_widget.h', 'info/stories/info_stories_widget.h',
         'settings/sections/settings_main.h', 'base/unixtime.h',
         'core/update_channel.h', 'core/update_checker.h',
-        'core/update_mandatory.h', 'core/update_verify.h',
         'window/window_peer_menu.h', 'calls/calls_instance.h',
         'calls/calls_call.h', 'calls/calls_box_controller.h', 'calls/group/calls_group_common.h',
         'chat_helpers/compose/compose_show.h', 'dialogs/dialogs_key.h',
@@ -327,8 +304,7 @@ block = re.sub(r'^  OBJECT_DIR = .*$', '  OBJECT_DIR = ' + str(fixture).replace(
     'testDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=(args.test_repository or root), text=True).splitlines(),
     'productionExecutableSha256': original_hash,
     'hardeningFixture': args.hardening,
-    'mandatoryFixture': args.mandatory_update,
-    'mandatoryLegacyStartup': args.mandatory_legacy_startup,
+    'optionalFixture': args.optional_update,
     'inputs': {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
                for path in fixture.rglob('*') if path.suffix in ('.cpp', '.inc', '.h', '.obj', '.ninja')},
 }, indent=2) + '\n')
@@ -363,8 +339,7 @@ assert (fixture / 'Allowgram-Docs.exe').is_file()
                       for path in fixture.rglob('*') if path.suffix in ('.cpp', '.inc', '.h')},
     'layoutUnmodified': True,
     'hardeningFixture': args.hardening,
-    'mandatoryFixture': args.mandatory_update,
-    'mandatoryLegacyStartup': args.mandatory_legacy_startup,
+    'optionalFixture': args.optional_update,
     'mtprotoNetworkDisabled': args.hardening,
     'callDeviceAndPanelSideEffectsSuppressed': args.hardening,
     'overlay': (['synthetic account/model construction', 'real composer callbacks',
@@ -372,7 +347,7 @@ assert (fixture / 'Allowgram-Docs.exe').is_file()
                  'synthetic private-call server replies after production request filtering',
                  'synthetic key-exchange values; device, ring, panel and controller effects intercepted'] if args.hardening else
                 ['unsigned-in construction', 'neutral scene values and parser-only validation'])
-               + ((['mandatory update startup fixture'] if args.mandatory_update else [])
+               + ((['optional updater stale-policy startup fixture'] if args.optional_update else [])
                    + ['process-local style scale', 'real-widget regression include']),
 }, indent=2) + '\n')
 print('Fixture built; original Release binary unchanged.', flush=True)

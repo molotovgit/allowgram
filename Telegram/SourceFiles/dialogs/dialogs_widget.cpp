@@ -2635,15 +2635,16 @@ void Widget::checkUpdateStatus() {
 		}
 		_updateTelegram.create(
 			this,
-			tr::lng_update_telegram(tr::now),
+			u"Update Allowgram"_q,
 			st::dialogsUpdateButton,
 			st::dialogsInstallUpdate,
 			st::dialogsInstallUpdateOver,
 			true);
 		_updateTelegram->show();
 		_updateTelegram->setClickedCallback([] {
-			Core::checkReadyUpdate();
-			Core::Restart();
+			if (Core::checkReadyUpdate()) {
+				Core::Restart();
+			}
 		});
 		if (_connecting) {
 			_connecting->raise();

@@ -442,8 +442,6 @@ void Application::run() {
 	_lastActivePrimaryWindow->firstShow();
 
 	if (!domainStarted) {
-		Test::Fire(u"mandatory_update_gate"_q);
-		DEBUG_LOG(("Application Info: mandatory update gate active."));
 		_lastActivePrimaryWindow->finishFirstShow();
 		_lastActivePrimaryWindow->updateIsActiveFocus();
 		return;
@@ -565,17 +563,6 @@ void Application::showOpenGLCrashNotification() {
 }
 
 bool Application::startDomain() {
-	_startupUpdateChecker = std::make_unique<UpdateChecker>();
-	const auto mandatory = _startupUpdateChecker->mandatoryUpdateState();
-	if (Updates::MandatoryStatus(
-			mandatory,
-			RunningUpdateVersion(),
-			base::unixtime::now()) != Updates::MandatoryUpdateStatus::None) {
-		_startupUpdateChecker->applyMandatoryUpdateNow();
-		return false;
-	}
-	_startupUpdateChecker = nullptr;
-
 	const auto state = _domain->start(QByteArray());
 	if (state != Storage::StartResult::IncorrectPasscodeLegacy) {
 		// In case of non-legacy passcoded app all global settings are ready.

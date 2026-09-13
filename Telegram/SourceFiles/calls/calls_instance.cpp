@@ -980,10 +980,6 @@ bool Instance::closeCurrentActiveCall() {
 	return false;
 }
 
-void Instance::discardCurrentForUpdate() {
-	destroyCurrentCall();
-}
-
 void Instance::hidePanelLayers() {
 	if (_currentCallPanel) {
 		_currentCallPanel->uiShow()->hideLayer();

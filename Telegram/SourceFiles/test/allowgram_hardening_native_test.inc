@@ -281,7 +281,6 @@ if (firstCreated) {
 		navigation->hideLayer(anim::type::instant);
 		check(visibleBoxes() == 0, "explicit hide-layer still closes allowed group information");
 	}
-#include "test/allowgram_mandatory_update_native_test.inc"
 	placeholderPtr->setSessionUserId(UserId(100));
 	placeholderPtr->createSession(UserId(100), QByteArray(), QDataStream::Qt_5_1,
 		std::make_unique<Main::SessionSettings>());

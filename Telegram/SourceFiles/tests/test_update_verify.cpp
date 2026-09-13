@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // generated in-process with OpenSSL, so no fixture files and no network.
 
 #include "core/update_channel.h"
+#include "core/update_feed.h"
 #include "core/update_keys.h"
 #include "core/update_verify.h"
 
@@ -351,6 +352,47 @@ void AppendLeU64(QByteArray &to, quint64 value) {
 		target);
 }
 
+QByteArray AllowgramFeed(
+		QString product = QStringLiteral("Allowgram"),
+		QString channel = QStringLiteral("stable"),
+		QString platform = QStringLiteral("linux"),
+		QString os = QStringLiteral("linux"),
+		QString arch = QStringLiteral("x64"),
+		QString display = QStringLiteral("7.2.8.8"),
+		quint32 base = 7002008,
+		quint32 sequence = 8,
+		QString fileName = QString(),
+		quint64 size = 4096,
+		QString sha256 = QString()) {
+	if (fileName.isNull()) {
+		fileName = QStringLiteral("allowgram-update-stable-%1-%2-%3.tdup"
+			).arg(os
+			).arg(arch
+			).arg(display);
+	}
+	if (sha256.isNull()) {
+		sha256 = QString(64, QLatin1Char('a'));
+	}
+	const auto file = QJsonObject{
+		{ "os", os },
+		{ "arch", arch },
+		{ "file", fileName },
+		{ "size", double(size) },
+		{ "sha256", sha256 },
+	};
+	const auto root = QJsonObject{
+		{ "format", 1 },
+		{ "product", product },
+		{ "channel", channel },
+		{ "version", QJsonObject{
+			{ "display", display },
+			{ "base", int(base) },
+			{ "sequence", int(sequence) },
+		} },
+		{ "files", QJsonObject{ { platform, file } } },
+	};
+	return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -425,6 +467,107 @@ int main(int argc, char *argv[]) {
 			error);
 	};
 
+	{ // The Allowgram release feed is fixed to stable GitHub assets.
+		auto error = QString();
+		const auto feedUrl = QStringLiteral(
+			"https://github.com/molotovgit/allowgram/releases/latest/download/"
+			"allowgram-update-feed.json");
+		const auto assetName = QStringLiteral(
+			"allowgram-update-stable-linux-x64-7.2.8.8.tdup");
+		const auto parsed = ParseStableReleaseFeed(
+			AllowgramFeed(),
+			"linux",
+			MakeUpdateVersion(7002008, 7),
+			&error);
+		Check(parsed && parsed->updateAvailable,
+			"Allowgram feed offers a newer stable package");
+		Check(parsed && parsed->asset.fileName == assetName,
+			"Allowgram feed accepts the exact asset name");
+		Check(parsed && parsed->asset.url == StableReleaseDownloadUrl(assetName),
+			"Allowgram feed builds the fixed GitHub asset URL");
+		Check(StableReleaseFeedUrl() == feedUrl,
+			"Allowgram feed uses the fixed GitHub release asset URL");
+		Check(
+			parsed && parsed->asset.packedVersion == MakeUpdateVersion(7002008, 8),
+			"Allowgram feed carries the packed stable sequence");
+		const auto same = ParseStableReleaseFeed(
+			AllowgramFeed(),
+			"linux",
+			MakeUpdateVersion(7002008, 8));
+		Check(same && !same->updateAvailable,
+			"equal Allowgram sequence is not offered");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(QStringLiteral("Telegram")),
+			"linux",
+			MakeUpdateVersion(7002008, 7)),
+			"foreign product feed rejected");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("beta")),
+			"linux",
+			MakeUpdateVersion(7002008, 7)),
+			"beta feed rejected");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(),
+			"win64",
+			MakeUpdateVersion(7002008, 7)),
+			"missing platform asset rejected");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("mac")),
+			"linux",
+			MakeUpdateVersion(7002008, 7)),
+			"wrong OS asset rejected");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QStringLiteral("td-update-linux-x64-7002008")),
+			"linux",
+			MakeUpdateVersion(7002008, 7)),
+			"legacy official asset name rejected");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				quint64(kMaxPayloadSize) + 1),
+			"linux",
+			MakeUpdateVersion(7002008, 7)),
+			"oversized feed asset rejected");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				4096,
+				QStringLiteral("abc")),
+			"linux",
+			MakeUpdateVersion(7002008, 7)),
+			"bad feed SHA-256 rejected");
+	}
 	{ // The committed trust files must verify with the pinned root.
 		auto error = QString();
 		const auto embedded = ParseVerifiedManifest(

@@ -599,6 +599,8 @@ PRIVATE
     core/update_channel.h
     core/update_checker.cpp
     core/update_checker.h
+    core/update_feed.cpp
+    core/update_feed.h
     core/update_keys.cpp
     core/update_keys.h
     core/update_verify.cpp

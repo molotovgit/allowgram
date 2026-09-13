@@ -17,6 +17,8 @@ target_include_directories(test_update_verify PRIVATE ${src_loc} ${lib_base_loc}
 
 nice_target_sources(test_update_verify ${src_loc}
 PRIVATE
+    core/update_feed.cpp
+    core/update_feed.h
     core/update_keys.cpp
     core/update_keys.h
     core/update_verify.cpp

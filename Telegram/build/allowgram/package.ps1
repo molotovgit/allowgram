@@ -229,6 +229,10 @@ try {
     $zip.Dispose()
 }
 if (-not $TestBuild) {
+    $taskLocalInno = Join-Path (Split-Path $Repository) 'allowgram-tools\InnoSetup'
+    if (Test-Path -LiteralPath (Join-Path $taskLocalInno 'ISCC.exe') -PathType Leaf) {
+        $env:PATH = $taskLocalInno + ';' + $env:PATH
+    }
     $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     $compilerPath = if ($compiler) { $compiler.Source } else { Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe' }
     if (-not (Test-Path -LiteralPath $compilerPath -PathType Leaf)) {

@@ -1,5 +1,11 @@
 # Allowgram changelog
 
+## 7.2.8.7
+
+- Permit incoming and outgoing private voice/video calls only with explicitly allowlisted, known nonbot users; restore the eligible private-chat call action.
+- Bind call lifecycle requests to the verified account, peer, call ID and access hash. Recheck authorization and terminate pending/active calls on revocation.
+- Keep Calls history, group/conference calls, creation and personal profiles unavailable, with all earlier hardening retained. See [scope and verification](docs/allowgram-7.2.8.7.md).
+
 ## 7.2.8.6
 
 - Remove New Group/New Channel and guard direct creation dialogs and navigation; existing permitted conversations remain usable.

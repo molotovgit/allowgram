@@ -2,7 +2,29 @@
 
 [Back to Allowgram](../../README.md)
 
-## 7.2.8.6 hardening checks
+## 7.2.8.7 private-call checks
+
+The call suite exercises production Call/Instance admission, response binding,
+acceptance, confirmation, signaling, redial and policy-reload revocation with
+synthetic account data. The disposable overlay returns synthetic server replies
+after the real serialized request filter. It replaces key exchange and intercepts
+network, permission, ringing, panel and media-controller effects. No real calls,
+sign-in, microphone/camera capture or messages are authorized by these tests.
+
+Serialized tests cover peer-bearing constructors and wrappers, call ID/hash and
+account mismatches, stale generations, lifecycle phases, malformed call hashes
+and protocol ranges, revocation and bound cleanup. Native positive controls
+must reach actual call/request callbacks. Source-string checks alone cannot
+establish usable calls. Prior hardening and layout checks remain required.
+
+Build fixtures from the coherent configured object graph for the same source
+revision; header/layout changes require affected dependencies to rebuild. Keep
+source/overlay hashes, finished reports and actual zero application/runner exits.
+The revision-specific package receipt records completed runs; this page does not
+claim live interoperability. The preexisting IPC CMD:quit crash remains disclosed;
+isolated startup/teardown uses normal WM_CLOSE and treats nonzero exits as failure.
+
+## Historical 7.2.8.6 hardening checks
 
 The native suite additionally checks the actual sidebar and sender/conversation
 context menus, direct creation and short-info factories, retained Calls routes,

@@ -36,9 +36,12 @@ These are 7.2.8.5 client restrictions, not list configuration errors. They also 
 
 ### Why are creation, Calls and My Profile missing?
 
-Version 7.2.8.6 also removes New Group, New Channel, Calls and My Profile.
-Contacts, Settings and existing allowed conversations remain available.
-See [7.2.8.6 scope](../allowgram-7.2.8.6.md).
+New Group, New Channel, the sidebar Calls/history entry and My Profile remain
+unavailable. Version 7.2.8.7 permits incoming and outgoing voice/video calls with
+explicitly allowed, known users. Use the call button in an eligible private chat;
+right-click it for voice/video choices. Allowing a group does not authorize calls
+with its members. Contacts, Settings and existing allowed conversations remain
+available. See [7.2.8.7 scope](../allowgram-7.2.8.7.md).
 
 ### Is there a public installer here?
 

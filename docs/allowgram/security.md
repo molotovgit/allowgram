@@ -6,8 +6,15 @@ Allowgram enforces an account-specific policy inside this client. It is not a Te
 
 ## Policy flow
 
-Version 7.2.8.6 adds shared conversation-creation and call permissions, removes
-their visible entry points, and closes short-info profile presentation. User
+Version 7.2.8.7 permits private calls only with explicitly allowlisted, loaded,
+nonbot users. Admission precedes permissions, ringing and presentation. A
+session-owned call context binds the peer and account to each validated call ID
+and access hash. Serialized lifecycle requests require that exact association;
+revocation ends calls and permits only bound cleanup. Group/conference and
+migration operations remain denied. See [7.2.8.7 scope](../allowgram-7.2.8.7.md).
+
+Version 7.2.8.6 added shared conversation-creation and call permissions, removed
+their visible entry points, and closed short-info profile presentation. User
 profiles are denied for self as well as others; own-account Settings and minimum
 identity metadata are not profile browsing. Existing permitted group/channel
 information and messaging remain available. See [7.2.8.6 scope](../allowgram-7.2.8.6.md).
@@ -49,7 +56,7 @@ Mini App requests require both an allowed typed user ID and a loaded server-reso
 ## Intentional limitations
 
 - An allowed group includes its participants' messages. A participant need not be individually allowed for their message to appear inside that group; their DM and bot-app permission are separate.
-- Calls, aggregate stories/discovery, broad story publishing, automated business messaging and unscoped communication features are disabled.
+- Calls to users outside the explicit user list, group/conference calls, aggregate stories/discovery, broad story publishing, automated business messaging and unscoped communication features are disabled.
 - Raw exports, takeout sessions and arbitrary URL previews/instant views are disabled.
 - Some Mini App bridge functions are disabled; see [Mini Apps](mini-apps.md).
 - Third-party web content and its backend roles remain governed by that service. Opening a bot app is not an administrator grant.

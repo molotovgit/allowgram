@@ -542,7 +542,6 @@ template <typename Request>
 	const auto &versions = data.vlibrary_versions().v;
 	return data.vmin_layer().v > 0
 		&& data.vmax_layer().v >= data.vmin_layer().v
-		&& !versions.empty()
 		&& std::all_of(versions.begin(), versions.end(), [](const MTPstring &version) {
 			return !version.v.isEmpty();
 		});

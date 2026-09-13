@@ -394,16 +394,20 @@ int main() {
 	for (const auto &protocol : {
 		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(100), MTP_int(65), MTP_vector<MTPstring>({ MTP_string("synthetic") })),
 		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(0), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("synthetic") })),
-		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({})),
 		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("") })) }) {
 		const auto malformed = MTPphone_RequestCall(MTP_flags(0), bot, MTP_int(1), MTP_bytes(QByteArray(32, 'a')), protocol);
-		checkCall("inconsistent or empty private call protocol is denied", Request::Serialize(malformed), false, calls);
+		checkCall("inconsistent range or invalid populated version is denied", Request::Serialize(malformed), false, calls);
 	}
 
 	checkCall("protocol range is not arbitrarily restricted", Request::Serialize(MTPphone_RequestCall(
 		MTP_flags(0), bot, MTP_int(1), MTP_bytes(QByteArray(32, 'a')),
 		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(1), MTP_int(1000),
 			MTP_vector<MTPstring>({ MTP_string("future-version") })))), true, calls);
+
+	const auto defaultProtocol = MTP_phoneCallProtocol(MTP_flags(0), MTP_int(65), MTP_int(100),
+		MTP_vector<MTPstring>({}));
+	checkCall("default protocol fallback remains valid for outgoing request", Request::Serialize(MTPphone_RequestCall(
+		MTP_flags(0), bot, MTP_int(1), MTP_bytes(QByteArray(32, 'a')), defaultProtocol)), true, calls);
 
 	checkCall("authorized private bootstrap config", Request::Serialize(MTPphone_GetCallConfig()), true, calls);
 	checkCall("authorized private DH bootstrap", Request::Serialize(MTPmessages_GetDhConfig(MTP_int(0), MTP_int(256))), true, calls);
@@ -425,6 +429,8 @@ int main() {
 	checkCall("confirm requires key exchange phase", confirm, false, calls);
 	checkProof(calls.exchange(outgoingToken), "validated outgoing call enters exchange");
 	checkCall("associated outgoing confirmation passes", confirm, true, calls);
+	checkCall("associated confirmation retains default protocol fallback", Request::Serialize(MTPphone_ConfirmCall(
+		phoneCall, MTP_bytes("synthetic"), MTP_long(1), defaultProtocol)), true, calls);
 	const auto invalidProtocol = MTP_phoneCallProtocol(MTP_flags(0), MTP_int(100), MTP_int(65),
 		MTP_vector<MTPstring>({ MTP_string("synthetic") }));
 	checkCall("associated confirm rejects inconsistent protocol", Request::Serialize(MTPphone_ConfirmCall(
@@ -481,6 +487,8 @@ int main() {
 	checkCall("associated incoming receipt passes", Request::Serialize(MTPphone_ReceivedCall(incoming)), true, calls);
 	checkProof(calls.exchange(incomingToken), "incoming acceptance enters exchange");
 	checkCall("associated incoming acceptance passes", Request::Serialize(MTPphone_AcceptCall(incoming, MTP_bytes("synthetic"), callProtocol)), true, calls);
+	checkCall("associated acceptance retains default protocol fallback", Request::Serialize(MTPphone_AcceptCall(
+		incoming, MTP_bytes("synthetic"), defaultProtocol)), true, calls);
 	checkCall("associated accept rejects inconsistent protocol", Request::Serialize(MTPphone_AcceptCall(
 		incoming, MTP_bytes("synthetic"), invalidProtocol)), false, calls);
 	checkCall("outgoing confirmation cannot borrow incoming proof", Request::Serialize(MTPphone_ConfirmCall(incoming, MTP_bytes("synthetic"), MTP_long(1), callProtocol)), false, calls);
@@ -495,6 +503,21 @@ int main() {
 	calls.close(incomingToken);
 	checkCall("closing incoming call cannot accept", Request::Serialize(MTPphone_AcceptCall(incoming, MTP_bytes("synthetic"), callProtocol)), false, calls);
 	calls.forget(incomingToken);
+
+	auto defaultCalls = MTP::AllowlistCallContext(UserId(99), eligibleUser);
+	const auto defaultIncoming = defaultCalls.begin(UserId(42), false);
+	checkProof(defaultCalls.bind(defaultIncoming, MTP_phoneCallRequested(MTP_flags(0), MTP_long(4), MTP_long(4),
+		MTP_int(1700000000), MTP_long(42), MTP_long(99), MTP_bytes(QByteArray(32, 'a')), defaultProtocol)),
+		"incoming request can bind the supported default protocol");
+	checkProof(defaultCalls.validate(defaultIncoming, MTP_phoneCall(MTP_flags(0), MTP_long(4), MTP_long(4),
+		MTP_int(1700000000), MTP_long(42), MTP_long(99), MTP_bytes("synthetic"), MTP_long(1), defaultProtocol,
+		MTP_vector<MTPPhoneConnection>({}), MTP_int(1700000000), MTPDataJSON())),
+		"full call envelope retains default protocol fallback");
+	const auto defaultOutgoing = defaultCalls.begin(UserId(42), true);
+	checkProof(defaultCalls.bind(defaultOutgoing, MTP_phoneCallWaiting(MTP_flags(0), MTP_long(5), MTP_long(5),
+		MTP_int(1700000000), MTP_long(99), MTP_long(42), defaultProtocol, MTPint())),
+		"outgoing response can bind the supported default protocol");
+
 
 	auto emojiData = QFile(QFileInfo(QString::fromUtf8(__FILE__)).dir()
 		.absoluteFilePath(u"../../lib_ui/emoji.txt"_q));

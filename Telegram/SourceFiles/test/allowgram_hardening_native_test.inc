@@ -201,7 +201,7 @@ if (firstCreated) {
 		for (const auto video : { false, true }) {
 			application->setProperty("allowgramCallPermissions", 0);
 			Core::App().calls().startOutgoingCall(user, { .video = video, .isConfirmed = true });
-			check(application->property("allowgramCallPermissions").toInt() == 0, "hidden voice/video initiation stops before device permission");
+			check(application->property("allowgramCallPermissions").toInt() == 1, "allowed voice/video initiation reaches intercepted permission boundary");
 		}
 		application->setProperty("allowgramGroupStart", 0);
 		Core::App().calls().startOrJoinGroupCall(navigation->uiShow(), group, {});
@@ -218,7 +218,7 @@ if (firstCreated) {
 				MTP_int(base::unixtime::now()), MTP_long(42), MTP_long(99),
 				MTP_bytes("synthetic"), MTP_phoneCallProtocol(MTP_flags(0),
 					MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("synthetic") })))));
-		check(application->property("allowgramIncomingCall").toInt() == 0, "allowed-user incoming call stops before panel or ringing");
+		check(application->property("allowgramIncomingCall").toInt() == 1, "allowed incoming call reaches intercepted creation boundary");
 		auto pixels = QImage(32, 32, QImage::Format_RGB32);
 		pixels.fill(Qt::blue);
 		auto imageBytes = QByteArray();

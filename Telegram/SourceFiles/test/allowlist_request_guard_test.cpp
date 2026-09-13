@@ -292,6 +292,19 @@ int main() {
 		MTP_vector<MTPstring>({ MTP_string("synthetic") }));
 	const auto phoneCall = MTP_inputPhoneCall(MTP_long(1), MTP_long(1));
 	const auto groupCall = MTP_inputGroupCall(MTP_long(1), MTP_long(1));
+	check("unbound discard cannot target an arbitrary call", Request::Serialize(
+		MTPphone_DiscardCall(MTP_flags(0), phoneCall, MTP_int(0),
+			MTP_phoneCallDiscardReasonHangup(), MTP_long(0))), false);
+	check("private call config needs an authorized pending call", Request::Serialize(
+		MTPphone_GetCallConfig()), false);
+	check("DH bootstrap needs an authorized pending call", Request::Serialize(
+		MTPmessages_GetDhConfig(MTP_int(0), MTP_int(256))), false);
+	check("group call lookup is not private call bootstrap", Request::Serialize(
+		MTPphone_GetGroupCall(groupCall, MTP_int(5))), false);
+	check("wrapped unbound discard remains denied", Packet(
+		MTP_int(mtpc_invokeWithLayer), MTP_int(222),
+		MTPphone_DiscardCall(MTP_flags(0), phoneCall, MTP_int(0),
+			MTP_phoneCallDiscardReasonHangup(), MTP_long(0))), false);
 	for (const auto video : { false, true }) {
 		const auto request = MTPphone_RequestCall(MTP_flags(video
 			? MTPphone_RequestCall::Flag::f_video : MTPphone_RequestCall::Flags()),

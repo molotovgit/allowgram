@@ -536,6 +536,17 @@ template <typename Request>
 	return true;
 }
 
+[[nodiscard]] bool PrivateCallProtocolAllowed(
+		const MTPPhoneCallProtocol &protocol) {
+	const auto &data = protocol.data();
+	const auto &versions = data.vlibrary_versions().v;
+	return data.vmin_layer().v > 0
+		&& data.vmax_layer().v >= data.vmin_layer().v
+		&& !versions.empty()
+		&& std::all_of(versions.begin(), versions.end(), [](const MTPstring &version) {
+			return !version.v.isEmpty();
+		});
+}
 
 template <typename Request>
 [[nodiscard]] bool ReadPrivateCallAllowed(
@@ -565,7 +576,15 @@ template <typename Request>
 		}
 		if constexpr (std::is_same_v<Request, MTPphone_RequestCall>) {
 			auto user = MTPInputUser();
-			if (!user.read(from, end)) {
+			auto randomId = MTPint();
+			auto hash = MTPbytes();
+			auto protocol = MTPPhoneCallProtocol();
+			if (!user.read(from, end)
+				|| !randomId.read(from, end)
+				|| !hash.read(from, end)
+				|| hash.v.size() != 32
+				|| !protocol.read(from, end)
+				|| !PrivateCallProtocolAllowed(protocol)) {
 				return false;
 			}
 			const auto peer = Destination(user, selfId);
@@ -582,6 +601,24 @@ template <typename Request>
 			auto peer = MTPInputPhoneCall();
 			if (!peer.read(from, end)) {
 				return false;
+			}
+			if constexpr (std::is_same_v<Request, MTPphone_AcceptCall>
+				|| std::is_same_v<Request, MTPphone_ConfirmCall>) {
+				auto key = MTPbytes();
+				auto fingerprint = MTPlong();
+				auto protocol = MTPPhoneCallProtocol();
+				if (!key.read(from, end)) {
+					return false;
+				}
+				if constexpr (std::is_same_v<Request, MTPphone_ConfirmCall>) {
+					if (!fingerprint.read(from, end)) {
+						return false;
+					}
+				}
+				if (!protocol.read(from, end)
+					|| !PrivateCallProtocolAllowed(protocol)) {
+					return false;
+				}
 			}
 			if constexpr (std::is_same_v<Request, MTPphone_DiscardCall>) {
 				auto duration = MTPint();
@@ -937,7 +974,6 @@ bool AllowlistContentContext::recordUploadPart(uint64 id, int part, const QByteA
 	return true;
 }
 
-
 AllowlistCallContext::AllowlistCallContext(
 		UserId self,
 		Fn<bool(UserId)> eligible)
@@ -959,6 +995,7 @@ bool AllowlistCallContext::matches(
 		const MTPPhoneCall &call) const {
 	const auto common = [&](const auto &data) {
 		return data.vid().v && data.vaccess_hash().v
+			&& PrivateCallProtocolAllowed(data.vprotocol())
 			&& (!proof.id || (proof.id == data.vid().v
 				&& proof.hash == data.vaccess_hash().v))
 			&& UserId(data.vadmin_id()) == (proof.outgoing ? _self : proof.peer)

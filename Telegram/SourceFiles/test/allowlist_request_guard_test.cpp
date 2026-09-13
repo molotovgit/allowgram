@@ -384,6 +384,27 @@ int main() {
 		checkCall("from-message allowed recipient and context", Request::Serialize(makeRequest(
 			MTP_inputUserFromMessage(user, MTP_int(17), MTP_long(42)))), true, calls);
 	}
+
+	for (const auto size : { 0, 31, 33 }) {
+		const auto malformed = MTPphone_RequestCall(MTP_flags(0), bot, MTP_int(1),
+			MTP_bytes(QByteArray(size, 'a')), callProtocol);
+		checkCall("malformed private call key hash is denied", Request::Serialize(malformed), false, calls);
+		checkCall("wrapped malformed private call key hash is denied", Packet(MTP_int(mtpc_invokeWithoutUpdates), malformed), false, calls);
+	}
+	for (const auto &protocol : {
+		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(100), MTP_int(65), MTP_vector<MTPstring>({ MTP_string("synthetic") })),
+		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(0), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("synthetic") })),
+		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({})),
+		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("") })) }) {
+		const auto malformed = MTPphone_RequestCall(MTP_flags(0), bot, MTP_int(1), MTP_bytes(QByteArray(32, 'a')), protocol);
+		checkCall("inconsistent or empty private call protocol is denied", Request::Serialize(malformed), false, calls);
+	}
+
+	checkCall("protocol range is not arbitrarily restricted", Request::Serialize(MTPphone_RequestCall(
+		MTP_flags(0), bot, MTP_int(1), MTP_bytes(QByteArray(32, 'a')),
+		MTP_phoneCallProtocol(MTP_flags(0), MTP_int(1), MTP_int(1000),
+			MTP_vector<MTPstring>({ MTP_string("future-version") })))), true, calls);
+
 	checkCall("authorized private bootstrap config", Request::Serialize(MTPphone_GetCallConfig()), true, calls);
 	checkCall("authorized private DH bootstrap", Request::Serialize(MTPmessages_GetDhConfig(MTP_int(0), MTP_int(256))), true, calls);
 	const auto waiting = [&](uint64 id, uint64 hash, uint64 admin, uint64 participant) {
@@ -404,6 +425,10 @@ int main() {
 	checkCall("confirm requires key exchange phase", confirm, false, calls);
 	checkProof(calls.exchange(outgoingToken), "validated outgoing call enters exchange");
 	checkCall("associated outgoing confirmation passes", confirm, true, calls);
+	const auto invalidProtocol = MTP_phoneCallProtocol(MTP_flags(0), MTP_int(100), MTP_int(65),
+		MTP_vector<MTPstring>({ MTP_string("synthetic") }));
+	checkCall("associated confirm rejects inconsistent protocol", Request::Serialize(MTPphone_ConfirmCall(
+		phoneCall, MTP_bytes("synthetic"), MTP_long(1), invalidProtocol)), false, calls);
 	checkCall("incoming acceptance cannot use outgoing proof", accept, false, calls);
 	checkCall("incoming received cannot use outgoing proof", received, false, calls);
 	checkCall("signaling before confirmed call is denied", signaling, false, calls);
@@ -448,11 +473,16 @@ int main() {
 	};
 	checkProof(!calls.bind(incomingToken, requested(3, 3, 43, 99)), "fresh denied caller cannot bind existing proof");
 	checkProof(!calls.bind(incomingToken, requested(3, 3, 42, 100)), "foreign incoming recipient cannot bind");
+	checkProof(!calls.bind(incomingToken, MTP_phoneCallRequested(MTP_flags(0), MTP_long(3), MTP_long(3),
+		MTP_int(1700000000), MTP_long(42), MTP_long(99), MTP_bytes(QByteArray(32, 'a')), invalidProtocol)),
+		"incoming malformed protocol cannot bind permission");
 	checkProof(calls.bind(incomingToken, requested(3, 3, 42, 99)), "valid incoming request binds exact peer/account");
 	const auto incoming = MTP_inputPhoneCall(MTP_long(3), MTP_long(3));
 	checkCall("associated incoming receipt passes", Request::Serialize(MTPphone_ReceivedCall(incoming)), true, calls);
 	checkProof(calls.exchange(incomingToken), "incoming acceptance enters exchange");
 	checkCall("associated incoming acceptance passes", Request::Serialize(MTPphone_AcceptCall(incoming, MTP_bytes("synthetic"), callProtocol)), true, calls);
+	checkCall("associated accept rejects inconsistent protocol", Request::Serialize(MTPphone_AcceptCall(
+		incoming, MTP_bytes("synthetic"), invalidProtocol)), false, calls);
 	checkCall("outgoing confirmation cannot borrow incoming proof", Request::Serialize(MTPphone_ConfirmCall(incoming, MTP_bytes("synthetic"), MTP_long(1), callProtocol)), false, calls);
 	checkProof(calls.activate(incomingToken), "incoming confirmed call activates");
 	checkCall("incoming active signaling passes", Request::Serialize(MTPphone_SendSignalingData(incoming, MTP_bytes("synthetic"))), true, calls);

@@ -185,8 +185,9 @@ void AppendLeU64(QByteArray &to, quint64 value) {
 	return file.readAll();
 }
 
-// td-update-{os}-{arch}-{base}[-beta|-canary-{counter}[-private]], the same
-// suffix the installers and portable archives carry after their version.
+// Stable Allowgram releases use the exact asset name consumed by the
+// authenticated GitHub release feed. Canary/beta names are retained for
+// tooling compatibility, but are not used by stable Allowgram builds.
 [[nodiscard]] QString V2NameSuffix(Channel channel, quint32 counter) {
 	switch (channel) {
 	case Channel::Stable: return QString();
@@ -202,9 +203,21 @@ void AppendLeU64(QByteArray &to, quint64 value) {
 		Channel channel,
 		quint32 base,
 		quint32 counter) {
+	const auto os = QString::fromLatin1(
+		Core::Updates::OsName(V2Target.os));
+	const auto arch = QString::fromLatin1(
+		Core::Updates::ArchName(V2Target.arch));
+	if (channel == Channel::Stable) {
+		const auto display = Core::Updates::DisplayUpdateVersion(
+			Core::Updates::MakeUpdateVersion(base, counter));
+		return QString("allowgram-update-stable-%1-%2-%3.tdup"
+		).arg(os
+		).arg(arch
+		).arg(display);
+	}
 	return QString("td-update-%1-%2-%3%4"
-	).arg(QString::fromLatin1(Core::Updates::OsName(V2Target.os))
-	).arg(QString::fromLatin1(Core::Updates::ArchName(V2Target.arch))
+	).arg(os
+	).arg(arch
 	).arg(base
 	).arg(V2NameSuffix(channel, counter));
 }
@@ -679,8 +692,11 @@ int main(int argc, char *argv[])
 		} else if (V2KeysLoc.isEmpty()) {
 			cout << "The -keys-loc param is required for -channel packing!\n";
 			return -1;
-		} else if (canary != (V2Counter > 0)) {
-			cout << "Canary channels require a positive -counter, others require none!\n";
+		} else if (*V2Channel == Channel::Stable && V2Counter == 0) {
+			cout << "Stable Allowgram updates require a positive -counter sequence!\n";
+			return -1;
+		} else if (*V2Channel != Channel::Stable && canary != (V2Counter > 0)) {
+			cout << "Canary channels require a positive -counter, beta requires none!\n";
 			return -1;
 		} else if (!V2EmbedSignatures.empty()) {
 			cout << "The -embed-signatures param requires -unsigned!\n";
@@ -710,7 +726,7 @@ int main(int argc, char *argv[])
 		cout << "V2 envelopes: add -channel {stable|beta|canary-public|canary-private} -keys-loc {dir}\n";
 		cout << "  with -local-key {pem} -local-key-id {id} for one-pass Ed25519 signing, or\n";
 		cout << "  with -emit-signing-input {file} and later -unsigned {file} -embed-signatures {id}:{sigfile} ...\n";
-		cout << "  (canary channels also require -counter {n})\n";
+		cout << "  (stable requires -counter {sequence}; canary channels require -counter {n})\n";
 		return -1;
 	}
 

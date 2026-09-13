@@ -203,7 +203,7 @@ jobs:
             'Telegram/configure.py', '-G', 'Ninja Multi-Config', 'qt6',
             '-D', 'CMAKE_CONFIGURATION_TYPES=Release',
             '-D', 'CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=',
-            '-D', 'DESKTOP_APP_DISABLE_AUTOUPDATE=ON',
+            '-D', 'DESKTOP_APP_DISABLE_AUTOUPDATE=OFF',
             '-D', 'DESKTOP_APP_DISABLE_CRASH_REPORTS=ON'
           )
           if ($env:BUILD_MODE -eq 'production') {
@@ -213,7 +213,7 @@ jobs:
           }
           python @configure
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
-          cmake --build out --config Release --target Telegram --parallel 2
+          cmake --build out --config Release --target Telegram Updater Packer --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Allowgram compilation failed.' }
 
       - name: Smoke test startup with an isolated account directory
@@ -240,14 +240,16 @@ jobs:
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
 
-      - name: Create source archive and package
+      - name: Create package and source archive
         working-directory: ${{ env.TBUILD }}/tdesktop
         env:
           BUILD_MODE: ${{ inputs.mode }}
         run: |
-          python Telegram/build/allowgram/archive_source.py out/allowgram-package/Allowgram-source.zip
-          if ($LASTEXITCODE -ne 0) { throw 'Source archiving failed.' }
-          $arguments = @{}
+          $versionLine = Get-Content -LiteralPath Telegram/build/version | Where-Object { $_ -match '^AppVersionStrSmall\s+' }
+          $version = ($versionLine -split '\s+')[1]
+          if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'Allowgram version must have four components.' }
+          $output = Join-Path (Resolve-Path -LiteralPath out).Path "allowgram-package-$version"
+          $arguments = @{ OutputDirectory = $output }
           if ($env:BUILD_MODE -eq 'test') { $arguments.TestBuild = $true }
           & Telegram/build/allowgram/package.ps1 @arguments
 
@@ -256,8 +258,8 @@ jobs:
         with:
           name: Allowgram-Windows-x64-${{ inputs.mode }}
           path: |
-            ${{ env.TBUILD }}/tdesktop/out/allowgram-package/*.exe
-            ${{ env.TBUILD }}/tdesktop/out/allowgram-package/*.zip
-            ${{ env.TBUILD }}/tdesktop/out/allowgram-package/SHA256SUMS.txt
+            ${{ env.TBUILD }}/tdesktop/out/allowgram-package-*/*.exe
+            ${{ env.TBUILD }}/tdesktop/out/allowgram-package-*/*.zip
+            ${{ env.TBUILD }}/tdesktop/out/allowgram-package-*/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7

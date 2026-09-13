@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // Focused console tests for the v2 update verification: throwaway keys are
 // generated in-process with OpenSSL, so no fixture files and no network.
 
+#include "core/update_channel.h"
 #include "core/update_keys.h"
 #include "core/update_verify.h"
 
@@ -39,6 +40,7 @@ int TotalChecks = 0;
 constexpr auto kTarget = Target{ Os::Linux, Arch::X64 };
 constexpr auto kOtherArch = Target{ Os::Linux, Arch::Arm };
 constexpr auto kOtherOs = Target{ Os::Mac, Arch::X64 };
+constexpr auto kAllowgramSequence = quint32(8);
 
 void Check(bool condition, const char *name) {
 	++TotalChecks;
@@ -352,6 +354,11 @@ void AppendLeU64(QByteArray &to, quint64 value) {
 } // namespace
 
 int main(int argc, char *argv[]) {
+	Check(
+		Core::RunningUpdateVersion()
+			== MakeUpdateVersion(quint32(AppVersion), kAllowgramSequence),
+		"Allowgram update version uses the stable sequence");
+
 	constexpr auto kNow = qint64(1800000000);
 	const auto payload = QByteArray("test-payload-not-really-lzma");
 
@@ -427,10 +434,14 @@ int main(int argc, char *argv[]) {
 			&error);
 		Check(embedded.has_value(), "embedded manifest verifies");
 		Check(embedded && embedded->version >= 1, "embedded manifest version");
-		Check(embedded && embedded->channels.size() == 4,
-			"embedded manifest lists all four channels");
-		Check(embedded && !embedded->keys.empty(),
-			"embedded manifest has usable keys");
+		Check(embedded && embedded->channels.size() == 1,
+			"embedded manifest lists Allowgram stable only");
+		Check(embedded && embedded->channels.contains("stable"),
+			"embedded manifest has the stable channel");
+		Check(
+			embedded && embedded->keys.size() == 1
+				&& embedded->keys.front().id == "allowgram-release-2026a",
+			"embedded manifest has the Allowgram release key");
 	}
 
 	{ // A good stable package needs one rl AND one rc signature.

@@ -12,7 +12,8 @@
 add_executable(test_update_verify)
 init_target(test_update_verify "(tests)")
 
-target_include_directories(test_update_verify PRIVATE ${src_loc})
+get_filename_component(lib_base_loc lib_base REALPATH)
+target_include_directories(test_update_verify PRIVATE ${src_loc} ${lib_base_loc})
 
 nice_target_sources(test_update_verify ${src_loc}
 PRIVATE

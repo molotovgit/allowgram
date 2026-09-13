@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "main/main_session.h"
+#include "main/main_session_settings.h"
 #include "mtproto/mtproto_config.h"
 #include "lang/lang_keys.h"
 #include "core/shortcuts.h"
@@ -150,6 +151,14 @@ TopBarWidget::TopBarWidget(
 	_delete->setClickedCallback([=] { _deleteSelection.fire({}); });
 	_delete->setWidthChangedCallback([=] { updateControlsGeometry(); });
 	_clear->setClickedCallback([=] { _clearSelection.fire({}); });
+	_controller->session().settings().allowlistChanges(
+	) | rpl::on_next([=] {
+		const auto peer = _activeChat.key.peer();
+		if (_menu && (!peer || !_controller->session().canCallPeer(peer->id))) {
+			_menu = nullptr;
+		}
+		updateControlsVisibility();
+	}, lifetime());
 	_call->setClickedCallback([=] { call({}); });
 	_call->setAcceptBoth(true, true);
 	_call->addClickHandler([=](Qt::MouseButton button) {
@@ -304,12 +313,12 @@ void TopBarWidget::refreshLang() {
 }
 
 void TopBarWidget::call(Calls::StartOutgoingCallArgs args) {
-	if (_controller->showFrozenError()) {
+	const auto peer = _activeChat.key.peer();
+	if (!peer || !_controller->session().canCallPeer(peer->id)) {
 		return;
-	} else if (const auto peer = _activeChat.key.peer()) {
-		if (const auto user = peer->asUser()) {
-			Core::App().calls().startOutgoingCall(user, std::move(args));
-		}
+	}
+	if (!_controller->showFrozenError()) {
+		Core::App().calls().startOutgoingCall(peer->asUser(), std::move(args));
 	}
 }
 
@@ -432,6 +441,10 @@ void TopBarWidget::showGroupCallMenu(not_null<PeerData*> peer) {
 }
 
 void TopBarWidget::showCallMenu() {
+	const auto peer = _activeChat.key.peer();
+	if (!peer || !_controller->session().canCallPeer(peer->id)) {
+		return;
+	}
 	const auto created = createMenu(_call, false);
 	if (!created) {
 		return;
@@ -439,7 +452,9 @@ void TopBarWidget::showCallMenu() {
 	const auto perform = [&](bool video) {
 		return [=] {
 			base::call_delayed(st::defaultPopupMenu.showDuration, this, [=] {
-				call({ .video = video, .isConfirmed = true });
+				if (_activeChat.key.peer() == peer) {
+					call({ .video = video, .isConfirmed = true });
+				}
 			});
 		};
 	};
@@ -1390,20 +1405,10 @@ void TopBarWidget::updateControlsVisibility() {
 		&& !isOneColumn
 		&& _controller->canShowThirdSection()
 		&& !_chooseForReportReason);
-	const auto callsEnabled = [&] {
-		if (const auto peer = _activeChat.key.peer()) {
-			if (const auto user = peer->asUser()) {
-				return !user->isSelf()
-					&& !user->isBot()
-					&& !user->isInaccessible()
-					&& !peer->isServiceUser();
-			}
-		}
-		return false;
-	}();
+	const auto peer = _activeChat.key.peer();
 	_call->setVisible(historyMode
-		&& Main::Allowlist::CanUseCalls()
-		&& callsEnabled
+		&& peer
+		&& _controller->session().canCallPeer(peer->id)
 		&& !_chooseForReportReason);
 	const auto groupCallsEnabled = [&] {
 		if (const auto peer = _activeChat.key.peer()) {

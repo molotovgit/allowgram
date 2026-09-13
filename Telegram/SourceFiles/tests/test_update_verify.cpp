@@ -363,7 +363,10 @@ QByteArray AllowgramFeed(
 		quint32 sequence = 8,
 		QString fileName = QString(),
 		quint64 size = 4096,
-		QString sha256 = QString()) {
+		QString sha256 = QString(),
+		QString releaseTag = QString(),
+		bool draft = false,
+		bool prerelease = false) {
 	if (fileName.isNull()) {
 		fileName = QStringLiteral("allowgram-update-stable-%1-%2-%3.tdup"
 			).arg(os
@@ -372,6 +375,9 @@ QByteArray AllowgramFeed(
 	}
 	if (sha256.isNull()) {
 		sha256 = QString(64, QLatin1Char('a'));
+	}
+	if (releaseTag.isNull()) {
+		releaseTag = QStringLiteral("v") + display;
 	}
 	const auto file = QJsonObject{
 		{ "os", os },
@@ -384,6 +390,11 @@ QByteArray AllowgramFeed(
 		{ "format", 1 },
 		{ "product", product },
 		{ "channel", channel },
+		{ "release", QJsonObject{
+			{ "tag", releaseTag },
+			{ "draft", draft },
+			{ "prerelease", prerelease },
+		} },
 		{ "version", QJsonObject{
 			{ "display", display },
 			{ "base", int(base) },
@@ -392,6 +403,40 @@ QByteArray AllowgramFeed(
 		{ "files", QJsonObject{ { platform, file } } },
 	};
 	return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+QJsonArray StableFeedSignatures(
+		const QByteArray &signedBytes,
+		const std::vector<const TestKey*> &signers) {
+	auto signatures = QJsonArray();
+	const auto input = StableReleaseFeedSigningInput(signedBytes);
+	for (const auto *signer : signers) {
+		signatures.append(QJsonObject{
+			{ "key_id", QString::fromLatin1(signer->id) },
+			{ "signature", QString::fromLatin1(
+				Base64Url(SignWith(*signer, input))) },
+		});
+	}
+	return signatures;
+}
+
+QByteArray SignedAllowgramFeed(
+		const QByteArray &signedBytes,
+		const QJsonArray &signatures) {
+	const auto root = QJsonObject{
+		{ "format", 1 },
+		{ "signed", QString::fromLatin1(Base64Url(signedBytes)) },
+		{ "signatures", signatures },
+	};
+	return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+QByteArray SignedAllowgramFeed(
+		const QByteArray &signedBytes,
+		const std::vector<const TestKey*> &signers) {
+	return SignedAllowgramFeed(
+		signedBytes,
+		StableFeedSignatures(signedBytes, signers));
 }
 } // namespace
 
@@ -467,92 +512,133 @@ int main(int argc, char *argv[]) {
 			error);
 	};
 
-	{ // The Allowgram release feed is fixed to stable GitHub assets.
+	{ // The Allowgram release feed is fixed to signed stable GitHub assets.
 		auto error = QString();
 		const auto feedUrl = QStringLiteral(
 			"https://github.com/molotovgit/allowgram/releases/latest/download/"
 			"allowgram-update-feed.json");
+		const auto releaseTag = QStringLiteral("v7.2.8.8");
 		const auto assetName = QStringLiteral(
 			"allowgram-update-stable-linux-x64-7.2.8.8.tdup");
-		const auto parsed = ParseStableReleaseFeed(
-			AllowgramFeed(),
-			"linux",
-			MakeUpdateVersion(7002008, 7),
-			&error);
+		const auto running = MakeUpdateVersion(7002008, 7);
+		const auto signedFeed = [&](QByteArray bytes) {
+			return SignedAllowgramFeed(
+			bytes,
+			std::vector<const TestKey*>{ &rl, &rc });
+		};
+		const auto parseFeed = [&](const QByteArray &bytes, quint64 version) {
+			return ParseStableReleaseFeed(
+				bytes,
+				"linux",
+				version,
+				held,
+				kNow,
+				&error);
+		};
+		const auto parsed = parseFeed(signedFeed(AllowgramFeed()), running);
 		Check(parsed && parsed->updateAvailable,
 			"Allowgram feed offers a newer stable package");
 		Check(parsed && parsed->asset.fileName == assetName,
 			"Allowgram feed accepts the exact asset name");
-		Check(parsed && parsed->asset.url == StableReleaseDownloadUrl(assetName),
-			"Allowgram feed builds the fixed GitHub asset URL");
+		Check(parsed && parsed->asset.tag == releaseTag,
+			"Allowgram feed carries the exact release tag");
+		Check(
+			parsed && parsed->asset.url == StableReleaseDownloadUrl(
+				releaseTag,
+				assetName),
+			"Allowgram feed builds the immutable GitHub asset URL");
 		Check(StableReleaseFeedUrl() == feedUrl,
 			"Allowgram feed uses the fixed GitHub release asset URL");
 		Check(
 			parsed && parsed->asset.packedVersion == MakeUpdateVersion(7002008, 8),
 			"Allowgram feed carries the packed stable sequence");
-		const auto same = ParseStableReleaseFeed(
-			AllowgramFeed(),
-			"linux",
+		const auto same = parseFeed(
+			signedFeed(AllowgramFeed()),
 			MakeUpdateVersion(7002008, 8));
 		Check(same && !same->updateAvailable,
 			"equal Allowgram sequence is not offered");
 		Check(!ParseStableReleaseFeed(
-			AllowgramFeed(QStringLiteral("Telegram")),
-			"linux",
-			MakeUpdateVersion(7002008, 7)),
-			"foreign product feed rejected");
-		Check(!ParseStableReleaseFeed(
-			AllowgramFeed(
-				QStringLiteral("Allowgram"),
-				QStringLiteral("beta")),
-			"linux",
-			MakeUpdateVersion(7002008, 7)),
-			"beta feed rejected");
-		Check(!ParseStableReleaseFeed(
 			AllowgramFeed(),
-			"win64",
-			MakeUpdateVersion(7002008, 7)),
-			"missing platform asset rejected");
-		Check(!ParseStableReleaseFeed(
-			AllowgramFeed(
-				QStringLiteral("Allowgram"),
-				QStringLiteral("stable"),
-				QStringLiteral("linux"),
-				QStringLiteral("mac")),
 			"linux",
-			MakeUpdateVersion(7002008, 7)),
-			"wrong OS asset rejected");
+			running,
+			held,
+			kNow),
+			"unsigned Allowgram feed rejected before mandatory lock");
 		Check(!ParseStableReleaseFeed(
-			AllowgramFeed(
+			signedFeed(AllowgramFeed()),
+			"linux",
+			running,
+			std::nullopt,
+			kNow),
+			"Allowgram feed without a trusted manifest rejected");
+		auto expiredManifest = held;
+		if (expiredManifest) {
+			expiredManifest->expires = kNow - 1;
+		}
+		Check(!ParseStableReleaseFeed(
+			signedFeed(AllowgramFeed()),
+			"linux",
+			running,
+			expiredManifest,
+			kNow),
+			"Allowgram feed with expired manifest rejected");
+		Check(!ParseStableReleaseFeed(
+			SignedAllowgramFeed(
+				AllowgramFeed(),
+				std::vector<const TestKey*>{ &rl }),
+			"linux",
+			running,
+			held,
+			kNow),
+			"Allowgram feed missing a stable signature group rejected");
+		Check(!ParseStableReleaseFeed(
+			SignedAllowgramFeed(
+				AllowgramFeed(),
+				std::vector<const TestKey*>{ &rl, &rogue }),
+			"linux",
+			running,
+			held,
+			kNow),
+			"Allowgram feed signed by foreign key rejected");
+		const auto originalSignedBytes = AllowgramFeed();
+		auto tamperedSignedBytes = originalSignedBytes;
+		tamperedSignedBytes[tamperedSignedBytes.size() - 2]
+			= tamperedSignedBytes[tamperedSignedBytes.size() - 2] ^ 1;
+		Check(!ParseStableReleaseFeed(
+			SignedAllowgramFeed(
+				tamperedSignedBytes,
+				StableFeedSignatures(
+					originalSignedBytes,
+					std::vector<const TestKey*>{ &rl, &rc })),
+			"linux",
+			running,
+			held,
+			kNow),
+			"Allowgram feed signature mismatch rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
 				QStringLiteral("Allowgram"),
 				QStringLiteral("stable"),
 				QStringLiteral("linux"),
 				QStringLiteral("linux"),
 				QStringLiteral("x64"),
-				QStringLiteral("7.2.8.8"),
+				QStringLiteral("7.2.8.65536"),
 				7002008,
-				8,
-				QStringLiteral("td-update-linux-x64-7002008")),
-			"linux",
-			MakeUpdateVersion(7002008, 7)),
-			"legacy official asset name rejected");
-		Check(!ParseStableReleaseFeed(
-			AllowgramFeed(
+				65536)),
+			running),
+			"out-of-PE-range Allowgram sequence rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(QStringLiteral("Telegram"))),
+			running),
+			"foreign product feed rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
 				QStringLiteral("Allowgram"),
-				QStringLiteral("stable"),
-				QStringLiteral("linux"),
-				QStringLiteral("linux"),
-				QStringLiteral("x64"),
-				QStringLiteral("7.2.8.8"),
-				7002008,
-				8,
-				QString(),
-				quint64(kMaxPayloadSize) + 1),
-			"linux",
-			MakeUpdateVersion(7002008, 7)),
-			"oversized feed asset rejected");
-		Check(!ParseStableReleaseFeed(
-			AllowgramFeed(
+				QStringLiteral("beta"))),
+			running),
+			"beta feed rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
 				QStringLiteral("Allowgram"),
 				QStringLiteral("stable"),
 				QStringLiteral("linux"),
@@ -563,11 +649,86 @@ int main(int argc, char *argv[]) {
 				8,
 				QString(),
 				4096,
-				QStringLiteral("abc")),
-			"linux",
-			MakeUpdateVersion(7002008, 7)),
+				QString(),
+				QStringLiteral("v7.2.8.9"))),
+			running),
+			"mismatched release tag rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				4096,
+				QString(),
+				QString(),
+				true)),
+			running),
+			"draft release feed rejected");
+		Check(!ParseStableReleaseFeed(
+			signedFeed(AllowgramFeed()),
+			"win64",
+			running,
+			held,
+			kNow),
+			"missing platform asset rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("mac"))),
+			running),
+			"wrong OS asset rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QStringLiteral("td-update-linux-x64-7002008"))),
+			running),
+			"legacy official asset name rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				quint64(kMaxPayloadSize) + 1)),
+			running),
+			"oversized feed asset rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				4096,
+				QStringLiteral("abc"))),
+			running),
 			"bad feed SHA-256 rejected");
 	}
+
 	{ // The committed trust files must verify with the pinned root.
 		auto error = QString();
 		const auto embedded = ParseVerifiedManifest(

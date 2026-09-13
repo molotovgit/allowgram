@@ -18,6 +18,7 @@ namespace Core::Updates {
 
 struct StableReleaseAsset {
 	QString fileName;
+	QString tag;
 	QString url;
 	quint64 size = 0;
 	QByteArray sha256;
@@ -32,8 +33,13 @@ struct StableReleaseFeed {
 	StableReleaseAsset asset;
 };
 
+[[nodiscard]] QByteArray StableReleaseFeedSigningInput(
+	const QByteArray &signedBytes);
+
 [[nodiscard]] QString StableReleaseFeedUrl();
-[[nodiscard]] QString StableReleaseDownloadUrl(const QString &fileName);
+[[nodiscard]] QString StableReleaseDownloadUrl(
+	const QString &tag,
+	const QString &fileName);
 [[nodiscard]] QString StableReleaseFileName(
 	Target target,
 	const QString &displayVersion);
@@ -42,6 +48,8 @@ struct StableReleaseFeed {
 	const QByteArray &response,
 	const QByteArray &platformKey,
 	quint64 runningVersion,
+	const std::optional<Manifest> &trustedManifest,
+	qint64 now,
 	QString *error = nullptr);
 
 } // namespace Core::Updates

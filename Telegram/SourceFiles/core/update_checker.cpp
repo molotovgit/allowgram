@@ -970,6 +970,8 @@ bool HttpChecker::handleResponse(const QByteArray &response) {
 		response,
 		Platform::AutoUpdateKey().toLatin1(),
 		RunningUpdateVersion(),
+		HeldManifest(),
+		base::unixtime::now(),
 		&error);
 	if (!parsed) {
 		LOG(("Update Error: Bad Allowgram release feed: %1").arg(error));

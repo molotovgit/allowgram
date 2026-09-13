@@ -295,9 +295,11 @@ bool UpdaterDisabled() {"""
     update_checker = update_checker.replace(bridge_anchor, bridge)
     extra_sources.append(('update_checker', 'core/update_checker.cpp', update_checker))
     launcher = (root / 'Telegram/SourceFiles/platform/win/launcher_win.cpp').read_text(encoding='utf-8')
-    launcher = ('#include <QtCore/QFile>\n'
+    launcher = ('#include <QtCore/QCoreApplication>\n'
+                '#include <QtCore/QFile>\n'
                 '#include <QtCore/QJsonDocument>\n'
                 '#include <QtCore/QJsonObject>\n'
+                '#include <QtCore/QTimer>\n'
                 + launcher)
     old = """\tLogs::closeMain();
 \tCrashReports::Finish();
@@ -323,6 +325,7 @@ bool UpdaterDisabled() {"""
 \t\t\t\t{ "readyStageHash", Core::ReadyUpdateStageHash() },
 \t\t\t}).toJson(QJsonDocument::Compact));
 \t\t}
+\t\tQTimer::singleShot(0, [] { QCoreApplication::quit(); });
 \t\treturn true;
 \t}
 

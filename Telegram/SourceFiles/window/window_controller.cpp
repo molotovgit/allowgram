@@ -475,6 +475,9 @@ void Controller::hideLayer(anim::type animated) {
 }
 
 void Controller::hideSettingsAndLayer(anim::type animated) {
+	if (Core::MandatoryUpdateBlocksUse()) {
+		return;
+	}
 	_widget.ui_hideSettingsAndLayer(animated);
 }
 

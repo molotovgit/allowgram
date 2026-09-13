@@ -88,6 +88,12 @@ if (mandatoryWindow) {
 		"mandatory update lock returns after a layer close attempt");
 	check(mandatoryWindow->isLayerShown(),
 		"mandatory update lock keeps the existing window covered");
+	mandatoryWindow->hideSettingsAndLayer(anim::type::instant);
+	mandatoryDrainCalls();
+	check(Core::UpdateChecker().mandatoryUpdateLocked(),
+		"mandatory update lock remains after settings-layer close attempt");
+	check(mandatoryWindow->isLayerShown(),
+		"mandatory update lock keeps window covered after settings-layer close attempt");
 }
 const auto afterMandatoryRequest = mandatoryRpcCount(mtpc_phone_requestCall);
 Core::App().calls().startOutgoingCall(user, { .isConfirmed = true });

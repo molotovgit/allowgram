@@ -68,9 +68,21 @@ check(!Core::App().calls().currentCall(),
 	"mandatory update apply tears down the active call");
 check(mandatoryRpcCount(mtpc_phone_discardCall) == beforeMandatoryDiscard + 1,
 	"mandatory update apply performs one bound active-call cleanup");
+const auto mandatoryLockActive = [&] {
+	return Core::UpdateChecker().mandatoryUpdateLocked()
+		&& mandatoryWindow
+		&& mandatoryWindow->isLayerShown();
+};
+const auto ensureMandatoryLock = [&](const char *name) {
+	if (!mandatoryLockActive()) {
+		Core::UpdateChecker().applyMandatoryUpdateNow();
+		mandatoryDrainCalls();
+	}
+	check(mandatoryLockActive(), name);
+};
 check(Core::UpdateChecker().mandatoryUpdateLocked(),
 	"mandatory update apply shows updater-only recovery lock");
-check(mandatoryWindow && mandatoryWindow->isLayerShown(),
+check(mandatoryLockActive(),
 	"mandatory update lock covers the existing app window");
 if (navigation) {
 	navigation->showPeerHistory(group,
@@ -84,16 +96,55 @@ if (navigation) {
 if (mandatoryWindow) {
 	mandatoryWindow->hideLayer(anim::type::instant);
 	mandatoryDrainCalls();
-	check(Core::UpdateChecker().mandatoryUpdateLocked(),
-		"mandatory update lock returns after a layer close attempt");
-	check(mandatoryWindow->isLayerShown(),
-		"mandatory update lock keeps the existing window covered");
+	check(mandatoryLockActive(),
+		"mandatory update blocker survives controller hideLayer close attempt");
+	ensureMandatoryLock(
+		"mandatory update blocker is active before settings-layer close route");
 	mandatoryWindow->hideSettingsAndLayer(anim::type::instant);
 	mandatoryDrainCalls();
-	check(Core::UpdateChecker().mandatoryUpdateLocked(),
-		"mandatory update lock remains after settings-layer close attempt");
-	check(mandatoryWindow->isLayerShown(),
-		"mandatory update lock keeps window covered after settings-layer close attempt");
+	check(mandatoryLockActive(),
+		"mandatory update blocker survives controller settings-layer close attempt");
+	if (navigation) {
+		ensureMandatoryLock(
+			"mandatory update blocker is active before session uiShow hide route");
+		navigation->uiShow()->hideLayer(anim::type::instant);
+		mandatoryDrainCalls();
+		check(mandatoryLockActive(),
+			"mandatory update blocker survives session uiShow hide route");
+		ensureMandatoryLock(
+			"mandatory update blocker is active before ordinary replacement route");
+		mandatoryWindow->show(
+			Ui::MakeInformBox(TextWithEntities{
+				u"ordinary replacement fixture"_q }),
+			Ui::LayerOption::CloseOther,
+			anim::type::instant);
+		mandatoryDrainCalls();
+		check(mandatoryLockActive(),
+			"mandatory update blocker rejects ordinary CloseOther replacement");
+	}
+	ensureMandatoryLock(
+		"mandatory update blocker is active before direct MainWindow close route");
+	mandatoryWindow->widget()->ui_hideSettingsAndLayer(anim::type::instant);
+	mandatoryDrainCalls();
+	check(mandatoryLockActive(),
+		"mandatory update blocker survives direct MainWindow close route");
+	const auto fixtureOpenPath = cWorkingDir()
+		+ u"allowgram-mandatory-open.txt"_q;
+	auto fixtureOpenWritten = false;
+	{
+		auto fixture = QFile(fixtureOpenPath);
+		fixtureOpenWritten = fixture.open(QIODevice::WriteOnly)
+			&& (fixture.write("owned fixture") == 13);
+	}
+	check(fixtureOpenWritten, "fixture-owned file-open input prepared");
+	ensureMandatoryLock(
+		"mandatory update blocker is active before file-open dispatch route");
+	mandatoryWindow->widget()->handleStartFiles(
+		QStringList(),
+		QStringList{ fixtureOpenPath });
+	mandatoryDrainCalls();
+	check(mandatoryLockActive(),
+		"mandatory update blocker survives direct file-open dispatch route");
 }
 const auto afterMandatoryRequest = mandatoryRpcCount(mtpc_phone_requestCall);
 Core::App().calls().startOutgoingCall(user, { .isConfirmed = true });

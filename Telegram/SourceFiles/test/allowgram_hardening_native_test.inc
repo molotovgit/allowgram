@@ -14,10 +14,11 @@ const auto initialCount = domain.accounts().size();
 check(domain.add(MTP::Environment::Production) == nullptr, "hidden Domain add callback denied before login");
 domain.addActivated(MTP::Environment::Production);
 check(domain.accounts().size() == initialCount, "hidden activated addition leaves initial login intact");
-const auto makeUser = [](uint64 id, bool self) {
+const auto makeUser = [](uint64 id, bool self, bool bot = false) {
 	return MTPUser(MTP_user(
 		MTP_flags((self ? MTPDuser::Flag::f_self : MTPDuser::Flags())
-			| MTPDuser::Flag::f_first_name),
+			| MTPDuser::Flag::f_first_name
+			| (bot ? MTPDuser::Flag::f_bot : MTPDuser::Flags())),
 		MTP_long(id), MTPlong(), MTP_string("Synthetic"),
 		MTPstring(), MTPstring(), MTPstring(), MTPUserProfilePhoto(),
 		MTPUserStatus(), MTPint(), MTPVector<MTPRestrictionReason>(),
@@ -197,28 +198,7 @@ if (firstCreated) {
 		Window::FillVideoChatMenu(navigation, { .key = session.data().history(group) },
 			Ui::Menu::CreateAddActionCallback(&callMenu));
 		check(callMenu.actions().empty(), "allowed group call menu has no initiating actions");
-		const auto application = QCoreApplication::instance();
-		for (const auto video : { false, true }) {
-			application->setProperty("allowgramCallPermissions", 0);
-			Core::App().calls().startOutgoingCall(user, { .video = video, .isConfirmed = true });
-			check(application->property("allowgramCallPermissions").toInt() == 1, "allowed voice/video initiation reaches intercepted permission boundary");
-		}
-		application->setProperty("allowgramGroupStart", 0);
-		Core::App().calls().startOrJoinGroupCall(navigation->uiShow(), group, {});
-		check(application->property("allowgramGroupStart").toInt() == 0, "hidden group call initiation stops before join UI");
-		application->setProperty("allowgramConferenceStart", 0);
-		Core::App().calls().startOrJoinConferenceCall({ .show = navigation->uiShow() });
-		check(application->property("allowgramConferenceStart").toInt() == 0, "hidden conference initiation stops before model allocation");
-		application->setProperty("allowgramRtmpStart", 0);
-		Core::App().calls().showStartWithRtmp(navigation->uiShow(), group);
-		check(application->property("allowgramRtmpStart").toInt() == 0, "hidden RTMP call initiation stops before stream UI");
-		application->setProperty("allowgramIncomingCall", 0);
-		Core::App().calls().handleUpdate(&session, MTP_updatePhoneCall(
-			MTP_phoneCallRequested(MTP_flags(0), MTP_long(1), MTP_long(1),
-				MTP_int(base::unixtime::now()), MTP_long(42), MTP_long(99),
-				MTP_bytes(QByteArray(32, 'a')), MTP_phoneCallProtocol(MTP_flags(0),
-					MTP_int(65), MTP_int(100), MTP_vector<MTPstring>({ MTP_string("synthetic") })))));
-		check(application->property("allowgramIncomingCall").toInt() == 1, "allowed incoming call reaches intercepted creation boundary");
+#include "test/allowgram_calls_native_test.inc"
 		auto pixels = QImage(32, 32, QImage::Format_RGB32);
 		pixels.fill(Qt::blue);
 		auto imageBytes = QByteArray();

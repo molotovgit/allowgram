@@ -103,7 +103,7 @@ extra_sources = []
 if args.hardening:
     (fixture / 'test').mkdir(exist_ok=True)
     test_root = (args.test_repository or root).resolve()
-    for name in ('allowgram_hardening_native_test.inc', 'allowgram_hardening_composer_test.inc'):
+    for name in ('allowgram_hardening_native_test.inc', 'allowgram_hardening_composer_test.inc', 'allowgram_calls_native_test.inc'):
         (fixture / 'test' / name).write_text((test_root / 'Telegram/SourceFiles/test' / name).read_text(encoding='utf-8'), encoding='utf-8')
     includes = [
         'main/main_account.h', 'main/main_domain.h', 'main/main_session.h',
@@ -124,13 +124,13 @@ if args.hardening:
         'info/settings/info_settings_widget.h', 'info/stories/info_stories_widget.h',
         'settings/sections/settings_main.h', 'base/unixtime.h',
         'window/window_peer_menu.h', 'calls/calls_instance.h',
-        'calls/calls_box_controller.h', 'calls/group/calls_group_common.h',
+        'calls/calls_call.h', 'calls/calls_box_controller.h', 'calls/group/calls_group_common.h',
         'chat_helpers/compose/compose_show.h', 'dialogs/dialogs_key.h',
         'ui/widgets/popup_menu.h', 'ui/widgets/menu/menu_add_action_callback_factory.h',
     ]
     json_includes = '\n'.join('#include <QtCore/' + name + '>' for name in (
         'QTimer', 'QFile', 'QJsonDocument', 'QJsonArray', 'QJsonObject', 'QBuffer',
-        'QCoreApplication', 'QVariant'))
+        'QCoreApplication', 'QVariant', 'QEventLoop'))
     main = (root / 'Telegram/SourceFiles/mainwindow.cpp').read_text(encoding='utf-8')
     main = json_includes + '\n' + '\n'.join('#include "' + name + '"' for name in includes) + '\n' + main
     anchor = '\t_intro = std::move(created);'
@@ -158,24 +158,9 @@ if args.hardening:
         end = source.index('\n}', opening)
         source = source[:opening + 1] + source[end:]
         extra_sources.append((name, relative, source))
-    instance = (root / 'Telegram/SourceFiles/mtproto/mtp_instance.cpp').read_text(encoding='utf-8')
-    anchor = 'if (_requestFilter && !_requestFilter(request)) {'
-    assert instance.count(anchor) == 1
-    instance = instance.replace(anchor, 'if (true) {')
-    extra_sources.append(('mtp_instance', 'mtproto/mtp_instance.cpp', instance))
-    calls = (root / 'Telegram/SourceFiles/calls/calls_instance.cpp').read_text(encoding='utf-8')
-    for anchor, property_name in (
-        ('\tusing Type = Platform::PermissionType;', 'allowgramCallPermissions'),
-        ('\tconfirmLeaveCurrent(show, peer, args, [=](StartGroupCallArgs args) {', 'allowgramGroupStart'),
-        ('\tExpects(args.call || args.show);', 'allowgramConferenceStart'),
-        ('\t_startWithRtmp->start(peer, show, [=](Group::JoinInfo info) {', 'allowgramRtmpStart'),
-        ('\t\tcreateCall(user, Call::Type::Incoming, { phoneCall.is_video() }, call);', 'allowgramIncomingCall'),
-    ):
-        assert calls.count(anchor) == 1
-        probe = ('\tQCoreApplication::instance()->setProperty(' + chr(34) + property_name
-                 + chr(34) + ', 1);\n\treturn;\n')
-        calls = calls.replace(anchor, probe + anchor)
-    extra_sources.append(('calls_instance', 'calls/calls_instance.cpp', json_includes + '\n' + calls))
+    from call_fixture import instrument_calls, instrument_transport
+    extra_sources.append(instrument_transport(root, json_includes))
+    extra_sources.extend(instrument_calls(root, json_includes))
     top_bar = (root / 'Telegram/SourceFiles/history/view/history_view_top_bar_widget.cpp').read_text(encoding='utf-8')
     start = top_bar.index('void TopBarWidget::updateControlsVisibility() {')
     end = top_bar.index('\n}', start)
@@ -214,9 +199,6 @@ for name, relative in [('mainwindow', 'mainwindow.cpp'), ('window_allowlist', 'w
     if result.returncode:
         raise SystemExit(result.returncode)
 
-if args.compile_only:
-    raise SystemExit(0)
-
 contents = (build / 'CMakeFiles/impl-Release.ninja').read_text()
 begin = contents.index('build Release\\Telegram.exe:')
 end = contents.index('\n\n', begin)
@@ -231,6 +213,19 @@ block = re.sub(r'^  TARGET_IMPLIB = .*$', '  TARGET_IMPLIB = ' + str(fixture / '
 block = re.sub(r'^  TARGET_PDB = .*$', '  TARGET_PDB = ' + str(fixture / 'Allowgram-Docs.pdb').replace('\\', '/'), block, flags=re.M)
 block = re.sub(r'^  OBJECT_DIR = .*$', '  OBJECT_DIR = ' + str(fixture).replace('\\', '/'), block, flags=re.M)
 (fixture / 'link.ninja').write_text('include build-Release.ninja\n\n' + block + '\n', encoding='utf-8')
+(fixture / 'compile-evidence.json').write_text(json.dumps({
+    'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
+    'sourceDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).splitlines(),
+    'testCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=(args.test_repository or root), text=True).strip(),
+    'testDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=(args.test_repository or root), text=True).splitlines(),
+    'productionExecutableSha256': original_hash,
+    'hardeningFixture': args.hardening,
+    'inputs': {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
+               for path in fixture.rglob('*') if path.suffix in ('.cpp', '.inc', '.h', '.obj', '.ninja')},
+}, indent=2) + '\n')
+if args.compile_only:
+    raise SystemExit(0)
+
 print('Linking separate documentation fixture.', flush=True)
 result = subprocess.run(['ninja', '-j', '4', '-f', str(fixture / 'link.ninja'), str(fixture / 'Allowgram-Docs.exe').replace('\\', '/')], cwd=build, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 print(redact(result.stdout.decode(errors='replace')), flush=True)

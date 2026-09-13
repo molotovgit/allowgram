@@ -240,14 +240,16 @@ ConnectionState::ConnectionState(
 		}
 	}, _lifetime);
 
-	if (!Core::UpdaterDisabled()) {
+	{
 		Core::UpdateChecker checker;
-		rpl::merge(
-			rpl::single(rpl::empty),
-			checker.ready()
-		) | rpl::on_next([=] {
-			refreshState();
-		}, _lifetime);
+		if (!Core::UpdaterDisabled()) {
+			rpl::merge(
+				rpl::single(rpl::empty),
+				checker.ready()
+			) | rpl::on_next([=] {
+				refreshState();
+			}, _lifetime);
+		}
 		checker.mandatoryUpdate(
 		) | rpl::on_next([=](const Core::Updates::MandatoryUpdateState &) {
 			refreshState();
@@ -337,7 +339,7 @@ void ConnectionState::refreshState() {
 		}
 		return { State::Type::Connected, proxy, exposed, under, ready };
 	}();
-	if (!Core::UpdaterDisabled()) {
+	{
 		const auto checker = Core::UpdateChecker();
 		const auto now = base::unixtime::now();
 		const auto mandatory = checker.mandatoryUpdateState();

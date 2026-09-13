@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_updates.h"
 #include "core/application.h"
+#include "core/update_checker.h"
 #include "core/click_handler_types.h"
 #include "export/export_manager.h"
 #include "ui/platform/ui_platform_window.h"
@@ -467,6 +468,9 @@ void Controller::showRightColumn(object_ptr<Ui::RpWidget> widget) {
 }
 
 void Controller::hideLayer(anim::type animated) {
+	if (Core::MandatoryUpdateBlocksUse()) {
+		return;
+	}
 	_widget.showOrHideBoxOrLayer(v::null, Ui::LayerOption::CloseOther, animated);
 }
 
@@ -475,6 +479,9 @@ void Controller::hideSettingsAndLayer(anim::type animated) {
 }
 
 bool Controller::closeLayerByBackButton() {
+	if (Core::MandatoryUpdateBlocksUse()) {
+		return true;
+	}
 	return _widget.closeLayerByBackButton();
 }
 

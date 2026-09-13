@@ -86,6 +86,8 @@ inline constexpr auto kMaxPayloadSize = quint32(256 * 1024 * 1024);
 	return quint32(version & 0xFFFFFFFFULL);
 }
 
+[[nodiscard]] QString DisplayUpdateVersion(quint64 version);
+
 struct ManifestKey {
 	QByteArray id;
 	bool ed25519 = false;

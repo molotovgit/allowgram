@@ -18,6 +18,8 @@ namespace Core {
 
 bool UpdaterDisabled();
 void SetUpdaterDisabledAtStartup();
+[[nodiscard]] bool MandatoryUpdateKnown();
+[[nodiscard]] bool MandatoryUpdateBlocksUse();
 
 class Updater;
 
@@ -42,6 +44,7 @@ public:
 	Updates::MandatoryUpdateState mandatoryUpdateState() const;
 	void dismissMandatoryUpdatePopup();
 	void applyMandatoryUpdateNow();
+	[[nodiscard]] bool mandatoryUpdateLocked() const;
 
 	void start(bool forceWait = false);
 	void stop();
@@ -60,6 +63,7 @@ private:
 };
 
 bool checkReadyUpdate();
+[[nodiscard]] QString ReadyUpdateStageHash();
 void UpdateApplication();
 QString countAlphaVersionSignature(uint64 version);
 

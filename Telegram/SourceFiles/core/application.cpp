@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "core/core_screenshot_protection.h"
 #include "core/core_settings.h"
+#include "core/update_channel.h"
 #include "core/update_checker.h"
 #include "core/shortcuts.h"
 #include "core/sandbox.h"
@@ -435,10 +436,18 @@ void Application::run() {
 
 	DEBUG_LOG(("Application Info: window created..."));
 
-	startDomain();
+	const auto domainStarted = startDomain();
 	startTray();
 
 	_lastActivePrimaryWindow->firstShow();
+
+	if (!domainStarted) {
+		Test::Fire(u"mandatory_update_gate"_q);
+		DEBUG_LOG(("Application Info: mandatory update gate active."));
+		_lastActivePrimaryWindow->finishFirstShow();
+		_lastActivePrimaryWindow->updateIsActiveFocus();
+		return;
+	}
 
 	startMediaView();
 
@@ -555,7 +564,18 @@ void Application::showOpenGLCrashNotification() {
 	}));
 }
 
-void Application::startDomain() {
+bool Application::startDomain() {
+	_startupUpdateChecker = std::make_unique<UpdateChecker>();
+	const auto mandatory = _startupUpdateChecker->mandatoryUpdateState();
+	if (Updates::MandatoryStatus(
+			mandatory,
+			RunningUpdateVersion(),
+			base::unixtime::now()) != Updates::MandatoryUpdateStatus::None) {
+		_startupUpdateChecker->applyMandatoryUpdateNow();
+		return false;
+	}
+	_startupUpdateChecker = nullptr;
+
 	const auto state = _domain->start(QByteArray());
 	if (state != Storage::StartResult::IncorrectPasscodeLegacy) {
 		// In case of non-legacy passcoded app all global settings are ready.
@@ -565,7 +585,9 @@ void Application::startDomain() {
 		lockByPasscode();
 		DEBUG_LOG(("Application Info: passcode needed..."));
 	}
+	return true;
 }
+
 
 void Application::startSettingsAndBackground() {
 	Local::rewriteSettingsIfNeeded();
@@ -2072,15 +2094,18 @@ Application &App() {
 }
 
 void Quit(QuitReason reason) {
-   if (Quitting()) {
-	   return;
-   } else if (IsAppLaunched() && App().preventsQuit(reason)) {
-	   return;
-   }
-   SetLaunchState(LaunchState::QuitRequested);
+	if (Quitting()) {
+		return;
+	} else if (reason != QuitReason::Update
+		&& IsAppLaunched()
+		&& App().preventsQuit(reason)) {
+		return;
+	}
+	SetLaunchState(LaunchState::QuitRequested);
 
-   QuitAttempt();
+	QuitAttempt();
 }
+
 
 bool Quitting() {
    return GlobalLaunchState != LaunchState::Running;
@@ -2095,15 +2120,19 @@ void SetLaunchState(LaunchState state) {
 }
 
 void Restart() {
-   const auto updateReady = !UpdaterDisabled()
-	   && (UpdateChecker().state() == UpdateChecker::State::Ready);
-   if (updateReady) {
-	   cSetRestartingUpdate(true);
-   } else {
-	   cSetRestarting(true);
-	   cSetRestartingToSettings(true);
-   }
-   Quit();
+	const auto updateReady = (
+		UpdateChecker().state() == UpdateChecker::State::Ready);
+	if (updateReady && IsAppLaunched()) {
+		App().materializeLocalDrafts();
+	}
+	if (updateReady) {
+		cSetRestartingUpdate(true);
+	} else {
+		cSetRestarting(true);
+		cSetRestartingToSettings(true);
+	}
+	Quit(updateReady ? QuitReason::Update : QuitReason::Default);
 }
+
 
 } // namespace Core

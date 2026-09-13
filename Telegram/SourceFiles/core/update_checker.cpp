@@ -12,15 +12,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_file_utilities.h"
 #include "base/timer.h"
 #include "base/bytes.h"
+#include "base/flat_set.h"
 #include "base/unixtime.h"
 #include "storage/localstorage.h"
 #include "core/application.h"
+#include "calls/calls_instance.h"
 #include "core/changelogs.h"
 #include "core/click_handler_types.h"
 #include "core/update_channel.h"
 #include "core/update_feed.h"
 #include "core/update_keys.h"
 #include "core/update_mandatory.h"
+#include "core/update_stage.h"
 #include "core/update_verify.h"
 #include "core/version.h"
 #include "data/data_channel.h"
@@ -94,6 +97,9 @@ bool UpdaterIsDisabled = false;
 #endif // TDESKTOP_DISABLE_AUTOUPDATE
 
 std::weak_ptr<Updater> UpdaterInstance;
+base::weak_qptr<Ui::GenericBox> MandatoryUpdateLockBox;
+bool MandatoryUpdateLockShown = false;
+QByteArray CheckedReadyUpdateStageHash;
 
 using Progress = UpdateChecker::Progress;
 using State = UpdateChecker::State;
@@ -492,81 +498,16 @@ QString ExtractFilename(const QString &url) {
 
 constexpr auto kMaxUpdateFilesCount = quint32(32);
 
-[[nodiscard]] std::optional<QString> NormalizeUpdatePayloadPath(
-		QString relativeName) {
-	relativeName.replace('\\', '/');
-	if (relativeName.isEmpty()
-		|| relativeName.startsWith('/')
-		|| relativeName.contains(':')
-		|| QDir::isAbsolutePath(relativeName)) {
-		return std::nullopt;
-	}
-	const auto parts = relativeName.split('/');
-	if (parts.isEmpty()) {
-		return std::nullopt;
-	}
-	for (const auto &part : parts) {
-		if (part.isEmpty() || part == "." || part == "..") {
-			return std::nullopt;
-		}
-	}
-	const auto cleaned = QDir::cleanPath(relativeName);
-	return (cleaned == relativeName) ? std::make_optional(cleaned) : std::nullopt;
-}
-
-[[nodiscard]] bool UpdatePayloadFileAllowed(const QString &relativeName) {
-#ifdef Q_OS_WIN
-	static const auto Allowed = QSet<QString>{
-		QStringLiteral("Allowgram.exe"),
-		QStringLiteral("Updater.exe"),
-		QStringLiteral("build-info.json"),
-		QStringLiteral("LEGAL"),
-		QStringLiteral("LICENSE"),
-		QStringLiteral("README.txt"),
-	};
-	return Allowed.contains(relativeName);
-#else // Q_OS_WIN
-	return true;
-#endif // Q_OS_WIN
-}
-
-#ifdef Q_OS_WIN
-[[nodiscard]] bool HasReparsePoint(const QString &path) {
-	const auto attributes = GetFileAttributesW(
-		reinterpret_cast<const wchar_t*>(
-			QDir::toNativeSeparators(path).utf16()));
-	return attributes != INVALID_FILE_ATTRIBUTES
-		&& (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
-}
-
-[[nodiscard]] bool HasReparsePointParent(
-		const QString &root,
-		const QString &target) {
-	const auto relative = QDir(root).relativeFilePath(
-		QFileInfo(target).absolutePath());
-	if (relative.startsWith("..") || QDir::isAbsolutePath(relative)) {
-		return true;
-	}
-	auto current = QDir(root).absolutePath();
-	for (const auto &part : relative.split('/', Qt::SkipEmptyParts)) {
-		current += '/' + part;
-		if (HasReparsePoint(current)) {
-			return true;
-		}
-	}
-	return false;
-}
-#endif // Q_OS_WIN
-
 [[nodiscard]] bool ExtractUpdateFiles(
 		QDataStream &stream,
 		quint32 filesCount,
-		const QString &tempDirPath) {
+		const QString &tempDirPath,
+		not_null<std::vector<Updates::StagedUpdateFile>*> stagedFiles) {
 	if (!filesCount || filesCount > kMaxUpdateFilesCount) {
 		LOG(("Update Error: bad update files count: %1").arg(filesCount));
 		return false;
 	}
-	auto seen = QSet<QString>();
+	auto seen = base::flat_set<QString>();
 	for (uint32 i = 0; i < filesCount; ++i) {
 		QString relativeName;
 		quint32 fileSize;
@@ -581,8 +522,8 @@ constexpr auto kMaxUpdateFilesCount = quint32(32);
 			LOG(("Update Error: cant read file from downloaded stream, status: %1").arg(stream.status()));
 			return false;
 		}
-		const auto normalized = NormalizeUpdatePayloadPath(relativeName);
-		if (!normalized || !UpdatePayloadFileAllowed(*normalized)) {
+		const auto normalized = Updates::NormalizeUpdatePayloadPath(relativeName);
+		if (!normalized || !Updates::UpdatePayloadFileAllowed(*normalized)) {
 			LOG(("Update Error: update file path is not allowed: '%1'"
 				).arg(relativeName));
 			return false;
@@ -599,34 +540,34 @@ constexpr auto kMaxUpdateFilesCount = quint32(32);
 			return false;
 		}
 
-		QFile f(tempDirPath + '/' + *normalized);
-		if (!QDir().mkpath(QFileInfo(f).absolutePath())) {
-			LOG(("Update Error: cant mkpath for file '%1'").arg(tempDirPath + '/' + *normalized));
-			return false;
-		}
-#ifdef Q_OS_WIN
-		if (HasReparsePointParent(tempDirPath, f.fileName())) {
-			LOG(("Update Error: update path crosses a reparse point: '%1'"
-				).arg(*normalized));
-			return false;
-		}
-#endif // Q_OS_WIN
-		if (!f.open(QIODevice::WriteOnly)) {
-			LOG(("Update Error: cant open file '%1' for writing").arg(tempDirPath + '/' + *normalized));
-			return false;
-		}
-		auto writtenBytes = f.write(fileInnerData);
-		if (writtenBytes != fileSize) {
+		if (!tempDirPath.isEmpty()) {
+			QFile f(tempDirPath + '/' + *normalized);
+			if (!QDir().mkpath(QFileInfo(f).absolutePath())) {
+				LOG(("Update Error: cant mkpath for file '%1'").arg(tempDirPath + '/' + *normalized));
+				return false;
+			}
+			if (!f.open(QIODevice::WriteOnly)) {
+				LOG(("Update Error: cant open file '%1' for writing").arg(tempDirPath + '/' + *normalized));
+				return false;
+			}
+			auto writtenBytes = f.write(fileInnerData);
+			if (writtenBytes != fileSize) {
+				f.close();
+				LOG(("Update Error: cant write file '%1', desiredSize: %2, write result: %3").arg(tempDirPath + '/' + *normalized).arg(fileSize).arg(writtenBytes));
+				return false;
+			}
 			f.close();
-			LOG(("Update Error: cant write file '%1', desiredSize: %2, write result: %3").arg(tempDirPath + '/' + *normalized).arg(fileSize).arg(writtenBytes));
-			return false;
+			if (executable) {
+				QFileDevice::Permissions p = f.permissions();
+				p |= QFileDevice::ExeOwner | QFileDevice::ExeUser | QFileDevice::ExeGroup | QFileDevice::ExeOther;
+				f.setPermissions(p);
+			}
 		}
-		f.close();
-		if (executable) {
-			QFileDevice::Permissions p = f.permissions();
-			p |= QFileDevice::ExeOwner | QFileDevice::ExeUser | QFileDevice::ExeGroup | QFileDevice::ExeOther;
-			f.setPermissions(p);
-		}
+		stagedFiles->push_back({
+			*normalized,
+			quint64(fileInnerData.size()),
+			Updates::Sha256Bytes(fileInnerData),
+		});
 	}
 	return true;
 }
@@ -662,6 +603,156 @@ constexpr auto kMaxUpdateFilesCount = quint32(32);
 		LOG(("Update Error: cant create ready file '%1'").arg(readyFilePath));
 		return false;
 	}
+	return true;
+}
+
+void SetUpdateError(QString *error, const QString &text) {
+	if (error) {
+		*error = text;
+	}
+}
+
+void PrepareMandatoryUpdateApply() {
+	if (!IsAppLaunched()) {
+		return;
+	}
+	App().materializeLocalDrafts();
+	App().calls().discardCurrentForUpdate();
+}
+
+[[nodiscard]] bool WriteSignedUpdatePackage(
+		const QString &tempDirPath,
+		const QByteArray &content) {
+	const auto path = Updates::StagePackagePath(tempDirPath);
+	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+		LOG(("Update Error: cant create signed package path."));
+		return false;
+	}
+	auto file = QFile(path);
+	if (!file.open(QIODevice::WriteOnly)
+		|| file.write(content) != content.size()) {
+		LOG(("Update Error: cant write signed update package."));
+		return false;
+	}
+	return true;
+}
+
+[[nodiscard]] std::optional<Updates::StagedUpdateManifest>
+BuildStageManifestFromVerifiedPackage(
+		const Updates::VerifiedUpdate &verified,
+		const QByteArray &content,
+		const QString &tempDirPath,
+		QString *error) {
+	const auto &payload = verified.envelope.payload;
+	const auto uncompressed = DecompressUpdatePayload(
+		payload.constData(),
+		payload.size());
+	if (!uncompressed) {
+		SetUpdateError(error, QStringLiteral("Could not decompress signed package."));
+		return std::nullopt;
+	}
+	auto stagedFiles = std::vector<Updates::StagedUpdateFile>();
+	{
+		QDataStream stream(*uncompressed);
+		stream.setVersion(QDataStream::Qt_5_1);
+
+		quint32 version = 0;
+		stream >> version;
+		if (stream.status() != QDataStream::Ok
+			|| version != Updates::UpdateVersionBase(
+				verified.envelope.version)) {
+			SetUpdateError(error, QStringLiteral(
+				"v2 inner version does not match envelope."));
+			return std::nullopt;
+		}
+
+		quint32 filesCount = 0;
+		stream >> filesCount;
+		if (stream.status() != QDataStream::Ok || !filesCount) {
+			SetUpdateError(error, QStringLiteral("Could not read v2 files count."));
+			return std::nullopt;
+		}
+		if (!ExtractUpdateFiles(
+				stream,
+				filesCount,
+				tempDirPath,
+				&stagedFiles)) {
+			SetUpdateError(error, QStringLiteral("Could not read v2 files."));
+			return std::nullopt;
+		}
+	}
+	const auto displayVersion = Updates::DisplayUpdateVersion(
+		verified.envelope.version);
+	if (displayVersion.isEmpty()) {
+		SetUpdateError(error, QStringLiteral("Bad v2 display version."));
+		return std::nullopt;
+	}
+	return Updates::StagedUpdateManifest{
+		.packedVersion = verified.envelope.version,
+		.displayVersion = displayVersion,
+		.packageSha256 = Updates::Sha256Bytes(content),
+		.files = std::move(stagedFiles),
+	};
+}
+
+[[nodiscard]] bool ExpectedStageManifestHashFromSignedPackage(
+		const QString &readyPath,
+		quint64 readyPackedVersion,
+		not_null<QByteArray*> result,
+		QString *error) {
+	const auto packagePath = Updates::StagePackagePath(readyPath);
+	auto package = QFile(packagePath);
+	if (!package.open(QIODevice::ReadOnly)
+		|| package.size() <= 0
+		|| package.size() > Loader::kMaxFileSize) {
+		SetUpdateError(error, QStringLiteral(
+			"Could not read retained signed update package."));
+		return false;
+	}
+	const auto content = package.readAll();
+	if (content.size() != package.size()) {
+		SetUpdateError(error, QStringLiteral(
+			"Could not read complete retained signed update package."));
+		return false;
+	}
+	const auto target = Updates::TargetFromPlatformKey(
+		Platform::AutoUpdateKey().toLatin1());
+	if (!target) {
+		SetUpdateError(error, QStringLiteral("No v2 target for platform key."));
+		return false;
+	}
+	const auto verified = Updates::VerifyUpdate(
+		content,
+		BuildUpdateChannel,
+		AppBetaVersion,
+		*target,
+		RunningUpdateVersion(),
+		HeldManifest(),
+		Updates::RootPublicKeyPem(),
+		base::unixtime::now(),
+		error);
+	if (!verified) {
+		return false;
+	} else if (verified->envelope.version != readyPackedVersion) {
+		SetUpdateError(error, QStringLiteral(
+			"Retained signed package version does not match ready marker."));
+		return false;
+	}
+	const auto expected = BuildStageManifestFromVerifiedPackage(
+		*verified,
+		content,
+		QString(),
+		error);
+	if (!expected) {
+		return false;
+	}
+	const auto bytes = Updates::SerializeStageManifest(*expected);
+	if (bytes.isEmpty()) {
+		SetUpdateError(error, QStringLiteral(
+			"Could not serialize authenticated staged manifest."));
+		return false;
+	}
+	*result = Updates::Sha256Bytes(bytes);
 	return true;
 }
 
@@ -711,44 +802,32 @@ constexpr auto kMaxUpdateFilesCount = quint32(32);
 		return false;
 	}
 
-	const auto &payload = verified->envelope.payload;
-	const auto uncompressed = DecompressUpdatePayload(
-		payload.constData(),
-		payload.size());
-	if (!uncompressed) {
-		return false;
-	}
-
 	tempDir.mkdir(tempDir.absolutePath());
 
-	{
-		QDataStream stream(*uncompressed);
-		stream.setVersion(QDataStream::Qt_5_1);
-
-		quint32 version;
-		stream >> version;
-		if (stream.status() != QDataStream::Ok
-			|| version != Updates::UpdateVersionBase(
-				verified->envelope.version)) {
-			LOG(("Update Error: v2 inner version does not match envelope."));
-			return false;
-		}
-
-		quint32 filesCount;
-		stream >> filesCount;
-		if (stream.status() != QDataStream::Ok || !filesCount) {
-			LOG(("Update Error: cant read v2 files count."));
-			return false;
-		}
-		if (!ExtractUpdateFiles(stream, filesCount, tempDirPath)
-			|| !WriteUpdateVersionFile(
-				tempDir,
-				tempDirPath,
-				verified->envelope.version)) {
-			return false;
-		}
+	auto stageError = QString();
+	const auto stageManifest = BuildStageManifestFromVerifiedPackage(
+		*verified,
+		content,
+		tempDirPath,
+		&stageError);
+	if (!stageManifest) {
+		LOG(("Update Error: cant build staged manifest: %1").arg(stageError));
+		return false;
 	}
-
+	if (!WriteUpdateVersionFile(
+			tempDir,
+			tempDirPath,
+			verified->envelope.version)
+		|| !WriteSignedUpdatePackage(tempDirPath, content)) {
+		return false;
+	}
+	if (!Updates::WriteStageManifest(
+			tempDirPath,
+			*stageManifest,
+			&stageError)) {
+		LOG(("Update Error: cant write staged manifest: %1").arg(stageError));
+		return false;
+	}
 	if (!WriteUpdateReadyFile(readyFilePath)) {
 		return false;
 	}
@@ -1723,11 +1802,12 @@ public:
 	rpl::producer<Progress> progress() const;
 	rpl::producer<> failed() const;
 	rpl::producer<> ready() const;
-	rpl::producer<Updates::MandatoryUpdateState> mandatoryUpdate() const;
+	rpl::producer<Updates::MandatoryUpdateState> mandatoryUpdate();
 
-	Updates::MandatoryUpdateState mandatoryUpdateState() const;
+	Updates::MandatoryUpdateState mandatoryUpdateState();
 	void dismissMandatoryUpdatePopup();
 	void applyMandatoryUpdateNow();
+	bool mandatoryUpdateLocked() const;
 
 	void start(bool forceWait);
 	void stop();
@@ -1770,10 +1850,13 @@ private:
 	void handleReady();
 	void scheduleNext();
 	void handleMandatoryRelease(const Updates::StableReleaseAsset &asset);
-	void loadMandatoryUpdate();
+	void loadMandatoryUpdate(bool showPopup = true);
+	void ensureMandatoryUpdateLoaded();
 	void refreshMandatoryUpdate();
 	void publishMandatoryUpdate(Updates::MandatoryUpdateState state);
 	void maybeShowMandatoryUpdatePopup();
+	void maybeShowMandatoryUpdateLock();
+	bool mandatoryUpdateNeedsLock() const;
 
 	bool _testing = false;
 	Action _action = Action::Waiting;
@@ -1793,6 +1876,7 @@ private:
 	bool _usingMtprotoLoader = (cAlphaVersion() != 0);
 	base::weak_ptr<Main::Session> _session;
 	Updates::MandatoryUpdateState _mandatory;
+	bool _mandatoryLoaded = false;
 	bool _mandatoryPopupShown = false;
 
 	rpl::lifetime _lifetime;
@@ -1841,12 +1925,14 @@ rpl::producer<> Updater::ready() const {
 	return _ready.events();
 }
 
-rpl::producer<Updates::MandatoryUpdateState> Updater::mandatoryUpdate() const {
+rpl::producer<Updates::MandatoryUpdateState> Updater::mandatoryUpdate() {
+	ensureMandatoryUpdateLoaded();
 	auto state = _mandatory;
 	return _mandatoryUpdate.events_starting_with(std::move(state));
 }
 
-Updates::MandatoryUpdateState Updater::mandatoryUpdateState() const {
+Updates::MandatoryUpdateState Updater::mandatoryUpdateState() {
+	ensureMandatoryUpdateLoaded();
 	return _mandatory;
 }
 
@@ -1857,6 +1943,11 @@ void Updater::check() {
 void Updater::handleReady() {
 	stop();
 	_action = Action::Ready;
+	if (mandatoryUpdateNeedsLock()) {
+		PrepareMandatoryUpdateApply();
+		Restart();
+		return;
+	}
 	if (!Quitting()) {
 		cSetLastUpdateCheck(base::unixtime::now());
 		Local::writeSettings();
@@ -1900,7 +1991,8 @@ void Updater::publishMandatoryUpdate(Updates::MandatoryUpdateState state) {
 	_mandatoryUpdate.fire_copy(_mandatory);
 }
 
-void Updater::loadMandatoryUpdate() {
+void Updater::loadMandatoryUpdate(bool showPopup) {
+	_mandatoryLoaded = true;
 	const auto now = base::unixtime::now();
 	const auto stored = Updates::ReadMandatoryUpdateState(cWorkingDir());
 	auto state = stored.value_or(Updates::MandatoryUpdateState());
@@ -1915,7 +2007,16 @@ void Updater::loadMandatoryUpdate() {
 	if (_mandatory.active && !Quitting()) {
 		_mandatoryTimer.callOnce(crl::time(1000));
 	}
-	maybeShowMandatoryUpdatePopup();
+	maybeShowMandatoryUpdateLock();
+	if (showPopup) {
+		maybeShowMandatoryUpdatePopup();
+	}
+}
+
+void Updater::ensureMandatoryUpdateLoaded() {
+	if (!_mandatoryLoaded) {
+		loadMandatoryUpdate();
+	}
 }
 
 void Updater::refreshMandatoryUpdate() {
@@ -1950,6 +2051,7 @@ void Updater::handleMandatoryRelease(
 }
 
 void Updater::dismissMandatoryUpdatePopup() {
+	ensureMandatoryUpdateLoaded();
 	const auto now = base::unixtime::now();
 	if (Updates::MandatoryStatus(_mandatory, RunningUpdateVersion(), now)
 		== Updates::MandatoryUpdateStatus::None) {
@@ -1963,6 +2065,7 @@ void Updater::dismissMandatoryUpdatePopup() {
 }
 
 void Updater::applyMandatoryUpdateNow() {
+	loadMandatoryUpdate(false);
 	const auto now = base::unixtime::now();
 	if (Updates::MandatoryStatus(_mandatory, RunningUpdateVersion(), now)
 		== Updates::MandatoryUpdateStatus::None) {
@@ -1973,11 +2076,13 @@ void Updater::applyMandatoryUpdateNow() {
 	if (Updates::WriteMandatoryUpdateState(cWorkingDir(), next, &error)) {
 		publishMandatoryUpdate(next);
 	}
+	PrepareMandatoryUpdateApply();
 	if (checkReadyUpdate()) {
 		_action = Action::Ready;
 		Restart();
 		return;
 	}
+	maybeShowMandatoryUpdateLock();
 	cSetLastUpdateCheck(0);
 	if (_action == Action::Waiting) {
 		start(false);
@@ -1986,6 +2091,10 @@ void Updater::applyMandatoryUpdateNow() {
 
 void Updater::maybeShowMandatoryUpdatePopup() {
 	const auto now = base::unixtime::now();
+	if (mandatoryUpdateNeedsLock()) {
+		maybeShowMandatoryUpdateLock();
+		return;
+	}
 	if (_mandatoryPopupShown
 		|| _mandatory.popupDismissed
 		|| Updates::MandatoryStatus(_mandatory, RunningUpdateVersion(), now)
@@ -2014,6 +2123,73 @@ void Updater::maybeShowMandatoryUpdatePopup() {
 		.cancelText = u"Close"_q,
 		.title = u"Update Allowgram"_q,
 	}));
+}
+bool Updater::mandatoryUpdateNeedsLock() const {
+	const auto status = Updates::MandatoryStatus(
+		_mandatory,
+		RunningUpdateVersion(),
+		base::unixtime::now());
+	return _mandatory.active
+		&& (_mandatory.applyStarted
+			|| status == Updates::MandatoryUpdateStatus::Expired);
+}
+
+bool Updater::mandatoryUpdateLocked() const {
+	return MandatoryUpdateLockShown;
+}
+
+void Updater::maybeShowMandatoryUpdateLock() {
+	if (!mandatoryUpdateNeedsLock() || !IsAppLaunched() || Quitting()) {
+		return;
+	} else if (MandatoryUpdateLockShown) {
+		return;
+	}
+	const auto window = App().activePrimaryWindow();
+	if (!window) {
+		return;
+	}
+
+	_mandatoryPopupShown = false;
+	window->hideSettingsAndLayer(anim::type::instant);
+
+	auto content = Box([=](not_null<Ui::GenericBox*> box) {
+		Ui::ConfirmBox(box, {
+			.text = u"Allowgram must install the signed stable update before "_q
+				+ u"chats can be used again. If automatic update keeps failing, "_q
+				+ u"open the Allowgram releases page and install the latest "_q
+				+ u"stable build manually."_q,
+			.confirmed = [] {
+				UpdateChecker().applyMandatoryUpdateNow();
+			},
+			.cancelled = [] {
+				Quit(QuitReason::Update);
+			},
+			.confirmText = u"Try update again"_q,
+			.cancelText = u"Quit Allowgram"_q,
+			.title = u"Allowgram update required"_q,
+			.strictCancel = true,
+		});
+		box->addLeftButton(rpl::single(u"Open releases"_q), [] {
+			UrlClickHandler::Open(
+				"https://github.com/molotovgit/allowgram/releases");
+		});
+		box->setCloseByEscape(false);
+		box->setCloseByOutsideClick(false);
+		QObject::connect(box.get(), &QObject::destroyed, [] {
+			MandatoryUpdateLockBox = nullptr;
+			MandatoryUpdateLockShown = false;
+			if (!Quitting()) {
+				crl::on_main([] {
+					UpdateChecker().mandatoryUpdateState();
+				});
+			}
+		});
+	});
+	MandatoryUpdateLockBox = window->show(
+		std::move(content),
+		Ui::LayerOption::CloseOther,
+		anim::type::normal);
+	MandatoryUpdateLockShown = true;
 }
 
 auto Updater::state() const -> State {
@@ -2078,8 +2254,8 @@ void Updater::start(bool forceWait) {
 			sendRequest = true;
 		}
 	}
-	if (cManyInstance() && !Logs::DebugEnabled()) {
-		// Only main instance is updating.
+	if (cManyInstance() && !Logs::DebugEnabled() && !mandatoryKnown) {
+		// Only main instance is updating when no mandatory update is known.
 		return;
 	}
 
@@ -2319,6 +2495,10 @@ void UpdateChecker::applyMandatoryUpdateNow() {
 	_updater->applyMandatoryUpdateNow();
 }
 
+bool UpdateChecker::mandatoryUpdateLocked() const {
+	return _updater->mandatoryUpdateLocked();
+}
+
 void UpdateChecker::start(bool forceWait) {
 	_updater->start(forceWait);
 }
@@ -2368,26 +2548,33 @@ bool UpdateChecker::percent() const {
 //}
 
 bool checkReadyUpdate() {
-	QString readyFilePath = cWorkingDir() + u"tupdates/temp/ready"_q, readyPath = cWorkingDir() + u"tupdates/temp"_q;
+	CheckedReadyUpdateStageHash.clear();
+	const auto readyFilePath = cWorkingDir() + u"tupdates/temp/ready"_q;
+	const auto readyPath = cWorkingDir() + u"tupdates/temp"_q;
 	if (!QFile(readyFilePath).exists() || cExeName().isEmpty()) {
-		if (QDir(cWorkingDir() + u"tupdates/ready"_q).exists() || QDir(cWorkingDir() + u"tupdates/temp"_q).exists()) {
+		if (QDir(cWorkingDir() + u"tupdates/ready"_q).exists()
+			|| QDir(cWorkingDir() + u"tupdates/temp"_q).exists()) {
 			ClearAll();
 		}
 		return false;
 	}
 
 	// check ready version
-	QString versionPath = readyPath + u"/tdata/version"_q;
+	auto readyPackedVersion = quint64(0);
+	const auto versionPath = readyPath + u"/tdata/version"_q;
 	{
 		QFile fVersion(versionPath);
 		if (!fVersion.open(QIODevice::ReadOnly)) {
-			LOG(("Update Error: cant read version file '%1'").arg(versionPath));
+			LOG(("Update Error: cant read version file '%1'"
+				).arg(versionPath));
 			ClearAll();
 			return false;
 		}
 		auto versionNum = VersionInt();
-		if (fVersion.read((char*)&versionNum, sizeof(VersionInt)) != sizeof(VersionInt)) {
-			LOG(("Update Error: cant read version from file '%1'").arg(versionPath));
+		if (fVersion.read((char*)&versionNum, sizeof(VersionInt))
+			!= sizeof(VersionInt)) {
+			LOG(("Update Error: cant read version from file '%1'"
+				).arg(versionPath));
 			ClearAll();
 			return false;
 		}
@@ -2407,6 +2594,7 @@ bool checkReadyUpdate() {
 				ClearAll();
 				return false;
 			}
+			readyPackedVersion = packedVersion;
 		} else {
 			LOG(("Update Error: legacy ready update marker rejected: %1"
 				).arg(versionNum));
@@ -2416,31 +2604,55 @@ bool checkReadyUpdate() {
 		fVersion.close();
 	}
 
+	auto stageError = QString();
+	auto expectedStageHash = QByteArray();
+	if (!ExpectedStageManifestHashFromSignedPackage(
+			readyPath,
+			readyPackedVersion,
+			&expectedStageHash,
+			&stageError)) {
+		LOG(("Update Error: retained signed update rejected: %1").arg(stageError));
+		ClearAll();
+		return false;
+	}
+	const auto staged = Updates::VerifyStagedUpdate(
+		readyPath,
+		RunningUpdateVersion(),
+		expectedStageHash,
+		&stageError);
+	if (!staged || staged->packedVersion != readyPackedVersion) {
+		LOG(("Update Error: staged update rejected: %1").arg(stageError));
+		ClearAll();
+		return false;
+	}
+	CheckedReadyUpdateStageHash = staged->manifestSha256.toHex();
+
 #ifdef Q_OS_WIN
-	QString curUpdater = (cExeDir() + u"Updater.exe"_q);
-	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Updater.exe"_q);
+	const auto curUpdater = cExeDir() + u"AllowgramUpdater.exe"_q;
+	const auto updater = QFileInfo(
+		cWorkingDir() + u"tupdates/temp/AllowgramUpdater.exe"_q);
 #elif defined Q_OS_MAC // Q_OS_WIN
-	QString curUpdater = (cExeDir() + cExeName() + u"/Contents/Frameworks/Updater"_q);
-	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Telegram.app/Contents/Frameworks/Updater"_q);
+	const auto curUpdater = cExeDir()
+		+ cExeName()
+		+ u"/Contents/Frameworks/Updater"_q;
+	const auto updater = QFileInfo(
+		cWorkingDir()
+		+ u"tupdates/temp/Telegram.app/Contents/Frameworks/Updater"_q);
 #else // Q_OS_MAC
-	QString curUpdater = (cExeDir() + u"Updater"_q);
-	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Updater"_q);
+	const auto curUpdater = cExeDir() + u"Updater"_q;
+	const auto updater = QFileInfo(cWorkingDir() + u"tupdates/temp/Updater"_q);
 #endif // else for Q_OS_WIN || Q_OS_MAC
 	if (!updater.exists()) {
-		QFileInfo current(curUpdater);
-		if (!current.exists()) {
-			ClearAll();
-			return false;
-		}
-		if (!QFile(current.absoluteFilePath()).copy(updater.absoluteFilePath())) {
-			ClearAll();
-			return false;
-		}
+		ClearAll();
+		return false;
 	}
 #ifdef Q_OS_WIN
-	if (CopyFile(updater.absoluteFilePath().toStdWString().c_str(), curUpdater.toStdWString().c_str(), FALSE) == FALSE) {
-		DWORD errorCode = GetLastError();
-		if (errorCode == ERROR_ACCESS_DENIED) { // we are in write-protected dir, like Program Files
+	if (CopyFile(
+			updater.absoluteFilePath().toStdWString().c_str(),
+			curUpdater.toStdWString().c_str(),
+			FALSE) == FALSE) {
+		const auto errorCode = GetLastError();
+		if (errorCode == ERROR_ACCESS_DENIED) {
 			cSetWriteProtected(true);
 			return true;
 		} else {
@@ -2448,20 +2660,15 @@ bool checkReadyUpdate() {
 			return false;
 		}
 	}
-	if (DeleteFile(updater.absoluteFilePath().toStdWString().c_str()) == FALSE) {
-		ClearAll();
-		return false;
-	}
 #elif defined Q_OS_MAC // Q_OS_WIN
 	QDir().mkpath(QFileInfo(curUpdater).absolutePath());
-	DEBUG_LOG(("Update Info: moving %1 to %2...").arg(updater.absoluteFilePath()).arg(curUpdater));
+	DEBUG_LOG(("Update Info: moving %1 to %2..."
+		).arg(updater.absoluteFilePath()).arg(curUpdater));
 	if (!objc_moveFile(updater.absoluteFilePath(), curUpdater)) {
 		ClearAll();
 		return false;
 	}
 #else // Q_OS_MAC
-	// if the files in the directory are owned by user, while the directory is not,
-	// update will still fail since it's not possible to remove files
 	if (QFile::exists(curUpdater)
 		&& unlink(QFile::encodeName(curUpdater).constData())) {
 		if (errno == EACCES) {
@@ -2475,7 +2682,9 @@ bool checkReadyUpdate() {
 			return false;
 		}
 	}
-	if (!linuxMoveFile(QFile::encodeName(updater.absoluteFilePath()).constData(), QFile::encodeName(curUpdater).constData())) {
+	if (!linuxMoveFile(
+			QFile::encodeName(updater.absoluteFilePath()).constData(),
+			QFile::encodeName(curUpdater).constData())) {
 		if (errno == EACCES) {
 			DEBUG_LOG(("Update Info: "
 				"could not copy new Updater, access denied."));
@@ -2495,6 +2704,28 @@ bool checkReadyUpdate() {
 #endif // Q_OS_MAC
 
 	return true;
+}
+
+QString ReadyUpdateStageHash() {
+	return QString::fromLatin1(CheckedReadyUpdateStageHash);
+}
+
+bool MandatoryUpdateKnown() {
+	const auto state = UpdateChecker().mandatoryUpdateState();
+	return Updates::MandatoryStatus(
+		state,
+		RunningUpdateVersion(),
+		base::unixtime::now()) != Updates::MandatoryUpdateStatus::None;
+}
+
+bool MandatoryUpdateBlocksUse() {
+	const auto state = UpdateChecker().mandatoryUpdateState();
+	const auto status = Updates::MandatoryStatus(
+		state,
+		RunningUpdateVersion(),
+		base::unixtime::now());
+	return state.applyStarted
+		|| (status == Updates::MandatoryUpdateStatus::Expired);
 }
 
 void UpdateApplication() {

@@ -603,6 +603,8 @@ PRIVATE
     core/update_feed.h
     core/update_mandatory.cpp
     core/update_mandatory.h
+    core/update_stage.cpp
+    core/update_stage.h
     core/update_keys.cpp
     core/update_keys.h
     core/update_verify.cpp

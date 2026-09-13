@@ -13,8 +13,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/update_feed.h"
 #include "core/update_keys.h"
 #include "core/update_mandatory.h"
+#include "core/update_stage.h"
 #include "core/update_verify.h"
 
+#include <QtCore/QDir>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
@@ -452,6 +456,24 @@ MandatoryUpdateTarget MandatoryTarget(quint32 sequence) {
 		.displayVersion = display,
 	};
 }
+[[nodiscard]] bool WriteStageFile(
+		const QString &root,
+		const QString &relative,
+		const QByteArray &bytes) {
+	const auto path = QDir(root).filePath(relative);
+	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+		return false;
+	}
+	auto file = QFile(path);
+	return file.open(QIODevice::WriteOnly)
+		&& file.write(bytes) == bytes.size();
+}
+
+[[nodiscard]] StagedUpdateFile MakeStageFile(
+		const QString &path,
+		const QByteArray &bytes) {
+	return { path, quint64(bytes.size()), Sha256Bytes(bytes) };
+}
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -459,6 +481,10 @@ int main(int argc, char *argv[]) {
 		Core::RunningUpdateVersion()
 			== MakeUpdateVersion(quint32(AppVersion), kAllowgramSequence),
 		"Allowgram update version uses the stable sequence");
+	Check(
+		DisplayUpdateVersion(MakeUpdateVersion(7002008, 8))
+			== QStringLiteral("7.2.8.8"),
+		"packed Allowgram version formats with the stable sequence");
 
 	constexpr auto kNow = qint64(1800000000);
 	const auto payload = QByteArray("test-payload-not-really-lzma");
@@ -789,6 +815,98 @@ int main(int argc, char *argv[]) {
 		ClearMandatoryUpdateState(dir.path());
 		Check(!ReadMandatoryUpdateState(dir.path()),
 			"mandatory update state clears from updater storage");
+	}
+	{ // Stage manifests authenticate the exact staged Windows payload tree.
+		auto dir = QTemporaryDir();
+		const auto app = QByteArray("new app");
+		const auto helper = QByteArray("new helper");
+		const auto info = QByteArray("{\"version\":\"7.2.8.9\"}");
+		const auto readme = QByteArray("readme");
+		Check(WriteStageFile(dir.path(), QStringLiteral("Allowgram.exe"), app),
+			"stage test writes app payload");
+		Check(WriteStageFile(dir.path(), QStringLiteral("AllowgramUpdater.exe"), helper),
+			"stage test writes helper payload");
+		Check(WriteStageFile(dir.path(), QStringLiteral("build-info.json"), info),
+			"stage test writes build info payload");
+		Check(WriteStageFile(dir.path(), QStringLiteral("README.txt"), readme),
+			"stage test writes optional payload file");
+		const auto package = QByteArray("signed package bytes");
+		const auto manifest = StagedUpdateManifest{
+			.packedVersion = MakeUpdateVersion(7002008, 9),
+			.displayVersion = QStringLiteral("7.2.8.9"),
+			.packageSha256 = Sha256Bytes(package),
+			.files = {
+				MakeStageFile(QStringLiteral("Allowgram.exe"), app),
+				MakeStageFile(QStringLiteral("AllowgramUpdater.exe"), helper),
+				MakeStageFile(QStringLiteral("build-info.json"), info),
+				MakeStageFile(QStringLiteral("README.txt"), readme),
+			},
+		};
+		const auto serialized = SerializeStageManifest(manifest);
+		const auto expectedHash = Sha256Bytes(serialized);
+		auto error = QString();
+		Check(!serialized.isEmpty(),
+			"stage manifest serializes valid payload metadata");
+		Check(WriteStageManifest(dir.path(), manifest, &error),
+			"stage manifest writes beside the ready marker");
+		Check(
+			WriteStageFile(
+				dir.path(),
+				QStringLiteral("tdata/package.tdup"),
+				payload),
+			"retained signed package can be stored in the stage metadata");
+		const auto ready = VerifyStagedUpdate(
+			dir.path(),
+			MakeUpdateVersion(7002008, 8),
+			expectedHash,
+			&error);
+		Check(ready && ready->packedVersion == manifest.packedVersion,
+			"stage manifest accepts newer exact staged payload");
+		Check(ready && ready->manifestSha256 == expectedHash,
+			"stage manifest reports the launcher helper hash");
+		Check(
+			VerifyStagedUpdate(
+				dir.path(),
+				MakeUpdateVersion(7002008, 8),
+				expectedHash,
+				&error).has_value(),
+			"retained signed package is allowed but not copied");
+		Check(!VerifyStagedUpdate(
+				dir.path(),
+				manifest.packedVersion,
+				expectedHash,
+				&error),
+			"stage manifest rejects equal-version replay");
+		Check(WriteStageFile(dir.path(), QStringLiteral("README.txt"), QByteArray("tamper")),
+			"stage test tampers optional payload file");
+		Check(!VerifyStagedUpdate(
+				dir.path(),
+				MakeUpdateVersion(7002008, 8),
+				expectedHash,
+				&error),
+			"stage manifest rejects staged file tampering");
+		Check(WriteStageFile(dir.path(), QStringLiteral("README.txt"), readme),
+			"stage test restores optional payload file");
+		Check(WriteStageFile(dir.path(), QStringLiteral("extra.bin"), QByteArray("x")),
+			"stage test writes unexpected payload file");
+		Check(!VerifyStagedUpdate(
+				dir.path(),
+				MakeUpdateVersion(7002008, 8),
+				expectedHash,
+				&error),
+			"stage manifest rejects unexpected staged file");
+		QFile::remove(QDir(dir.path()).filePath(QStringLiteral("extra.bin")));
+		auto duplicate = manifest;
+		duplicate.files.push_back(
+			MakeStageFile(QStringLiteral("allowgram.exe"), QByteArray("case")));
+		Check(SerializeStageManifest(duplicate).isEmpty(),
+			"stage manifest rejects case-colliding payload paths");
+		Check(!NormalizeUpdatePayloadPath(QStringLiteral("../Allowgram.exe")),
+			"stage manifest rejects traversal payload paths");
+		Check(!NormalizeUpdatePayloadPath(QStringLiteral("C:/Allowgram.exe")),
+			"stage manifest rejects drive-qualified payload paths");
+		Check(!UpdatePayloadFileAllowed(QStringLiteral("Telegram.exe")),
+			"stage manifest rejects legacy Telegram payload identity");
 	}
 	{ // The committed trust files must verify with the pinned root.
 		auto error = QString();

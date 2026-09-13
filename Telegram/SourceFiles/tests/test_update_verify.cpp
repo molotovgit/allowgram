@@ -572,8 +572,15 @@ int main(int argc, char *argv[]) {
 			payload);
 		Check(!verify(beta, Channel::Stable, false, runningStable),
 			"beta package rejected without the beta setting");
-		Check(verify(beta, Channel::Stable, true, runningStable).has_value(),
-			"beta package accepted with the beta setting");
+		Check(!ChannelPolicyAllows(
+				Channel::Stable,
+				true,
+				Channel::Beta,
+				MakeUpdateVersion(5000001, 0),
+				runningStable),
+			"Allowgram stable package policy rejects imported beta setting");
+		Check(!verify(beta, Channel::Stable, true, runningStable),
+			"beta package rejected with the imported beta setting");
 		Check(verify(beta, Channel::Beta, false, runningStable).has_value(),
 			"beta package accepted on a beta build");
 	}

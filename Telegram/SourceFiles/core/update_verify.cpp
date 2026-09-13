@@ -838,8 +838,7 @@ bool ChannelPolicyAllows(
 		quint64 runningVersion) {
 	switch (build) {
 	case Channel::Stable:
-		return (package == Channel::Stable)
-			|| (betaSet && package == Channel::Beta);
+		return (package == Channel::Stable);
 	case Channel::Beta:
 		return (package == Channel::Stable) || (package == Channel::Beta);
 	case Channel::CanaryPublic:

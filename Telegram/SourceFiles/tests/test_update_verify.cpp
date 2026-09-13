@@ -12,11 +12,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/update_channel.h"
 #include "core/update_feed.h"
 #include "core/update_keys.h"
+#include "core/update_mandatory.h"
 #include "core/update_verify.h"
 
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QTemporaryDir>
 
 extern "C" {
 #include <openssl/bio.h>
@@ -438,6 +440,18 @@ QByteArray SignedAllowgramFeed(
 		signedBytes,
 		StableFeedSignatures(signedBytes, signers));
 }
+
+MandatoryUpdateTarget MandatoryTarget(quint32 sequence) {
+	const auto display = QStringLiteral("7.2.8.%1").arg(sequence);
+	return {
+		.tag = QStringLiteral("v") + display,
+		.fileName = StableReleaseFileName(kTarget, display),
+		.sha256 = QByteArray(64, 'b'),
+		.size = 4096,
+		.packedVersion = MakeUpdateVersion(7002008, sequence),
+		.displayVersion = display,
+	};
+}
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -729,6 +743,53 @@ int main(int argc, char *argv[]) {
 			"bad feed SHA-256 rejected");
 	}
 
+	{ // Mandatory update state records an authenticated target without extending grace.
+		const auto target8 = MandatoryTarget(8);
+		const auto target9 = MandatoryTarget(9);
+		const auto running = MakeUpdateVersion(7002008, 7);
+		const auto first = RegisterMandatoryUpdate(
+			std::nullopt,
+			target8,
+			1000);
+		Check(first.active && first.firstSeen == 1000 && first.deadline == 1300,
+			"mandatory update starts one 300-second deadline");
+		Check(MandatoryStatus(first, running, 1299) == MandatoryUpdateStatus::Grace,
+			"mandatory update is in grace before deadline");
+		Check(MandatorySecondsRemaining(first, 1299) == 1,
+			"mandatory update reports remaining seconds");
+		Check(MandatoryStatus(first, running, 1300) == MandatoryUpdateStatus::Expired,
+			"mandatory update expires at exact deadline");
+		const auto duplicate = RegisterMandatoryUpdate(first, target8, 1060);
+		Check(duplicate.deadline == first.deadline,
+			"duplicate mandatory discovery does not extend deadline");
+		const auto newer = RegisterMandatoryUpdate(duplicate, target9, 1090);
+		Check(newer.deadline == first.deadline
+			&& newer.target.packedVersion == target9.packedVersion,
+			"newer mandatory target keeps the original deadline");
+		const auto older = RegisterMandatoryUpdate(newer, target8, 1100);
+		Check(older.target.packedVersion == target9.packedVersion,
+			"older mandatory target cannot downgrade pending update");
+		const auto dismissed = DismissMandatoryUpdatePopup(newer);
+		Check(dismissed.popupDismissed
+			&& dismissed.deadline == newer.deadline,
+			"closing mandatory popup only records dismissal");
+		const auto applying = MarkMandatoryUpdateApplyStarted(dismissed);
+		Check(applying.applyStarted && applying.deadline == newer.deadline,
+			"starting mandatory apply does not extend deadline");
+		Check(MandatoryStatus(newer, target9.packedVersion, 1100)
+			== MandatoryUpdateStatus::None,
+			"installed mandatory target clears the requirement");
+		auto dir = QTemporaryDir();
+		auto error = QString();
+		Check(WriteMandatoryUpdateState(dir.path(), applying, &error),
+			"mandatory update state writes atomically");
+		const auto roundtrip = ReadMandatoryUpdateState(dir.path(), &error);
+		Check(roundtrip && *roundtrip == applying,
+			"mandatory update state round-trips from updater storage");
+		ClearMandatoryUpdateState(dir.path());
+		Check(!ReadMandatoryUpdateState(dir.path()),
+			"mandatory update state clears from updater storage");
+	}
 	{ // The committed trust files must verify with the pinned root.
 		auto error = QString();
 		const auto embedded = ParseVerifiedManifest(

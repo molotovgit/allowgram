@@ -601,6 +601,8 @@ PRIVATE
     core/update_checker.h
     core/update_feed.cpp
     core/update_feed.h
+    core/update_mandatory.cpp
+    core/update_mandatory.h
     core/update_keys.cpp
     core/update_keys.h
     core/update_verify.cpp

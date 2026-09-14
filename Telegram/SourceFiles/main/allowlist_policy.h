@@ -21,6 +21,14 @@ inline constexpr auto kChannelOffset = std::uint64_t(1000000000000ULL);
 enum class Kind { User, Chat, Channel };
 enum class Error { None, Empty, InvalidId, WrongField, TooMany, TooLong };
 
+[[nodiscard]] bool CanPresentPeerProfile(Kind kind, bool conversationAllowed);
+[[nodiscard]] bool CanCreateConversations();
+[[nodiscard]] bool CanUseCalls();
+[[nodiscard]] bool CanCallUser(
+	Kind kind, bool conversationAllowed, bool knownUser, bool self, bool bot);
+[[nodiscard]] bool CanStartUserSession(int authorizedAccounts);
+[[nodiscard]] bool ContainsEmoji(std::u32string_view text);
+
 struct Entry {
 	Kind kind = Kind::User;
 	std::uint64_t id = 0;

@@ -628,9 +628,7 @@ void MainMenu::setupAccountsToggle() {
 }
 
 void MainMenu::setupSetEmojiStatus() {
-	_setEmojiStatus->overrideLinkClickHandler([=] {
-		chooseEmojiStatus();
-	});
+	_setEmojiStatus->hide();
 }
 
 void MainMenu::parentResized() {
@@ -663,58 +661,17 @@ void MainMenu::setupMenu() {
 			std::move(descriptor));
 	};
 	if (!_controller->session().supportMode()) {
-		_menu->add(
-			CreateButtonWithIcon(
-				_menu,
-				tr::lng_menu_my_profile(),
-				st::mainMenuButton,
-				{ &st::menuIconProfile })
-		)->setClickedCallback([=] {
-			controller->showSection(
-				Info::Stories::Make(controller->session().user()));
-		});
-
 		SetupMenuBots(_menu, controller);
 
 		_menu->add(
 			object_ptr<Ui::PlainShadow>(_menu),
 			{ 0, st::mainMenuSkip, 0, st::mainMenuSkip });
 
-		AddMyChannelsBox(addAction(
-			tr::lng_create_group_title(),
-			{ &st::menuIconGroups }
-		), controller, true)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewGroup();
-			}
-		});
-
-		AddMyChannelsBox(addAction(
-			tr::lng_create_channel_title(),
-			{ &st::menuIconChannel }
-		), controller, false)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewChannel();
-			}
-		});
-
 		addAction(
 			tr::lng_menu_contacts(),
 			{ &st::menuIconUserShow }
 		)->setClickedCallback([=] {
 			controller->show(PrepareContactsBox(controller));
-		});
-		addAction(
-			tr::lng_menu_calls(),
-			{ &st::menuIconPhone }
-		)->setClickedCallback([=] {
-			::Calls::ShowCallsBox(controller);
-		});
-		addAction(
-			tr::lng_saved_messages(),
-			{ &st::menuIconSavedMessages }
-		)->setClickedCallback([=] {
-			controller->showPeerHistory(controller->session().user());
 		});
 	} else {
 		addAction(
@@ -829,14 +786,6 @@ void MainMenu::updateInnerControlsGeometry() {
 }
 
 void MainMenu::chooseEmojiStatus() {
-	if (_controller->showFrozenError()) {
-		return;
-	} else if (const auto widget = _badge->widget()) {
-		setupEmojiStatusDismiss();
-		_emojiStatusPanel->show(_controller, widget, _badge->sizeTag());
-	} else {
-		ShowPremiumPreviewBox(_controller, PremiumFeature::EmojiStatus);
-	}
 }
 
 void MainMenu::setupEmojiStatusDismiss() {

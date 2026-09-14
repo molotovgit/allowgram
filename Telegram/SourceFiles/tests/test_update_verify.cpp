@@ -9,12 +9,19 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // Focused console tests for the v2 update verification: throwaway keys are
 // generated in-process with OpenSSL, so no fixture files and no network.
 
+#include "core/update_channel.h"
+#include "core/update_feed.h"
 #include "core/update_keys.h"
+#include "core/update_stage.h"
 #include "core/update_verify.h"
 
+#include <QtCore/QDir>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QTemporaryDir>
 
 extern "C" {
 #include <openssl/bio.h>
@@ -39,6 +46,7 @@ int TotalChecks = 0;
 constexpr auto kTarget = Target{ Os::Linux, Arch::X64 };
 constexpr auto kOtherArch = Target{ Os::Linux, Arch::Arm };
 constexpr auto kOtherOs = Target{ Os::Mac, Arch::X64 };
+constexpr auto kAllowgramSequence = quint32(8);
 
 void Check(bool condition, const char *name) {
 	++TotalChecks;
@@ -349,9 +357,123 @@ void AppendLeU64(QByteArray &to, quint64 value) {
 		target);
 }
 
+QByteArray AllowgramFeed(
+		QString product = QStringLiteral("Allowgram"),
+		QString channel = QStringLiteral("stable"),
+		QString platform = QStringLiteral("linux"),
+		QString os = QStringLiteral("linux"),
+		QString arch = QStringLiteral("x64"),
+		QString display = QStringLiteral("7.2.8.8"),
+		quint32 base = 7002008,
+		quint32 sequence = 8,
+		QString fileName = QString(),
+		quint64 size = 4096,
+		QString sha256 = QString(),
+		QString releaseTag = QString(),
+		bool draft = false,
+		bool prerelease = false) {
+	if (fileName.isNull()) {
+		fileName = QStringLiteral("allowgram-update-stable-%1-%2-%3.tdup"
+			).arg(os
+			).arg(arch
+			).arg(display);
+	}
+	if (sha256.isNull()) {
+		sha256 = QString(64, QLatin1Char('a'));
+	}
+	if (releaseTag.isNull()) {
+		releaseTag = QStringLiteral("v") + display;
+	}
+	const auto file = QJsonObject{
+		{ "os", os },
+		{ "arch", arch },
+		{ "file", fileName },
+		{ "size", double(size) },
+		{ "sha256", sha256 },
+	};
+	const auto root = QJsonObject{
+		{ "format", 1 },
+		{ "product", product },
+		{ "channel", channel },
+		{ "release", QJsonObject{
+			{ "tag", releaseTag },
+			{ "draft", draft },
+			{ "prerelease", prerelease },
+		} },
+		{ "version", QJsonObject{
+			{ "display", display },
+			{ "base", int(base) },
+			{ "sequence", int(sequence) },
+		} },
+		{ "files", QJsonObject{ { platform, file } } },
+	};
+	return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+QJsonArray StableFeedSignatures(
+		const QByteArray &signedBytes,
+		const std::vector<const TestKey*> &signers) {
+	auto signatures = QJsonArray();
+	const auto input = StableReleaseFeedSigningInput(signedBytes);
+	for (const auto *signer : signers) {
+		signatures.append(QJsonObject{
+			{ "key_id", QString::fromLatin1(signer->id) },
+			{ "signature", QString::fromLatin1(
+				Base64Url(SignWith(*signer, input))) },
+		});
+	}
+	return signatures;
+}
+
+QByteArray SignedAllowgramFeed(
+		const QByteArray &signedBytes,
+		const QJsonArray &signatures) {
+	const auto root = QJsonObject{
+		{ "format", 1 },
+		{ "signed", QString::fromLatin1(Base64Url(signedBytes)) },
+		{ "signatures", signatures },
+	};
+	return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+QByteArray SignedAllowgramFeed(
+		const QByteArray &signedBytes,
+		const std::vector<const TestKey*> &signers) {
+	return SignedAllowgramFeed(
+		signedBytes,
+		StableFeedSignatures(signedBytes, signers));
+}
+
+[[nodiscard]] bool WriteStageFile(
+		const QString &root,
+		const QString &relative,
+		const QByteArray &bytes) {
+	const auto path = QDir(root).filePath(relative);
+	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+		return false;
+	}
+	auto file = QFile(path);
+	return file.open(QIODevice::WriteOnly)
+		&& file.write(bytes) == bytes.size();
+}
+
+[[nodiscard]] StagedUpdateFile MakeStageFile(
+		const QString &path,
+		const QByteArray &bytes) {
+	return { path, quint64(bytes.size()), Sha256Bytes(bytes) };
+}
 } // namespace
 
 int main(int argc, char *argv[]) {
+	Check(
+		Core::RunningUpdateVersion()
+			== MakeUpdateVersion(quint32(AppVersion), kAllowgramSequence),
+		"Allowgram update version uses the stable sequence");
+	Check(
+		DisplayUpdateVersion(MakeUpdateVersion(7002008, 8))
+			== QStringLiteral("7.2.8.8"),
+		"packed Allowgram version formats with the stable sequence");
+
 	constexpr auto kNow = qint64(1800000000);
 	const auto payload = QByteArray("test-payload-not-really-lzma");
 
@@ -418,6 +540,315 @@ int main(int argc, char *argv[]) {
 			error);
 	};
 
+	{ // The Allowgram release feed is fixed to signed stable GitHub assets.
+		auto error = QString();
+		const auto feedUrl = QStringLiteral(
+			"https://github.com/molotovgit/allowgram/releases/latest/download/"
+			"allowgram-update-feed.json");
+		const auto releaseTag = QStringLiteral("v7.2.8.8");
+		const auto assetName = QStringLiteral(
+			"allowgram-update-stable-linux-x64-7.2.8.8.tdup");
+		const auto running = MakeUpdateVersion(7002008, 7);
+		const auto signedFeed = [&](QByteArray bytes) {
+			return SignedAllowgramFeed(
+			bytes,
+			std::vector<const TestKey*>{ &rl, &rc });
+		};
+		const auto parseFeed = [&](const QByteArray &bytes, quint64 version) {
+			return ParseStableReleaseFeed(
+				bytes,
+				"linux",
+				version,
+				held,
+				kNow,
+				&error);
+		};
+		const auto parsed = parseFeed(signedFeed(AllowgramFeed()), running);
+		Check(parsed && parsed->updateAvailable,
+			"Allowgram feed offers a newer stable package");
+		Check(parsed && parsed->asset.fileName == assetName,
+			"Allowgram feed accepts the exact asset name");
+		Check(parsed && parsed->asset.tag == releaseTag,
+			"Allowgram feed carries the exact release tag");
+		Check(
+			parsed && parsed->asset.url == StableReleaseDownloadUrl(
+				releaseTag,
+				assetName),
+			"Allowgram feed builds the immutable GitHub asset URL");
+		Check(StableReleaseFeedUrl() == feedUrl,
+			"Allowgram feed uses the fixed GitHub release asset URL");
+		Check(
+			parsed && parsed->asset.packedVersion == MakeUpdateVersion(7002008, 8),
+			"Allowgram feed carries the packed stable sequence");
+		const auto same = parseFeed(
+			signedFeed(AllowgramFeed()),
+			MakeUpdateVersion(7002008, 8));
+		Check(same && !same->updateAvailable,
+			"equal Allowgram sequence is not offered");
+		Check(!ParseStableReleaseFeed(
+			AllowgramFeed(),
+			"linux",
+			running,
+			held,
+			kNow),
+			"unsigned Allowgram feed rejected before metadata trust");
+		Check(!ParseStableReleaseFeed(
+			signedFeed(AllowgramFeed()),
+			"linux",
+			running,
+			std::nullopt,
+			kNow),
+			"Allowgram feed without a trusted manifest rejected");
+		auto expiredManifest = held;
+		if (expiredManifest) {
+			expiredManifest->expires = kNow - 1;
+		}
+		Check(!ParseStableReleaseFeed(
+			signedFeed(AllowgramFeed()),
+			"linux",
+			running,
+			expiredManifest,
+			kNow),
+			"Allowgram feed with expired manifest rejected");
+		Check(!ParseStableReleaseFeed(
+			SignedAllowgramFeed(
+				AllowgramFeed(),
+				std::vector<const TestKey*>{ &rl }),
+			"linux",
+			running,
+			held,
+			kNow),
+			"Allowgram feed missing a stable signature group rejected");
+		Check(!ParseStableReleaseFeed(
+			SignedAllowgramFeed(
+				AllowgramFeed(),
+				std::vector<const TestKey*>{ &rl, &rogue }),
+			"linux",
+			running,
+			held,
+			kNow),
+			"Allowgram feed signed by foreign key rejected");
+		const auto originalSignedBytes = AllowgramFeed();
+		auto tamperedSignedBytes = originalSignedBytes;
+		tamperedSignedBytes[tamperedSignedBytes.size() - 2]
+			= tamperedSignedBytes[tamperedSignedBytes.size() - 2] ^ 1;
+		Check(!ParseStableReleaseFeed(
+			SignedAllowgramFeed(
+				tamperedSignedBytes,
+				StableFeedSignatures(
+					originalSignedBytes,
+					std::vector<const TestKey*>{ &rl, &rc })),
+			"linux",
+			running,
+			held,
+			kNow),
+			"Allowgram feed signature mismatch rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.65536"),
+				7002008,
+				65536)),
+			running),
+			"out-of-PE-range Allowgram sequence rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(QStringLiteral("Telegram"))),
+			running),
+			"foreign product feed rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("beta"))),
+			running),
+			"beta feed rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				4096,
+				QString(),
+				QStringLiteral("v7.2.8.9"))),
+			running),
+			"mismatched release tag rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				4096,
+				QString(),
+				QString(),
+				true)),
+			running),
+			"draft release feed rejected");
+		Check(!ParseStableReleaseFeed(
+			signedFeed(AllowgramFeed()),
+			"win64",
+			running,
+			held,
+			kNow),
+			"missing platform asset rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("mac"))),
+			running),
+			"wrong OS asset rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QStringLiteral("td-update-linux-x64-7002008"))),
+			running),
+			"legacy official asset name rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				quint64(kMaxPayloadSize) + 1)),
+			running),
+			"oversized feed asset rejected");
+		Check(!parseFeed(
+			signedFeed(AllowgramFeed(
+				QStringLiteral("Allowgram"),
+				QStringLiteral("stable"),
+				QStringLiteral("linux"),
+				QStringLiteral("linux"),
+				QStringLiteral("x64"),
+				QStringLiteral("7.2.8.8"),
+				7002008,
+				8,
+				QString(),
+				4096,
+				QStringLiteral("abc"))),
+			running),
+			"bad feed SHA-256 rejected");
+	}
+
+	{ // Stage manifests authenticate the exact staged Windows payload tree.
+		auto dir = QTemporaryDir();
+		const auto app = QByteArray("new app");
+		const auto helper = QByteArray("new helper");
+		const auto info = QByteArray("{\"version\":\"7.2.8.9\"}");
+		const auto readme = QByteArray("readme");
+		Check(WriteStageFile(dir.path(), QStringLiteral("Allowgram.exe"), app),
+			"stage test writes app payload");
+		Check(WriteStageFile(dir.path(), QStringLiteral("AllowgramUpdater.exe"), helper),
+			"stage test writes helper payload");
+		Check(WriteStageFile(dir.path(), QStringLiteral("build-info.json"), info),
+			"stage test writes build info payload");
+		Check(WriteStageFile(dir.path(), QStringLiteral("README.txt"), readme),
+			"stage test writes optional payload file");
+		const auto package = QByteArray("signed package bytes");
+		const auto manifest = StagedUpdateManifest{
+			.packedVersion = MakeUpdateVersion(7002008, 9),
+			.displayVersion = QStringLiteral("7.2.8.9"),
+			.packageSha256 = Sha256Bytes(package),
+			.files = {
+				MakeStageFile(QStringLiteral("Allowgram.exe"), app),
+				MakeStageFile(QStringLiteral("AllowgramUpdater.exe"), helper),
+				MakeStageFile(QStringLiteral("build-info.json"), info),
+				MakeStageFile(QStringLiteral("README.txt"), readme),
+			},
+		};
+		const auto serialized = SerializeStageManifest(manifest);
+		const auto expectedHash = Sha256Bytes(serialized);
+		auto error = QString();
+		Check(!serialized.isEmpty(),
+			"stage manifest serializes valid payload metadata");
+		Check(WriteStageManifest(dir.path(), manifest, &error),
+			"stage manifest writes beside the ready marker");
+		Check(
+			WriteStageFile(
+				dir.path(),
+				QStringLiteral("tdata/package.tdup"),
+				payload),
+			"retained signed package can be stored in the stage metadata");
+		const auto ready = VerifyStagedUpdate(
+			dir.path(),
+			MakeUpdateVersion(7002008, 8),
+			expectedHash,
+			&error);
+		Check(ready && ready->packedVersion == manifest.packedVersion,
+			"stage manifest accepts newer exact staged payload");
+		Check(ready && ready->manifestSha256 == expectedHash,
+			"stage manifest reports the launcher helper hash");
+		Check(
+			VerifyStagedUpdate(
+				dir.path(),
+				MakeUpdateVersion(7002008, 8),
+				expectedHash,
+				&error).has_value(),
+			"retained signed package is allowed but not copied");
+		Check(!VerifyStagedUpdate(
+				dir.path(),
+				manifest.packedVersion,
+				expectedHash,
+				&error),
+			"stage manifest rejects equal-version replay");
+		Check(WriteStageFile(dir.path(), QStringLiteral("README.txt"), QByteArray("tamper")),
+			"stage test tampers optional payload file");
+		Check(!VerifyStagedUpdate(
+				dir.path(),
+				MakeUpdateVersion(7002008, 8),
+				expectedHash,
+				&error),
+			"stage manifest rejects staged file tampering");
+		Check(WriteStageFile(dir.path(), QStringLiteral("README.txt"), readme),
+			"stage test restores optional payload file");
+		Check(WriteStageFile(dir.path(), QStringLiteral("extra.bin"), QByteArray("x")),
+			"stage test writes unexpected payload file");
+		Check(!VerifyStagedUpdate(
+				dir.path(),
+				MakeUpdateVersion(7002008, 8),
+				expectedHash,
+				&error),
+			"stage manifest rejects unexpected staged file");
+		QFile::remove(QDir(dir.path()).filePath(QStringLiteral("extra.bin")));
+		auto duplicate = manifest;
+		duplicate.files.push_back(
+			MakeStageFile(QStringLiteral("allowgram.exe"), QByteArray("case")));
+		Check(SerializeStageManifest(duplicate).isEmpty(),
+			"stage manifest rejects case-colliding payload paths");
+		Check(!NormalizeUpdatePayloadPath(QStringLiteral("../Allowgram.exe")),
+			"stage manifest rejects traversal payload paths");
+		Check(!NormalizeUpdatePayloadPath(QStringLiteral("C:/Allowgram.exe")),
+			"stage manifest rejects drive-qualified payload paths");
+		Check(!UpdatePayloadFileAllowed(QStringLiteral("Telegram.exe")),
+			"stage manifest rejects legacy Telegram payload identity");
+	}
 	{ // The committed trust files must verify with the pinned root.
 		auto error = QString();
 		const auto embedded = ParseVerifiedManifest(
@@ -427,10 +858,14 @@ int main(int argc, char *argv[]) {
 			&error);
 		Check(embedded.has_value(), "embedded manifest verifies");
 		Check(embedded && embedded->version >= 1, "embedded manifest version");
-		Check(embedded && embedded->channels.size() == 4,
-			"embedded manifest lists all four channels");
-		Check(embedded && !embedded->keys.empty(),
-			"embedded manifest has usable keys");
+		Check(embedded && embedded->channels.size() == 1,
+			"embedded manifest lists Allowgram stable only");
+		Check(embedded && embedded->channels.contains("stable"),
+			"embedded manifest has the stable channel");
+		Check(
+			embedded && embedded->keys.size() == 1
+				&& embedded->keys.front().id == "allowgram-release-2026a",
+			"embedded manifest has the Allowgram release key");
 	}
 
 	{ // A good stable package needs one rl AND one rc signature.
@@ -572,8 +1007,15 @@ int main(int argc, char *argv[]) {
 			payload);
 		Check(!verify(beta, Channel::Stable, false, runningStable),
 			"beta package rejected without the beta setting");
-		Check(verify(beta, Channel::Stable, true, runningStable).has_value(),
-			"beta package accepted with the beta setting");
+		Check(!ChannelPolicyAllows(
+				Channel::Stable,
+				true,
+				Channel::Beta,
+				MakeUpdateVersion(5000001, 0),
+				runningStable),
+			"Allowgram stable package policy rejects imported beta setting");
+		Check(!verify(beta, Channel::Stable, true, runningStable),
+			"beta package rejected with the imported beta setting");
 		Check(verify(beta, Channel::Beta, false, runningStable).has_value(),
 			"beta package accepted on a beta build");
 	}

@@ -1,9 +1,106 @@
+	case mtpc_messages_search:
+		return ReadPeerAllowed<MTPmessages_Search>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_readHistory:
+		return ReadPeerAllowed<MTPmessages_ReadHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{});
+	case mtpc_messages_deleteHistory:
+		return ReadPeerAllowed<MTPmessages_DeleteHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getScheduledHistory:
+		return ReadPeerAllowed<MTPmessages_GetScheduledHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{});
+	case mtpc_messages_getScheduledMessages:
+		return ReadPeerAllowed<MTPmessages_GetScheduledMessages>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{});
+	case mtpc_messages_getReplies:
+		return ReadPeerAllowed<MTPmessages_GetReplies>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{});
+	case mtpc_messages_getSearchCounters:
+		return ReadPeerAllowed<MTPmessages_GetSearchCounters>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getSearchResultsCalendar:
+		return ReadPeerAllowed<MTPmessages_GetSearchResultsCalendar>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getSearchResultsPositions:
+		return ReadPeerAllowed<MTPmessages_GetSearchResultsPositions>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_readMentions:
+		return ReadPeerAllowed<MTPmessages_ReadMentions>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_readReactions:
+		return ReadPeerAllowed<MTPmessages_ReadReactions>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{ .flags = true });
+	case mtpc_messages_getHistory:
+		return ReadPeerAllowed<MTPmessages_GetHistory>(
+			from,
+			end,
+			selfId,
+			allows,
+			content,
+			PeerRequestLayout{});
 	case mtpc_messages_getRichMessage:
 		return ReadPeerAllowed<MTPmessages_GetRichMessage>(
 			from,
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{});
 	case mtpc_messages_setTyping:
 		return ReadPeerAllowed<MTPmessages_SetTyping>(
@@ -11,6 +108,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_sendMessage:
 		return ReadPeerAllowed<MTPmessages_SendMessage>(
@@ -18,6 +116,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true, .replyFlag = (1U << 0) });
 	case mtpc_messages_sendMedia:
 		return ReadPeerAllowed<MTPmessages_SendMedia>(
@@ -25,6 +124,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true, .replyFlag = (1U << 0) });
 	case mtpc_messages_sendInlineBotResult:
 		return ReadPeerAllowed<MTPmessages_SendInlineBotResult>(
@@ -32,6 +132,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true, .replyFlag = (1U << 0) });
 	case mtpc_messages_editMessage:
 		return ReadPeerAllowed<MTPmessages_EditMessage>(
@@ -39,6 +140,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_getBotCallbackAnswer:
 		return ReadPeerAllowed<MTPmessages_GetBotCallbackAnswer>(
@@ -46,6 +148,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_saveDraft:
 		return ReadPeerAllowed<MTPmessages_SaveDraft>(
@@ -53,6 +156,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{
 				.flags = true,
 				.replyFlag = (1U << 4),
@@ -64,6 +168,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_uploadMedia:
 		return ReadPeerAllowed<MTPmessages_UploadMedia>(
@@ -71,6 +176,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true, .forbiddenFlags = 1U });
 	case mtpc_messages_sendScreenshotNotification:
 		return ReadPeerAllowed<MTPmessages_SendScreenshotNotification>(
@@ -78,6 +184,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .requiredReply = true });
 	case mtpc_messages_sendMultiMedia:
 		return ReadPeerAllowed<MTPmessages_SendMultiMedia>(
@@ -85,6 +192,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true, .replyFlag = (1U << 0) });
 	case mtpc_messages_updatePinnedMessage:
 		return ReadPeerAllowed<MTPmessages_UpdatePinnedMessage>(
@@ -92,6 +200,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_sendVote:
 		return ReadPeerAllowed<MTPmessages_SendVote>(
@@ -99,6 +208,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout());
 	case mtpc_messages_sendScheduledMessages:
 		return ReadPeerAllowed<MTPmessages_SendScheduledMessages>(
@@ -106,6 +216,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout());
 	case mtpc_messages_sendReaction:
 		return ReadPeerAllowed<MTPmessages_SendReaction>(
@@ -113,6 +224,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_sendBotRequestedPeer:
 		return ReadPeerAllowed<MTPmessages_SendBotRequestedPeer>(
@@ -120,6 +232,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_sendQuickReplyMessages:
 		return ReadPeerAllowed<MTPmessages_SendQuickReplyMessages>(
@@ -127,6 +240,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout());
 	case mtpc_messages_sendPaidReaction:
 		return ReadPeerAllowed<MTPmessages_SendPaidReaction>(
@@ -134,6 +248,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_messages_toggleTodoCompleted:
 		return ReadPeerAllowed<MTPmessages_ToggleTodoCompleted>(
@@ -141,6 +256,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout());
 	case mtpc_messages_appendTodoList:
 		return ReadPeerAllowed<MTPmessages_AppendTodoList>(
@@ -148,6 +264,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout());
 	case mtpc_messages_addPollAnswer:
 		return ReadPeerAllowed<MTPmessages_AddPollAnswer>(
@@ -155,6 +272,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout());
 	case mtpc_messages_deletePollAnswer:
 		return ReadPeerAllowed<MTPmessages_DeletePollAnswer>(
@@ -162,6 +280,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout());
 	case mtpc_stories_sendReaction:
 		return ReadPeerAllowed<MTPstories_SendReaction>(
@@ -169,6 +288,7 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });
 	case mtpc_ephemeral_getCallbackAnswer:
 		return ReadPeerAllowed<MTPephemeral_GetCallbackAnswer>(
@@ -176,4 +296,5 @@
 			end,
 			selfId,
 			allows,
+			content,
 			PeerRequestLayout{ .flags = true });

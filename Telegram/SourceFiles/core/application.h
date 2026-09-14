@@ -126,6 +126,7 @@ enum class LaunchState {
 enum class QuitReason {
 	Default,
 	QtQuitEvent,
+	Update,
 };
 
 extern const char kOptionSkipUrlSchemeRegister[];
@@ -254,7 +255,7 @@ public:
 	[[nodiscard]] Export::Manager &exportManager() const {
 		return *_exportManager;
 	}
-	[[nodiscard]] bool exportPreventsQuit();
+	[[nodiscard]] bool exportPreventsQuit(Fn<void()> callback);
 
 	// Main::Session component.
 	Main::Session *maybePrimarySession() const;
@@ -312,8 +313,8 @@ public:
 	void forceLogOut(
 		not_null<Main::Account*> account,
 		const TextWithEntities &explanation);
-	[[nodiscard]] bool uploadPreventsQuit();
-	[[nodiscard]] bool downloadPreventsQuit();
+	[[nodiscard]] bool uploadPreventsQuit(Fn<void()> callback);
+	[[nodiscard]] bool downloadPreventsQuit(Fn<void()> callback);
 	void checkLocalTime();
 	void lockByPasscode();
 	void maybeLockByPasscode();
@@ -329,7 +330,9 @@ public:
 	void checkAutoLockIn(crl::time time);
 	void localPasscodeChanged();
 
-	[[nodiscard]] bool preventsQuit(QuitReason reason);
+	[[nodiscard]] bool preventsQuit(
+		QuitReason reason,
+		Fn<void()> callback = nullptr);
 
 	[[nodiscard]] crl::time lastNonIdleTime() const;
 	void updateNonIdle();
@@ -377,7 +380,7 @@ private:
 		-> std::shared_ptr<Ui::Emoji::UniversalImages>;
 	void startLocalStorage();
 	void startShortcuts();
-	void startDomain();
+	bool startDomain();
 	void startEmojiImageLoader();
 	void startSystemDarkModeViewer();
 	void startMediaView();
@@ -505,6 +508,7 @@ void SetLaunchState(LaunchState state);
 void Quit(QuitReason reason = QuitReason::Default);
 [[nodiscard]] bool Quitting();
 
+[[nodiscard]] bool RestartToUpdate();
 void Restart();
 
 } // namespace Core

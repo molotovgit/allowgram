@@ -881,10 +881,8 @@ bool SuggestionsController::consumesEnter() const {
 
 void SuggestionsController::showWithQuery(SuggestionsQuery query) {
 	_showExactTimer.cancel();
-	const auto force = base::take(_keywordsRefreshed);
-	_lastShownQuery = query;
-	_suggestions->showWithQuery(_lastShownQuery, force);
-	_container->resizeToContent();
+	_container->hide();
+	_shown = false;
 }
 
 SuggestionsQuery SuggestionsController::getEmojiQuery() {

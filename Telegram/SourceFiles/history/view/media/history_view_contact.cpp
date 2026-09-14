@@ -93,6 +93,9 @@ ClickHandlerPtr AddContactClickHandler(not_null<HistoryItem*> item) {
 				return;
 			}
 			if (const auto contact = sharedContact()) {
+				if (!session->canPresentPeerProfile(contact->userId)) {
+					return;
+				}
 				controller->show(Box<AddContactBox>(
 					session,
 					contact->firstName,
@@ -255,6 +258,10 @@ QSize Contact::countOptimalSize() {
 	}
 
 	const auto vcardBoxFactory = _vcardBoxFactory;
+	const auto session = &history()->session();
+	const auto sessionId = session->uniqueId();
+	const auto contactUserId = _userId;
+	const auto detailsAllowed = session->canPresentPeerProfile(contactUserId);
 	_buttons.clear();
 	if (_contact) {
 		const auto message = tr::lng_contact_send_message(tr::now).toUpper();
@@ -263,7 +270,7 @@ QSize Contact::countOptimalSize() {
 			st::semiboldFont->width(message),
 			SendMessageClickHandler(_contact),
 		});
-		if (!_contact->isContact()) {
+		if (detailsAllowed && !_contact->isContact()) {
 			const auto add = tr::lng_contact_add(tr::now).toUpper();
 			_buttons.push_back({
 				add,
@@ -272,7 +279,7 @@ QSize Contact::countOptimalSize() {
 			});
 		}
 		_mainButton.link = _buttons.front().link;
-	} else if (vcardBoxFactory) {
+	} else if (vcardBoxFactory && detailsAllowed) {
 		const auto view = tr::lng_contact_details_button(tr::now).toUpper();
 		_buttons.push_back({
 			view,
@@ -280,11 +287,15 @@ QSize Contact::countOptimalSize() {
 			AddContactClickHandler(_parent->data()),
 		});
 	}
-	if (vcardBoxFactory) {
+	if (vcardBoxFactory && detailsAllowed) {
 		_mainButton.link = std::make_shared<LambdaClickHandler>([=](
 				const ClickContext &context) {
 			const auto my = context.other.value<ClickHandlerContext>();
 			if (const auto controller = my.sessionWindow.get()) {
+				if (controller->session().uniqueId() != sessionId
+					|| !controller->session().canPresentPeerProfile(contactUserId)) {
+					return;
+				}
 				controller->uiShow()->show(Box(vcardBoxFactory));
 			}
 		});

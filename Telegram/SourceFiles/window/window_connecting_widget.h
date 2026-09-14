@@ -61,6 +61,7 @@ private:
 		bool progressShown = false;
 		int contentWidth = 0;
 		QString text;
+		QString actionText;
 		int textWidth = 0;
 
 	};

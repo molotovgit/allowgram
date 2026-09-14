@@ -18,6 +18,9 @@ object_ptr<Window::SectionWidget> TabbedMemento::createWidget(
 		not_null<Window::SessionController*> controller,
 		Window::Column column,
 		const QRect &geometry) {
+	if (!controller->allowlistAllowsSection(this)) {
+		return nullptr;
+	}
 	auto result = object_ptr<TabbedSection>(parent, controller);
 	result->setGeometry(geometry);
 	return result;

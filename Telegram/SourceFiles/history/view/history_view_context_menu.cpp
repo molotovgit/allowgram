@@ -383,17 +383,6 @@ void AddPhotoActions(
 			}
 		}, &st::menuIconCopy);
 	}
-	if (photo->hasAttachedStickers()) {
-		const auto controller = list->controller();
-		auto callback = [=] {
-			auto &attached = photo->session().api().attachedStickers();
-			attached.requestAttachedStickerSets(controller, photo);
-		};
-		menu->addAction(
-			tr::lng_context_attached_stickers(tr::now),
-			std::move(callback),
-			&st::menuIconStickers);
-	}
 }
 
 void SaveGif(
@@ -435,6 +424,10 @@ void AddDocumentActions(
 		not_null<DocumentData*> document,
 		HistoryItem *item,
 		not_null<ListWidget*> list) {
+	if (document->sticker() || document->type == AnimatedDocument
+		|| document->hasMimeType(u"image/gif"_q)) {
+		return;
+	}
 	if (document->loading()) {
 		menu->addAction(tr::lng_context_cancel_download(tr::now), [=] {
 			document->cancel();
@@ -443,7 +436,6 @@ void AddDocumentActions(
 	}
 	const auto controller = list->controller();
 	const auto contextId = item ? item->fullId() : FullMsgId();
-	const auto session = &document->session();
 	if (item && document->isGifv()) {
 		const auto notAutoplayedGif = !Data::AutoDownload::ShouldAutoPlay(
 			document->session().settings().autoDownload(),
@@ -494,17 +486,6 @@ void AddDocumentActions(
 				: tr::lng_context_show_in_folder(tr::now)),
 			[=] { ShowInFolder(document); },
 			&st::menuIconShowInFolder);
-	}
-	if (document->hasAttachedStickers()) {
-		const auto controller = list->controller();
-		auto callback = [=] {
-			auto &attached = session->api().attachedStickers();
-			attached.requestAttachedStickerSets(controller, document);
-		};
-		menu->addAction(
-			tr::lng_context_attached_stickers(tr::now),
-			std::move(callback),
-			&st::menuIconStickers);
 	}
 	if (item && !list->hasCopyMediaRestriction(item)) {
 		const auto controller = list->controller();
@@ -2842,96 +2823,6 @@ void AddEmojiPacksAction(
 		std::vector<StickerSetIdentifier> packIds,
 		EmojiPacksSource source,
 		not_null<Window::SessionController*> controller) {
-	if (packIds.empty()) {
-		return;
-	}
-
-	const auto count = int(packIds.size());
-	const auto manager = &controller->session().data().customEmojiManager();
-	const auto name = (count == 1)
-		? TextWithEntities{ manager->lookupSetName(packIds[0].id) }
-		: TextWithEntities();
-	if (!menu->empty()) {
-		menu->addSeparator();
-	}
-	auto text = [&] {
-		switch (source) {
-		case EmojiPacksSource::Message:
-			return name.text.isEmpty()
-				? tr::lng_context_animated_emoji_many(
-					tr::now,
-					lt_count,
-					count,
-					tr::rich)
-				: tr::lng_context_animated_emoji(
-					tr::now,
-					lt_name,
-					TextWithEntities{ name },
-					tr::rich);
-		case EmojiPacksSource::Tag:
-			return tr::lng_context_animated_tag(
-				tr::now,
-				lt_name,
-				TextWithEntities{ name },
-				tr::rich);
-		case EmojiPacksSource::Reaction:
-			if (!name.text.isEmpty()) {
-				return tr::lng_context_animated_reaction(
-					tr::now,
-					lt_name,
-					TextWithEntities{ name },
-					tr::rich);
-			}
-			[[fallthrough]];
-		case EmojiPacksSource::Reactions:
-			return name.text.isEmpty()
-				? tr::lng_context_animated_reactions_many(
-					tr::now,
-					lt_count,
-					count,
-					tr::rich)
-				: tr::lng_context_animated_reactions(
-					tr::now,
-					lt_name,
-					TextWithEntities{ name },
-					tr::rich);
-		case EmojiPacksSource::PollOption:
-			return name.text.isEmpty()
-				? tr::lng_context_animated_poll_option_many(
-					tr::now,
-					lt_count,
-					count,
-					tr::rich)
-				: tr::lng_context_animated_poll_option(
-					tr::now,
-					lt_name,
-					TextWithEntities{ name },
-					tr::rich);
-		}
-		Unexpected("Source in AddEmojiPacksAction.");
-	}();
-	auto button = base::make_unique_q<Ui::Menu::MultilineAction>(
-		menu->menu(),
-		menu->st().menu,
-		st::historyHasCustomEmoji,
-		st::historyHasCustomEmojiPosition,
-		std::move(text));
-	const auto weak = base::make_weak(controller);
-	button->setActionTriggered([=] {
-		const auto strong = weak.get();
-		if (!strong) {
-			return;
-		} else if (packIds.size() > 1) {
-			strong->show(Box<StickersBox>(strong->uiShow(), packIds));
-			return;
-		}
-		// Single used emoji pack.
-		strong->show(Box<StickerSetBox>(
-			strong->uiShow(),
-			packIds.front(),
-			Data::StickersType::Emoji));
-	});
-	menu->addAction(std::move(button));
 }
 
 void AddEmojiPacksAction(

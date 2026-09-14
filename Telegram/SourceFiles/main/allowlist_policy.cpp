@@ -97,6 +97,51 @@ namespace {
 
 } // namespace
 
+bool CanPresentPeerProfile(Kind kind, bool conversationAllowed) {
+	return kind != Kind::User && conversationAllowed;
+}
+
+bool CanStartUserSession(int authorizedAccounts) {
+	return authorizedAccounts == 0;
+}
+
+bool CanCreateConversations() {
+	return false;
+}
+
+bool CanUseCalls() {
+	return false;
+}
+
+bool CanCallUser(
+		Kind kind,
+		bool conversationAllowed,
+		bool knownUser,
+		bool self,
+		bool bot) {
+	return kind == Kind::User && conversationAllowed && knownUser && !self && !bot;
+}
+
+bool ContainsEmoji(std::u32string_view text) {
+	struct Range {
+		char32_t first;
+		char32_t last;
+	};
+	static constexpr Range ranges[] = {
+#include "main/allowlist_emoji_ranges.inc"
+	};
+	for (const auto scalar : text) {
+		for (const auto &range : ranges) {
+			if (scalar < range.first) {
+				break;
+			} else if (scalar <= range.last) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 ParseResult Parse(std::string_view users, std::string_view groups) {
 	if (users.size() > kMaximumInputBytes
 		|| groups.size() > kMaximumInputBytes

@@ -235,14 +235,16 @@ ConnectionState::ConnectionState(
 		}
 	}, _lifetime);
 
-	if (!Core::UpdaterDisabled()) {
+	{
 		Core::UpdateChecker checker;
-		rpl::merge(
-			rpl::single(rpl::empty),
-			checker.ready()
-		) | rpl::on_next([=] {
-			refreshState();
-		}, _lifetime);
+		if (!Core::UpdaterDisabled()) {
+			rpl::merge(
+				rpl::single(rpl::empty),
+				checker.ready()
+			) | rpl::on_next([=] {
+				refreshState();
+			}, _lifetime);
+		}
 	}
 
 	rpl::combine(
@@ -306,7 +308,7 @@ void ConnectionState::setBottomSkip(int skip) {
 
 void ConnectionState::refreshState() {
 	using Checker = Core::UpdateChecker;
-	const auto state = [&]() -> State {
+	auto state = [&]() -> State {
 		const auto exposed = _parent->window()->windowHandle()
 			&& _parent->window()->windowHandle()->isExposed();
 		const auto under = _widget && _widget->isOver();
@@ -459,6 +461,7 @@ auto ConnectionState::computeLayout(const State &state) const -> Layout {
 			tr::now,
 			lt_count,
 			state.waitTillRetry);
+		result.actionText = tr::lng_reconnecting_try_now(tr::now);
 		break;
 	}
 	result.textWidth = st::normalFont->width(result.text);
@@ -467,13 +470,12 @@ auto ConnectionState::computeLayout(const State &state) const -> Layout {
 			+ result.textWidth
 			+ st::connectingTextPadding.right())
 		: 0;
-	if (state.type == State::Type::Waiting) {
+	result.hasRetry = (state.type == State::Type::Waiting);
+	if (result.hasRetry) {
 		result.contentWidth += st::connectingRetryLink.padding.left()
-			+ st::connectingRetryLink.font->width(
-				tr::lng_reconnecting_try_now(tr::now))
+			+ st::connectingRetryLink.font->width(result.actionText)
 			+ st::connectingRetryLink.padding.right();
 	}
-	result.hasRetry = (state.type == State::Type::Waiting);
 	return result;
 }
 
@@ -621,7 +623,12 @@ void ConnectionState::Widget::updateRetryGeometry() {
 }
 
 void ConnectionState::Widget::setLayout(const Layout &layout) {
+	const auto recreateRetry = _retry
+		&& (_currentLayout.actionText != layout.actionText);
 	_currentLayout = layout;
+	if (recreateRetry) {
+		_retry = nullptr;
+	}
 	_proxyIcon->setToggled(_currentLayout.proxyEnabled);
 	refreshRetryLink(_currentLayout.hasRetry);
 	setAccessibleName(_currentLayout.text);
@@ -637,7 +644,7 @@ void ConnectionState::Widget::refreshRetryLink(bool hasRetry) {
 	if (hasRetry && !_retry) {
 		_retry = base::make_unique_q<Ui::LinkButton>(
 			this,
-			tr::lng_reconnecting_try_now(tr::now),
+			_currentLayout.actionText,
 			st::connectingRetryLink);
 		_retry->addClickHandler([=] {
 			_account->mtp().restart();

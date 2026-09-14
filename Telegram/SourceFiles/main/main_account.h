@@ -49,7 +49,7 @@ public:
 	void start(std::unique_ptr<MTP::Config> config);
 
 	[[nodiscard]] uint64 willHaveSessionUniqueId(MTP::Config *config) const;
-	void createSession(
+	[[nodiscard]] bool createSession(
 		const MTPUser &user,
 		std::unique_ptr<SessionSettings> settings = nullptr);
 	void createSession(

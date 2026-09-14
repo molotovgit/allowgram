@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_item_helpers.h"
+#include "main/allowlist_policy.h"
+#include "chat_helpers/message_field.h"
 
 #include "api/api_reactions_notify_settings.h"
 #include "api/api_text_entities.h"
@@ -108,6 +110,15 @@ int ComputeSendingMessagesCount(
 Data::SendError GetErrorForSending(
 		not_null<PeerData*> peer,
 		SendingErrorRequest request) {
+	if ((request.text && !AllowgramSendTextAllowed(*request.text))
+		|| request.richMessage || request.story) {
+		return tr::lng_allowgram_unclassified_content(tr::now);
+	}
+	if (request.forward && ranges::any_of(*request.forward, [](const auto item) {
+		return !AllowgramForwardItemAllowed(item);
+	})) {
+		return tr::lng_allowgram_unclassified_content(tr::now);
+	}
 	const auto forum = request.topicRootId ? peer->forum() : nullptr;
 	const auto topic = forum
 		? forum->topicFor(request.topicRootId)
@@ -1241,6 +1252,9 @@ std::optional<bool> PeerHasThisCall(
 [[nodiscard]] ClickHandlerPtr GroupCallClickHandler(
 		not_null<PeerData*> peer,
 		CallId callId) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return nullptr;
+	}
 	return std::make_shared<LambdaClickHandler>([=] {
 		const auto call = peer->groupCall();
 		if (call && call->id() == callId) {

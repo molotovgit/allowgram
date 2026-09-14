@@ -77,6 +77,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "boxes/add_contact_box.h"
 #include "mtproto/mtproto_config.h"
+#include "mtproto/allowlist_request_guard.h"
 #include "history/history.h"
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
@@ -3766,6 +3767,10 @@ mtpRequestId ApiWrap::requestGlobalMedia(
 }
 
 void ApiWrap::sendAction(const SendAction &action) {
+	if (!_session->allowlistAllows(action.history->peer->id)
+		|| !AllowgramSendReplyAllowed(action.replyTo)) {
+		return;
+	}
 	if (!action.options.scheduled
 		&& !action.options.shortcutId
 		&& !action.replaceMediaOf) {
@@ -3826,6 +3831,12 @@ void ApiWrap::forwardMessages(
 		SendAction action,
 		FnMut<void()> &&successCallback) {
 	Expects(!draft.items.empty());
+	if (!_session->allowlistAllows(action.history->peer->id)
+		|| !AllowgramSendReplyAllowed(action.replyTo)
+		|| action.options.effectId
+		|| ranges::any_of(draft.items, [](const auto item) { return !AllowgramForwardItemAllowed(item); })) {
+		return;
+	}
 
 	auto &histories = _session->data().histories();
 
@@ -4188,6 +4199,12 @@ void ApiWrap::sendVoiceMessage(
 		crl::time duration,
 		bool video,
 		const SendAction &action) {
+	if (!_session->allowlistAllows(action.history->peer->id)
+		|| action.options.effectId || !AllowgramSendReplyAllowed(action.replyTo)
+		|| !MTP::AllowlistUploadPrefixAllowed(result)) {
+		sendMessageFail(tr::lng_allowgram_content_disabled(tr::now), action.history->peer);
+		return;
+	}
 	const auto caption = TextWithTags();
 	const auto to = FileLoadTaskOptions(action);
 	_fileLoader->addTask(
@@ -4207,6 +4224,13 @@ void ApiWrap::editMedia(
 		SendMediaType type,
 		TextWithTags &&caption,
 		const SendAction &action) {
+	if (!_session->allowlistAllows(action.history->peer->id)
+		|| action.options.effectId || !AllowgramSendReplyAllowed(action.replyTo)
+		|| !AllowgramSendTextAllowed(caption)
+		|| ranges::any_of(list.files, [](const auto &file) { return !AllowgramSendFileAllowed(file); })) {
+		sendMessageFail(tr::lng_allowgram_content_disabled(tr::now), action.history->peer);
+		return;
+	}
 	if (list.files.empty()) return;
 
 	auto &file = list.files.front();
@@ -4265,6 +4289,12 @@ void ApiWrap::sendFiles(
 		SendMediaType type,
 		std::shared_ptr<SendingAlbum> album,
 		SendAction action) {
+	if (!_session->allowlistAllows(action.history->peer->id)
+		|| !AllowgramSendReplyAllowed(action.replyTo)
+		|| action.options.effectId
+		|| ranges::any_of(list.files, [](const auto &file) { return !AllowgramSendFileAllowed(file); })) {
+		return;
+	}
 	const auto &ephemeral = _session->ephemeralMessages();
 	if (album && !ephemeral.isEphemeralBotReply(action.replyTo.messageId)) {
 		const auto peer = action.history->peer;
@@ -4352,6 +4382,12 @@ void ApiWrap::sendFile(
 		const QByteArray &fileContent,
 		SendMediaType type,
 		const SendAction &action) {
+	if (!_session->allowlistAllows(action.history->peer->id)
+		|| !AllowgramSendReplyAllowed(action.replyTo)
+		|| action.options.effectId
+		|| !MTP::AllowlistUploadPrefixAllowed(fileContent)) {
+		return;
+	}
 	const auto to = FileLoadTaskOptions(action);
 	auto caption = TextWithTags();
 	const auto spoiler = false;
@@ -4433,6 +4469,10 @@ void ApiWrap::sendRichMessage(
 		std::shared_ptr<const Iv::RichPage> page,
 		const MTPInputRichMessage &richMessage,
 		SendAction action) {
+	if (!AllowgramSendRichContentAllowed()) {
+		sendMessageFail(tr::lng_allowgram_unclassified_content(tr::now), action.history->peer);
+		return;
+	}
 	Expects(page != nullptr);
 
 	const auto history = action.history;
@@ -4494,6 +4534,10 @@ void ApiWrap::sendRichMessage(
 		not_null<HistoryItem*> item,
 		const MTPInputRichMessage &richMessage,
 		SendAction action) {
+	if (!AllowgramSendRichContentAllowed()) {
+		sendMessageFail(tr::lng_allowgram_unclassified_content(tr::now), action.history->peer);
+		return;
+	}
 	Expects(item->history() == action.history);
 
 	action.generateLocal = true;
@@ -4688,6 +4732,15 @@ void ApiWrap::sendRichMessage(
 void ApiWrap::sendMessage(
 		MessageToSend &&message,
 		std::optional<MsgId> localMessageId) {
+	if (!_session->allowlistAllows(message.action.history->peer->id)) {
+		return;
+	}
+	if (!AllowgramSendTextAllowed(message.textWithTags) || message.action.options.effectId
+		|| !AllowgramSendReplyAllowed(message.action.replyTo)) {
+		sendMessageFail(tr::lng_allowgram_content_disabled(tr::now), message.action.history->peer);
+		return;
+	}
+	message.webPage = { .removed = true };
 	const auto history = message.action.history;
 	const auto peer = history->peer;
 	const auto &textWithTags = message.textWithTags;
@@ -5009,6 +5062,14 @@ void ApiWrap::sendBotStart(
 
 	const auto &info = bot->botInfo;
 	const auto token = chat ? startTokenForChat : info->startToken;
+	if (!_session->allowlistAllows(bot->id)
+		|| (chat && !_session->allowlistAllows(chat->id))) {
+		return;
+	}
+	if (!AllowgramSendTextAllowed(TextWithTags{ token, {} })) {
+		show->showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 	if (token.isEmpty()) {
 		auto message = MessageToSend(
 			Api::SendAction(_session->data().history(chat
@@ -5027,7 +5088,7 @@ void ApiWrap::sendBotStart(
 	}
 	request(MTPmessages_StartBot(
 		bot->inputUser(),
-		chat ? chat->input() : MTP_inputPeerEmpty(),
+		chat ? chat->input() : bot->input(),
 		MTP_long(randomId),
 		MTP_string(token)
 	)).done([=](const MTPUpdates &result) {
@@ -5046,6 +5107,12 @@ void ApiWrap::sendInlineResult(
 		SendAction action,
 		std::optional<MsgId> localMessageId,
 		Fn<void(bool)> done) {
+	if (data->getErrorOnSend(action.history)) {
+		if (done) {
+			done(false);
+		}
+		return;
+	}
 	StripEphemeralReply(_session, action.replyTo);
 	sendAction(action);
 

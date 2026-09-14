@@ -86,6 +86,8 @@ inline constexpr auto kMaxPayloadSize = quint32(256 * 1024 * 1024);
 	return quint32(version & 0xFFFFFFFFULL);
 }
 
+[[nodiscard]] QString DisplayUpdateVersion(quint64 version);
+
 struct ManifestKey {
 	QByteArray id;
 	bool ed25519 = false;
@@ -165,8 +167,8 @@ struct Envelope {
 	qint64 now,
 	QString *error = nullptr);
 
-// betaSet means a stable build with the install-beta option, compile-time
-// beta builds behave as if it is always set. Canary-public builds accept
+// Stable builds ignore imported beta preferences and accept stable packages only.
+// Compile-time beta builds accept stable/beta packages. Canary-public builds accept
 // stable/beta packages only with a strictly greater base version (dormancy
 // rescue), canary-private builds accept canary-private packages only.
 [[nodiscard]] bool ChannelPolicyAllows(

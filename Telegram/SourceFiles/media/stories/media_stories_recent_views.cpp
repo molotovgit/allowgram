@@ -537,7 +537,13 @@ void RecentViews::addMenuRow(Data::StoryView entry, const QDateTime &now) {
 			.type = type,
 			.customEntityData = Data::ReactionEntityData(entry.reaction),
 			.userpic = std::move(userpic),
-			.callback = [=] { show->show(PrepareShortInfoBox(peer)); },
+			.callback = peer->session().canPresentPeerProfile(peer->id)
+				? Fn<void()>([=] {
+					if (auto box = PrepareShortInfoBox(peer)) {
+						show->show(std::move(box));
+					}
+				})
+				: nullptr,
 		};
 	};
 	if (_menuPlaceholderCount > 0) {

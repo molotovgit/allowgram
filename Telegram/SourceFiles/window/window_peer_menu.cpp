@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_peer_menu.h"
+#include "main/allowlist_policy.h"
 
 #include "base/call_delayed.h"
 #include "menu/menu_check_item.h"
@@ -611,6 +612,10 @@ void Filler::addSupportInfo() {
 void Filler::addInfo() {
 	const auto sublist = _thread ? _thread->asSublist() : nullptr;
 	const auto infoPeer = sublist ? sublist->sublistPeer().get() : _peer;
+	if (!infoPeer
+		|| !infoPeer->session().canPresentPeerProfile(infoPeer->id)) {
+		return;
+	}
 	if (infoPeer
 		&& (infoPeer->isSelf()
 			|| infoPeer->isRepliesChat()
@@ -644,8 +649,9 @@ void Filler::addInfo() {
 	_addAction(text, [=] {
 		if (const auto strong = weak.get()) {
 			if (base::IsCtrlPressed()) {
-				controller->uiShow()->showBox(
-					PrepareShortInfoBox(infoPeer, controller));
+				if (auto box = PrepareShortInfoBox(infoPeer, controller)) {
+					controller->uiShow()->showBox(std::move(box));
+				}
 			} else {
 				controller->showPeerInfo(strong);
 			}
@@ -4325,6 +4331,9 @@ bool FillVideoChatMenu(
 		not_null<SessionController*> controller,
 		Dialogs::EntryState request,
 		const PeerMenuCallback &addAction) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return false;
+	}
 	const auto peer = request.key.peer();
 	if (!peer || peer->isUser()) {
 		return false;
@@ -4383,18 +4392,22 @@ void FillSenderUserpicMenu(
 		: channel
 		? tr::lng_context_view_channel(tr::now)
 		: tr::lng_context_view_profile(tr::now);
-	addAction(viewProfileText, [=] {
-		controller->showPeerInfo(peer, Window::SectionShow::Way::Forward);
-	}, channel ? &st::menuIconInfo : &st::menuIconProfile);
+	if (peer->session().canPresentPeerProfile(peer->id)) {
+		addAction(viewProfileText, [=] {
+			controller->showPeerInfo(peer, Window::SectionShow::Way::Forward);
+		}, channel ? &st::menuIconInfo : &st::menuIconProfile);
+	}
 
 	const auto showHistoryText = group
 		? tr::lng_context_open_group(tr::now)
 		: channel
 		? tr::lng_context_open_channel(tr::now)
 		: tr::lng_profile_send_message(tr::now);
-	addAction(showHistoryText, [=] {
-		controller->showPeerHistory(peer, Window::SectionShow::Way::Forward);
-	}, channel ? &st::menuIconChannel : &st::menuIconChatBubble);
+	if (peer->session().allowlistAllows(peer->id)) {
+		addAction(showHistoryText, [=] {
+			controller->showPeerHistory(peer, Window::SectionShow::Way::Forward);
+		}, channel ? &st::menuIconChannel : &st::menuIconChatBubble);
+	}
 
 	const auto username = peer->username();
 	const auto mention = !username.isEmpty() || peer->isUser();

@@ -576,114 +576,15 @@ base::weak_qptr<Ui::BoxContent> StickerSetBox::Show(
 }
 
 void StickerSetBox::prepare() {
-	setStyle(st::stickerSetBox);
-	setTitle(tr::lng_contacts_loading());
-
-	_inner = setInnerWidget(
-		object_ptr<Inner>(this, _show, _set, _type),
-		st::stickersScroll);
-	_inner->setOuterContainer(getDelegate()->outerContainer(), [=] {
-		const auto layer = parentWidget();
-		const auto container = getDelegate()->outerContainer();
-		return (layer && container)
-			? container->mapFromGlobal(layer->mapToGlobal(QPoint())).y()
-			: 0;
-	});
-	if (const auto previewId = base::take(_previewDocumentId)) {
-		_inner->showPreviewForDocument(previewId);
-	}
-	_session->data().stickers().updated(
-		_type
-	) | rpl::on_next([=] {
-		updateButtons();
-	}, lifetime());
-
-	setDimensions(
-		st::boxWideWidth,
-		(_type == Data::StickersType::Emoji
-			? st::emojiSetMaxHeight
-			: st::stickersMaxHeight));
-
-	updateTitleAndButtons();
-
-	_inner->updateControls(
-	) | rpl::on_next([=] {
-		updateTitleAndButtons();
-	}, lifetime());
-
-	_inner->setInstalled(
-	) | rpl::on_next([=](uint64 setId) {
-		if (_inner->setType() == Data::StickersType::Masks) {
-			showToast({
-				.text = { tr::lng_masks_installed(tr::now) },
-				.iconLottie = u"toast/contact_check"_q,
-				.iconLottieSize = st::toastLottieIconSize,
-			});
-		} else if (_inner->setType() == Data::StickersType::Emoji) {
-			auto &stickers = _session->data().stickers();
-			stickers.notifyEmojiSetInstalled(setId);
-		} else if (_inner->setType() == Data::StickersType::Stickers) {
-			auto &stickers = _session->data().stickers();
-			stickers.notifyStickerSetInstalled(setId);
-		}
-		closeBox();
-	}, lifetime());
-
-	_inner->errors(
-	) | rpl::on_next([=](Error error) {
-		handleError(error);
-	}, lifetime());
-
-	_inner->setArchived(
-	) | rpl::on_next([=](uint64 setId) {
-		const auto type = _inner->setType();
-		if (type == Data::StickersType::Emoji) {
-			return;
-		}
-
-		showToast((type == Data::StickersType::Masks)
-				? tr::lng_masks_has_been_archived(tr::now)
-				: tr::lng_stickers_has_been_archived(tr::now));
-
-		auto &order = (type == Data::StickersType::Masks)
-			? _session->data().stickers().maskSetsOrderRef()
-			: _session->data().stickers().setsOrderRef();
-		const auto index = order.indexOf(setId);
-		if (index != -1) {
-			order.removeAt(index);
-
-			auto &local = _session->local();
-			if (type == Data::StickersType::Masks) {
-				local.writeInstalledMasks();
-				local.writeArchivedMasks();
-			} else {
-				local.writeInstalledStickers();
-				local.writeArchivedStickers();
-			}
-		}
-
-		_session->data().stickers().notifyUpdated(type);
-
-		closeBox();
-	}, lifetime());
-
-	boxClosing(
-	) | rpl::on_next([show = _show] {
-		if (const auto window = show->resolveWindow()) {
-			window->widget()->hideMediaPreview();
-		}
-	}, lifetime());
+	setTitle(tr::lng_allowgram_media_disabled_title());
+	setDimensions(st::boxWideWidth, st::boxPadding.top() + st::boxPadding.bottom());
+	addButton(tr::lng_close(), [=] { closeBox(); });
 }
 
 void StickerSetBox::addStickers() {
-	_inner->install();
 }
 
 void StickerSetBox::copyStickersLink() {
-	const auto part = _inner->isEmojiSet() ? u"addemoji"_q : "addstickers";
-	const auto url = _session->createInternalLinkFull(
-		part + '/' + _inner->shortName());
-	QGuiApplication::clipboard()->setText(url);
 }
 
 void StickerSetBox::handleError(Error error) {
@@ -701,6 +602,9 @@ void StickerSetBox::handleError(Error error) {
 }
 
 void StickerSetBox::updateTitleAndButtons() {
+	if (!_inner) {
+		return;
+	}
 	setTitle(_inner->title());
 	updateButtons();
 }
@@ -797,6 +701,9 @@ void ChangeSetNameBox(
 }
 
 void StickerSetBox::updateButtons() {
+	if (!_inner) {
+		return;
+	}
 	clearButtons();
 	addTopButton(st::boxTitleClose, [=] { closeBox(); });
 	if (_inner->reorderState()) {
@@ -1151,7 +1058,9 @@ void StickerSetBox::updateButtons() {
 
 void StickerSetBox::resizeEvent(QResizeEvent *e) {
 	BoxContent::resizeEvent(e);
-	_inner->resize(width(), _inner->height());
+	if (_inner) {
+		_inner->resize(width(), _inner->height());
+	}
 }
 
 StickerSetBox::Inner::Inner(

@@ -9,9 +9,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/platform/win/base_windows_safe_library.h"
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cwctype>
+#include <set>
+#include <utility>
+#include <vector>
+#include <wincrypt.h>
+
 bool _debug = false;
 
-wstring updaterName, updaterDir, updateTo, exeName, customWorkingDir, customKeyFile;
+wstring updaterName, updaterDir, updateTo, exeName, customWorkingDir, customKeyFile, expectedStageHash;
 
 bool equal(const wstring &a, const wstring &b) {
 	return !_wcsicmp(a.c_str(), b.c_str());
@@ -127,149 +136,647 @@ void delFolder() {
 DWORD versionNum = 0, versionLen = 0, readLen = 0;
 WCHAR versionStr[32] = { 0 };
 
+namespace {
+
+constexpr auto kStageManifestMagic = "AGST";
+constexpr auto kStageManifestFormat = uint32_t(1);
+constexpr auto kStageHashSize = size_t(32);
+constexpr auto kMaxStageManifestSize = size_t(32 * 1024);
+constexpr auto kMaxStagePathSize = uint32_t(240);
+constexpr auto kMaxStageFilesCount = uint32_t(32);
+const WCHAR *kApplicationExe = L"Allowgram.exe";
+const WCHAR *kUpdaterExe = L"AllowgramUpdater.exe";
+
+struct StageFile {
+	wstring path;
+	uint64_t size = 0;
+	std::array<BYTE, 32> sha256 = {};
+};
+
+struct StageManifest {
+	uint64_t version = 0;
+	wstring displayVersion;
+	std::vector<StageFile> files;
+};
+
+[[nodiscard]] wstring lower(wstring value) {
+	for (auto &ch : value) {
+		ch = WCHAR(towlower(ch));
+	}
+	return value;
+}
+
+[[nodiscard]] bool validHexSha256(const wstring &value) {
+	if (value.size() != 64) {
+		return false;
+	}
+	for (const auto ch : value) {
+		if (!((ch >= L'0' && ch <= L'9')
+			|| (ch >= L'a' && ch <= L'f')
+			|| (ch >= L'A' && ch <= L'F'))) {
+			return false;
+		}
+	}
+	return true;
+}
+
+[[nodiscard]] BYTE hexNibble(WCHAR ch) {
+	return (ch >= L'0' && ch <= L'9')
+		? BYTE(ch - L'0')
+		: (ch >= L'a' && ch <= L'f')
+		? BYTE(ch - L'a' + 10)
+		: BYTE(ch - L'A' + 10);
+}
+
+[[nodiscard]] std::array<BYTE, 32> hexToHash(const wstring &value) {
+	auto result = std::array<BYTE, 32>();
+	for (auto i = size_t(0); i != result.size(); ++i) {
+		result[i] = BYTE((hexNibble(value[2 * i]) << 4)
+			| hexNibble(value[2 * i + 1]));
+	}
+	return result;
+}
+
+[[nodiscard]] bool readWholeFile(
+		const wstring &path,
+		std::vector<BYTE> *content,
+		size_t maxSize) {
+	const auto file = CreateFile(
+		path.c_str(),
+		GENERIC_READ,
+		FILE_SHARE_READ,
+		0,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
+		0);
+	if (file == INVALID_HANDLE_VALUE) {
+		writeLog(L"Error: could not open '" + path + L"'");
+		return false;
+	}
+	auto size = LARGE_INTEGER();
+	if (!GetFileSizeEx(file, &size)
+		|| size.QuadPart < 0
+		|| uint64_t(size.QuadPart) > maxSize) {
+		writeLog(L"Error: bad file size for '" + path + L"'");
+		CloseHandle(file);
+		return false;
+	}
+	content->resize(size_t(size.QuadPart));
+	DWORD read = 0;
+	const auto ok = content->empty()
+		|| (ReadFile(file, content->data(), DWORD(content->size()), &read, 0)
+			&& read == DWORD(content->size()));
+	CloseHandle(file);
+	if (!ok) {
+		writeLog(L"Error: could not read '" + path + L"'");
+		return false;
+	}
+	return true;
+}
+
+[[nodiscard]] bool sha256Data(
+		const BYTE *data,
+		size_t size,
+		std::array<BYTE, 32> *result) {
+	HCRYPTPROV provider = 0;
+	HCRYPTHASH hash = 0;
+	if (!CryptAcquireContextW(
+			&provider,
+			nullptr,
+			nullptr,
+			PROV_RSA_AES,
+			CRYPT_VERIFYCONTEXT)
+		|| !CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash)) {
+		if (hash) {
+			CryptDestroyHash(hash);
+		}
+		if (provider) {
+			CryptReleaseContext(provider, 0);
+		}
+		return false;
+	}
+	while (size) {
+		const auto chunk = std::min<size_t>(size, 1024 * 1024);
+		if (!CryptHashData(hash, data, DWORD(chunk), 0)) {
+			CryptDestroyHash(hash);
+			CryptReleaseContext(provider, 0);
+			return false;
+		}
+		data += chunk;
+		size -= chunk;
+	}
+	DWORD length = DWORD(result->size());
+	const auto ok = CryptGetHashParam(
+		hash,
+		HP_HASHVAL,
+		result->data(),
+		&length,
+		0) && length == DWORD(result->size());
+	CryptDestroyHash(hash);
+	CryptReleaseContext(provider, 0);
+	return ok;
+}
+
+[[nodiscard]] bool sha256File(
+		const wstring &path,
+		uint64_t expectedSize,
+		std::array<BYTE, 32> *result) {
+	const auto file = CreateFile(
+		path.c_str(),
+		GENERIC_READ,
+		FILE_SHARE_READ,
+		0,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
+		0);
+	if (file == INVALID_HANDLE_VALUE) {
+		writeLog(L"Error: could not open '" + path + L"' for hashing");
+		return false;
+	}
+	auto size = LARGE_INTEGER();
+	if (!GetFileSizeEx(file, &size)
+		|| size.QuadPart < 0
+		|| uint64_t(size.QuadPart) != expectedSize) {
+		writeLog(L"Error: staged file size changed: '" + path + L"'");
+		CloseHandle(file);
+		return false;
+	}
+	HCRYPTPROV provider = 0;
+	HCRYPTHASH hash = 0;
+	if (!CryptAcquireContextW(
+			&provider,
+			nullptr,
+			nullptr,
+			PROV_RSA_AES,
+			CRYPT_VERIFYCONTEXT)
+		|| !CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash)) {
+		writeLog(L"Error: could not initialize SHA-256");
+		if (hash) {
+			CryptDestroyHash(hash);
+		}
+		if (provider) {
+			CryptReleaseContext(provider, 0);
+		}
+		CloseHandle(file);
+		return false;
+	}
+	auto buffer = std::vector<BYTE>(1024 * 1024);
+	auto ok = true;
+	while (ok) {
+		DWORD read = 0;
+		if (!ReadFile(file, buffer.data(), DWORD(buffer.size()), &read, 0)) {
+			writeLog(L"Error: could not hash '" + path + L"'");
+			ok = false;
+			break;
+		}
+		if (!read) {
+			break;
+		}
+		if (!CryptHashData(hash, buffer.data(), read, 0)) {
+			writeLog(L"Error: could not update SHA-256");
+			ok = false;
+			break;
+		}
+	}
+	DWORD length = DWORD(result->size());
+	ok = ok
+		&& CryptGetHashParam(hash, HP_HASHVAL, result->data(), &length, 0)
+		&& length == DWORD(result->size());
+	CryptDestroyHash(hash);
+	CryptReleaseContext(provider, 0);
+	CloseHandle(file);
+	return ok;
+}
+
+[[nodiscard]] bool readBytes(
+		const std::vector<BYTE> &data,
+		size_t *offset,
+		void *to,
+		size_t count) {
+	if (count > data.size() - *offset) {
+		return false;
+	}
+	memcpy(to, data.data() + *offset, count);
+	*offset += count;
+	return true;
+}
+
+[[nodiscard]] bool readU32(
+		const std::vector<BYTE> &data,
+		size_t *offset,
+		uint32_t *value) {
+	auto bytes = std::array<BYTE, 4>();
+	if (!readBytes(data, offset, bytes.data(), bytes.size())) {
+		return false;
+	}
+	*value = uint32_t(bytes[0])
+		| (uint32_t(bytes[1]) << 8)
+		| (uint32_t(bytes[2]) << 16)
+		| (uint32_t(bytes[3]) << 24);
+	return true;
+}
+
+[[nodiscard]] bool readU64(
+		const std::vector<BYTE> &data,
+		size_t *offset,
+		uint64_t *value) {
+	uint32_t low = 0;
+	uint32_t high = 0;
+	if (!readU32(data, offset, &low) || !readU32(data, offset, &high)) {
+		return false;
+	}
+	*value = uint64_t(low) | (uint64_t(high) << 32);
+	return true;
+}
+
+[[nodiscard]] bool readText(
+		const std::vector<BYTE> &data,
+		size_t *offset,
+		uint32_t size,
+		wstring *value) {
+	if (!size || size > kMaxStagePathSize || size > data.size() - *offset) {
+		return false;
+	}
+	value->clear();
+	for (auto i = uint32_t(0); i != size; ++i) {
+		const auto ch = data[*offset + i];
+		if (ch < 0x20 || ch > 0x7E) {
+			return false;
+		}
+		value->push_back(WCHAR(ch));
+	}
+	*offset += size;
+	return true;
+}
+
+[[nodiscard]] bool normalizeRelativePath(wstring value, wstring *normalized) {
+	for (auto &ch : value) {
+		if (ch == L'/') {
+			ch = L'\\';
+		}
+	}
+	if (value.empty()
+		|| value[0] == L'\\'
+		|| value.find(L':') != wstring::npos
+		|| value.rfind(L"\\\\", 0) == 0) {
+		return false;
+	}
+	auto result = wstring();
+	auto start = size_t(0);
+	while (start <= value.size()) {
+		const auto slash = value.find(L'\\', start);
+		const auto count = (slash == wstring::npos)
+			? value.size() - start
+			: slash - start;
+		const auto part = value.substr(start, count);
+		if (part.empty() || part == L"." || part == L"..") {
+			return false;
+		}
+		if (!result.empty()) {
+			result += L'\\';
+		}
+		result += part;
+		if (slash == wstring::npos) {
+			break;
+		}
+		start = slash + 1;
+	}
+	*normalized = result;
+	return true;
+}
+
+[[nodiscard]] bool payloadFileAllowed(const wstring &path) {
+	static const auto Allowed = std::set<wstring>{
+		L"allowgram.exe",
+		L"allowgramupdater.exe",
+		L"build-info.json",
+		L"legal",
+		L"license",
+		L"readme.txt",
+	};
+	return Allowed.count(lower(path)) != 0;
+}
+
+[[nodiscard]] bool hasReparsePoint(const wstring &path) {
+	const auto attributes = GetFileAttributes(path.c_str());
+	return attributes != INVALID_FILE_ATTRIBUTES
+		&& (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
+[[nodiscard]] bool parseStageManifestBytes(
+		const std::vector<BYTE> &bytes,
+		StageManifest *manifest) {
+	if (bytes.size() < 4 || bytes.size() > kMaxStageManifestSize) {
+		writeLog(L"Error: bad stage manifest size");
+		return false;
+	}
+	auto offset = size_t(0);
+	char magic[4] = {};
+	uint32_t format = 0;
+	uint32_t displaySize = 0;
+	uint32_t filesCount = 0;
+	if (!readBytes(bytes, &offset, magic, sizeof(magic))
+		|| memcmp(magic, kStageManifestMagic, sizeof(magic))
+		|| !readU32(bytes, &offset, &format)
+		|| format != kStageManifestFormat
+		|| !readU64(bytes, &offset, &manifest->version)
+		|| !manifest->version
+		|| !readU32(bytes, &offset, &displaySize)
+		|| !readText(bytes, &offset, displaySize, &manifest->displayVersion)) {
+		writeLog(L"Error: bad stage manifest header");
+		return false;
+	}
+	auto packageHash = std::array<BYTE, 32>();
+	if (!readBytes(bytes, &offset, packageHash.data(), packageHash.size())
+		|| !readU32(bytes, &offset, &filesCount)
+		|| !filesCount
+		|| filesCount > kMaxStageFilesCount) {
+		writeLog(L"Error: bad stage manifest file count");
+		return false;
+	}
+	auto seen = std::set<wstring>();
+	manifest->files.clear();
+	manifest->files.reserve(filesCount);
+	for (auto i = uint32_t(0); i != filesCount; ++i) {
+		uint32_t pathSize = 0;
+		StageFile file;
+		if (!readU32(bytes, &offset, &pathSize)
+			|| !readText(bytes, &offset, pathSize, &file.path)
+			|| !readU64(bytes, &offset, &file.size)
+			|| !readBytes(
+				bytes,
+				&offset,
+				file.sha256.data(),
+				file.sha256.size())) {
+			writeLog(L"Error: bad stage manifest entry");
+			return false;
+		}
+		auto normalized = wstring();
+		if (!normalizeRelativePath(file.path, &normalized)
+			|| normalized != file.path
+			|| !payloadFileAllowed(file.path)) {
+			writeLog(L"Error: stage manifest path is not allowed: " + file.path);
+			return false;
+		}
+		const auto folded = lower(file.path);
+		if (!seen.insert(folded).second) {
+			writeLog(L"Error: duplicate stage manifest path: " + file.path);
+			return false;
+		}
+		manifest->files.push_back(std::move(file));
+	}
+	if (offset != bytes.size()) {
+		writeLog(L"Error: trailing stage manifest bytes");
+		return false;
+	}
+	for (const auto &required : { L"allowgram.exe", L"allowgramupdater.exe", L"build-info.json" }) {
+		if (seen.count(required) == 0) {
+			writeLog(wstring(L"Error: required staged file is missing: ") + required);
+			return false;
+		}
+	}
+	return true;
+}
+
+[[nodiscard]] bool validateNoUnexpectedFiles(
+		const wstring &updDir,
+		const std::set<wstring> &allowedFiles) {
+	const auto validateTData = [&] {
+		const auto tdata = updDir + L"\\tdata";
+		WIN32_FIND_DATA findData;
+		const auto handle = FindFirstFileEx(
+			(tdata + L"\\*").c_str(),
+			FindExInfoStandard,
+			&findData,
+			FindExSearchNameMatch,
+			0,
+			0);
+		if (handle == INVALID_HANDLE_VALUE) {
+			writeLog(L"Error: missing staged tdata directory");
+			return false;
+		}
+		auto ok = true;
+		do {
+			const auto name = wstring(findData.cFileName);
+			if (name == L"." || name == L"..") {
+				continue;
+			}
+			if (findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+				writeLog(L"Error: staged tdata contains a reparse point");
+				ok = false;
+				break;
+			}
+			if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+				writeLog(L"Error: staged tdata contains a directory");
+				ok = false;
+				break;
+			}
+			const auto folded = lower(name);
+			if (folded != L"version"
+				&& folded != L"stage-manifest.bin"
+				&& folded != L"package.tdup") {
+				writeLog(L"Error: staged tdata contains unexpected file: " + name);
+				ok = false;
+				break;
+			}
+		} while (FindNextFile(handle, &findData));
+		const auto error = GetLastError();
+		FindClose(handle);
+		return ok && (!error || error == ERROR_NO_MORE_FILES);
+	};
+
+	WIN32_FIND_DATA findData;
+	const auto handle = FindFirstFileEx(
+		(updDir + L"\\*").c_str(),
+		FindExInfoStandard,
+		&findData,
+		FindExSearchNameMatch,
+		0,
+		0);
+	if (handle == INVALID_HANDLE_VALUE) {
+		writeLog(L"Error: missing staged update directory");
+		return false;
+	}
+	auto sawTData = false;
+	auto ok = true;
+	do {
+		const auto name = wstring(findData.cFileName);
+		if (name == L"." || name == L"..") {
+			continue;
+		}
+		if (findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+			writeLog(L"Error: staged update contains a reparse point");
+			ok = false;
+			break;
+		}
+		const auto folded = lower(name);
+		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+			if (folded != L"tdata") {
+				writeLog(L"Error: staged update contains unexpected directory: " + name);
+				ok = false;
+				break;
+			}
+			sawTData = true;
+			continue;
+		}
+		if (folded != L"ready" && allowedFiles.count(folded) == 0) {
+			writeLog(L"Error: staged update contains unexpected file: " + name);
+			ok = false;
+			break;
+		}
+	} while (FindNextFile(handle, &findData));
+	const auto error = GetLastError();
+	FindClose(handle);
+	return ok && (!error || error == ERROR_NO_MORE_FILES)
+		&& sawTData
+		&& validateTData();
+}
+
+[[nodiscard]] bool validateStageManifest(
+		const wstring &updDir,
+		StageManifest *manifest) {
+	if (!validHexSha256(expectedStageHash)) {
+		writeLog(L"Error: missing or bad -stagehash");
+		return false;
+	}
+	if (hasReparsePoint(updDir) || hasReparsePoint(updDir + L"\\tdata")) {
+		writeLog(L"Error: staged update directory is a reparse point");
+		return false;
+	}
+	std::vector<BYTE> bytes;
+	if (!readWholeFile(
+			updDir + L"\\tdata\\stage-manifest.bin",
+			&bytes,
+			kMaxStageManifestSize)) {
+		return false;
+	}
+	auto actualHash = std::array<BYTE, 32>();
+	if (!sha256Data(bytes.data(), bytes.size(), &actualHash)
+		|| actualHash != hexToHash(expectedStageHash)) {
+		writeLog(L"Error: stage manifest hash changed");
+		return false;
+	}
+	if (!parseStageManifestBytes(bytes, manifest)) {
+		return false;
+	}
+	auto allowedFiles = std::set<wstring>();
+	for (const auto &file : manifest->files) {
+		allowedFiles.insert(lower(file.path));
+		const auto path = updDir + L"\\" + file.path;
+		if (hasReparsePoint(path)) {
+			writeLog(L"Error: staged file is a reparse point: " + file.path);
+			return false;
+		}
+		auto hash = std::array<BYTE, 32>();
+		if (!sha256File(path, file.size, &hash) || hash != file.sha256) {
+			writeLog(L"Error: staged file hash changed: " + file.path);
+			return false;
+		}
+	}
+	return validateNoUnexpectedFiles(updDir, allowedFiles);
+}
+
+[[nodiscard]] bool copyVerifiedFile(
+		const wstring &from,
+		const wstring &to,
+		const StageFile &file) {
+	if (equal(to, updaterName)) {
+		auto currentHash = std::array<BYTE, 32>();
+		if (!sha256File(to, file.size, &currentHash)
+			|| currentHash != file.sha256) {
+			writeLog(L"Error: current helper does not match staged helper");
+			return false;
+		}
+		writeLog(L"Current helper already matches staged helper.");
+		return true;
+	}
+	const auto temporary = to + L".allowgram-new";
+	DeleteFile(temporary.c_str());
+	BOOL copyResult = FALSE;
+	for (auto tries = 0; tries != 100; ++tries) {
+		copyResult = CopyFile(from.c_str(), temporary.c_str(), FALSE);
+		if (copyResult) {
+			break;
+		}
+		Sleep(100);
+	}
+	if (!copyResult) {
+		writeLog(L"Error: failed to copy staged file to temporary target: " + to);
+		DeleteFile(temporary.c_str());
+		return false;
+	}
+	auto copiedHash = std::array<BYTE, 32>();
+	if (!sha256File(temporary, file.size, &copiedHash)
+		|| copiedHash != file.sha256) {
+		writeLog(L"Error: copied temporary hash mismatch: " + to);
+		DeleteFile(temporary.c_str());
+		return false;
+	}
+	if (!MoveFileEx(
+			temporary.c_str(),
+			to.c_str(),
+			MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
+		writeLog(L"Error: failed to move temporary file into place: " + to);
+		DeleteFile(temporary.c_str());
+		return false;
+	}
+	return true;
+}
+
+void setVersionString(const wstring &value) {
+	versionNum = 1;
+	versionLen = DWORD(std::min<size_t>(value.size(), 32 - 1)
+		* sizeof(WCHAR));
+	memcpy(versionStr, value.c_str(), versionLen);
+	versionStr[versionLen / sizeof(WCHAR)] = 0;
+}
+
+} // namespace
+
 bool update() {
 	writeLog(L"Update started..");
 
-	wstring updDir = L"tupdates\\temp", readyFilePath = L"tupdates\\temp\\ready", tdataDir = L"tupdates\\temp\\tdata";
-	{
-		HANDLE readyFile = CreateFile(readyFilePath.c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
-		if (readyFile != INVALID_HANDLE_VALUE) {
-			CloseHandle(readyFile);
-		} else {
-			updDir = L"tupdates\\ready"; // old
-			tdataDir = L"tupdates\\ready\\tdata";
-		}
+	const auto updDir = wstring(L"tupdates\\temp");
+	const auto readyFilePath = wstring(L"tupdates\\temp\\ready");
+	if (GetFileAttributes(L"tupdates\\ready") != INVALID_FILE_ATTRIBUTES) {
+		writeLog(L"Error: legacy tupdates\\ready tree is not accepted.");
+		delFolder();
+		return false;
+	}
+	const auto readyFile = CreateFile(
+		readyFilePath.c_str(),
+		GENERIC_READ,
+		FILE_SHARE_READ,
+		0,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		0);
+	if (readyFile == INVALID_HANDLE_VALUE) {
+		return true;
+	}
+	CloseHandle(readyFile);
+
+	StageManifest manifest;
+	if (!validateStageManifest(updDir, &manifest)) {
+		delFolder();
+		return false;
+	}
+	setVersionString(manifest.displayVersion);
+
+	if (!equal(exeName, kApplicationExe)) {
+		writeLog(L"Error: Allowgram updates require Allowgram.exe, got " + exeName);
+		delFolder();
+		return false;
 	}
 
-	HANDLE versionFile = CreateFile((tdataDir + L"\\version").c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
-	if (versionFile != INVALID_HANDLE_VALUE) {
-		if (!ReadFile(versionFile, &versionNum, sizeof(DWORD), &readLen, NULL) || readLen != sizeof(DWORD)) {
-			versionNum = 0;
-		} else {
-			if (versionNum == 0x7FFFFFFF) { // alpha version
-
-			} else if (versionNum == 0x7FFFFFFE) { // v2 canary version
-
-			} else if (!ReadFile(versionFile, &versionLen, sizeof(DWORD), &readLen, NULL) || readLen != sizeof(DWORD) || versionLen > 63) {
-				versionNum = 0;
-			} else if (!ReadFile(versionFile, versionStr, versionLen, &readLen, NULL) || readLen != versionLen) {
-				versionNum = 0;
-			}
-		}
-		CloseHandle(versionFile);
-		writeLog(L"Version file read.");
-	} else {
-		writeLog(L"Could not open version file to update registry :(");
-	}
-
-	deque<wstring> dirs;
-	dirs.push_back(updDir);
-
-	deque<wstring> from, to, forcedirs;
-
-	do {
-		wstring dir = dirs.front();
-		dirs.pop_front();
-
-		wstring toDir = updateTo;
-		if (dir.size() > updDir.size() + 1) {
-			toDir += (dir.substr(updDir.size() + 1) + L"\\");
-			forcedirs.push_back(toDir);
-			writeLog(L"Parsing dir '" + toDir + L"' in update tree..");
-		}
-
-		WIN32_FIND_DATA findData;
-		HANDLE findHandle = FindFirstFileEx((dir + L"\\*").c_str(), FindExInfoStandard, &findData, FindExSearchNameMatch, 0, 0);
-		if (findHandle == INVALID_HANDLE_VALUE) {
-			DWORD errorCode = GetLastError();
-			if (errorCode == ERROR_PATH_NOT_FOUND) { // no update is ready
-				return true;
-			}
-			writeLog(L"Error: failed to find update files :(");
-			updateError(L"Failed to find update files", errorCode);
+	for (const auto &file : manifest.files) {
+		const auto from = updDir + L"\\" + file.path;
+		const auto to = updateTo + file.path;
+		writeLog(L"Copying verified file '" + from + L"' to '" + to + L"'..");
+		if (!copyVerifiedFile(from, to, file)) {
 			delFolder();
 			return false;
 		}
-
-		do {
-			wstring fname = dir + L"\\" + findData.cFileName;
-			if (fname.substr(0, tdataDir.size()) == tdataDir && (fname.size() <= tdataDir.size() || fname.at(tdataDir.size()) == '/')) {
-				writeLog(L"Skipped 'tdata' path '" + fname + L"'");
-			} else if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-				if (findData.cFileName != wstring(L".") && findData.cFileName != wstring(L"..")) {
-					dirs.push_back(fname);
-					writeLog(L"Added dir '" + fname + L"' in update tree..");
-				}
-			} else {
-				wstring tofname = updateTo + fname.substr(updDir.size() + 1);
-				if (equal(tofname, updaterName)) { // bad update - has Updater.exe - delete all dir
-					writeLog(L"Error: bad update, has Updater.exe! '" + tofname + L"' equal '" + updaterName + L"'");
-					delFolder();
-					return false;
-				} else if (equal(tofname, updateTo + L"Telegram.exe") && exeName != L"Telegram.exe") {
-					wstring fullBinaryPath = updateTo + exeName;
-					writeLog(L"Target binary found: '" + tofname + L"', changing to '" + fullBinaryPath + L"'");
-					tofname = fullBinaryPath;
-				}
-				if (equal(fname, readyFilePath)) {
-					writeLog(L"Skipped ready file '" + fname + L"'");
-				} else {
-					from.push_back(fname);
-					to.push_back(tofname);
-					writeLog(L"Added file '" + fname + L"' to be copied to '" + tofname + L"'");
-				}
-			}
-		} while (FindNextFile(findHandle, &findData));
-		DWORD errorCode = GetLastError();
-		if (errorCode && errorCode != ERROR_NO_MORE_FILES) { // everything is found
-			writeLog(L"Error: failed to find next update file :(");
-			updateError(L"Failed to find next update file", errorCode);
-			delFolder();
-			return false;
-		}
-		FindClose(findHandle);
-	} while (!dirs.empty());
-
-	for (size_t i = 0; i < forcedirs.size(); ++i) {
-		wstring forcedir = forcedirs[i];
-		writeLog(L"Forcing dir '" + forcedir + L"'..");
-		if (!forcedir.empty() && !CreateDirectory(forcedir.c_str(), NULL)) {
-			DWORD errorCode = GetLastError();
-			if (errorCode && errorCode != ERROR_ALREADY_EXISTS) {
-				writeLog(L"Error: failed to create dir '" + forcedir + L"'..");
-				updateError(L"Failed to create directory", errorCode);
-				delFolder();
-				return false;
-			}
-			writeLog(L"Already exists!");
-		}
-	}
-
-	for (size_t i = 0; i < from.size(); ++i) {
-		wstring fname = from[i], tofname = to[i];
-		BOOL copyResult;
-		do {
-			writeLog(L"Copying file '" + fname + L"' to '" + tofname + L"'..");
-			int copyTries = 0;
-			do {
-				copyResult = CopyFile(fname.c_str(), tofname.c_str(), FALSE);
-				if (!copyResult) {
-					++copyTries;
-					Sleep(100);
-				} else {
-					break;
-				}
-			} while (copyTries < 100);
-			if (!copyResult) {
-				writeLog(L"Error: failed to copy, asking to retry..");
-				WCHAR errMsg[2048];
-				wsprintf(errMsg, L"Failed to update Telegram :(\n%s is not accessible.", tofname.c_str());
-				if (MessageBox(0, errMsg, L"Update error!", MB_ICONERROR | MB_RETRYCANCEL) != IDRETRY) {
-					delFolder();
-					return false;
-				}
-			}
-		} while (!copyResult);
 	}
 
 	writeLog(L"Update succeed! Clearing folder..");
@@ -282,7 +789,7 @@ void updateRegistry() {
 		writeLog(L"Updating registry..");
 		versionStr[versionLen / 2] = 0;
 		HKEY rkey;
-		LSTATUS status = RegOpenKeyEx(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{53F49750-6209-4FBF-9CA8-7A333C87D1ED}_is1", 0, KEY_QUERY_VALUE | KEY_SET_VALUE, &rkey);
+		LSTATUS status = RegOpenKeyEx(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{9CF76959-9AB3-4893-8B08-45CBA5B248C4}_is1", 0, KEY_QUERY_VALUE | KEY_SET_VALUE, &rkey);
 		if (status == ERROR_SUCCESS) {
 			writeLog(L"Checking registry install location..");
 			static const int bufSize = 4096;
@@ -304,21 +811,24 @@ void updateRegistry() {
 						memcpy(locationStr, exp, bufSize * sizeof(WCHAR));
 						if (GetFullPathName(L".", bufSize, exp, 0) < bufSize) {
 							wstring installpath = locationStr, mypath = exp;
-							if (installpath == mypath + L"\\" || true) { // always update reg info, if we found it
+							if (!mypath.empty() && mypath.back() != L'\\') {
+                                mypath += L'\\';
+                                }
+                                if (equal(installpath, mypath)) {
 								WCHAR nameStr[bufSize], dateStr[bufSize], publisherStr[bufSize], icongroupStr[bufSize];
 								SYSTEMTIME stLocalTime;
 								GetLocalTime(&stLocalTime);
 								RegSetValueEx(rkey, L"DisplayVersion", 0, REG_SZ, (const BYTE*)versionStr, ((versionLen / 2) + 1) * sizeof(WCHAR));
-								wsprintf(nameStr, L"Telegram Desktop");
+								wsprintf(nameStr, L"Allowgram");
 								RegSetValueEx(rkey, L"DisplayName", 0, REG_SZ, (const BYTE*)nameStr, (wcslen(nameStr) + 1) * sizeof(WCHAR));
-								wsprintf(publisherStr, L"Telegram FZ-LLC");
+								wsprintf(publisherStr, L"Allowgram contributors");
 								RegSetValueEx(rkey, L"Publisher", 0, REG_SZ, (const BYTE*)publisherStr, (wcslen(publisherStr) + 1) * sizeof(WCHAR));
-								wsprintf(icongroupStr, L"Telegram Desktop");
+								wsprintf(icongroupStr, L"Allowgram");
 								RegSetValueEx(rkey, L"Inno Setup: Icon Group", 0, REG_SZ, (const BYTE*)icongroupStr, (wcslen(icongroupStr) + 1) * sizeof(WCHAR));
 								wsprintf(dateStr, L"%04d%02d%02d", stLocalTime.wYear, stLocalTime.wMonth, stLocalTime.wDay);
 								RegSetValueEx(rkey, L"InstallDate", 0, REG_SZ, (const BYTE*)dateStr, (wcslen(dateStr) + 1) * sizeof(WCHAR));
 
-								const WCHAR *appURL = L"https://desktop.telegram.org";
+								const WCHAR *appURL = L"https://github.com/molotovgit/allowgram";
 								RegSetValueEx(rkey, L"HelpLink", 0, REG_SZ, (const BYTE*)appURL, (wcslen(appURL) + 1) * sizeof(WCHAR));
 								RegSetValueEx(rkey, L"URLInfoAbout", 0, REG_SZ, (const BYTE*)appURL, (wcslen(appURL) + 1) * sizeof(WCHAR));
 								RegSetValueEx(rkey, L"URLUpdateInfo", 0, REG_SZ, (const BYTE*)appURL, (wcslen(appURL) + 1) * sizeof(WCHAR));
@@ -374,40 +884,48 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 			} else if (equal(args[i], L"-key") && ++i < argsCount) {
 				writeLog(std::wstring(L"Argument: ") + args[i]);
 				customKeyFile = args[i];
+			} else if (equal(args[i], L"-stagehash") && ++i < argsCount) {
+				writeLog(std::wstring(L"Argument: ") + args[i]);
+				expectedStageHash = args[i];
 			} else if (equal(args[i], L"-exename") && ++i < argsCount) {
 				writeLog(std::wstring(L"Argument: ") + args[i]);
 				exeName = args[i];
 				for (int j = 0, l = exeName.size(); j < l; ++j) {
 					if (exeName[j] == L'/' || exeName[j] == L'\\') {
-						exeName = L"Telegram.exe";
+						exeName = kApplicationExe;
 						break;
 					}
 				}
 			}
 		}
 		if (exeName.empty()) {
-			exeName = L"Telegram.exe";
+			exeName = kApplicationExe;
 		}
 		if (needupdate) writeLog(L"Need to update!");
 		if (autostart) writeLog(L"From autostart!");
 		if (writeprotected) writeLog(L"Write Protected folder!");
 		if (!customWorkingDir.empty()) writeLog(L"Will pass custom working dir: " + customWorkingDir);
+		if (!expectedStageHash.empty()) writeLog(L"Expected stage manifest hash is: " + expectedStageHash);
 
 		updaterName = args[0];
 		writeLog(L"Updater name is: " + updaterName);
-		if (updaterName.size() > 11) {
-			if (equal(updaterName.substr(updaterName.size() - 11), L"Updater.exe")) {
-				updaterDir = updaterName.substr(0, updaterName.size() - 11);
+		const auto updaterExeLength = wcslen(kUpdaterExe);
+		if (updaterName.size() >= updaterExeLength) {
+			if (equal(updaterName.substr(updaterName.size() - updaterExeLength), kUpdaterExe)) {
+				updaterDir = updaterName.substr(0, updaterName.size() - updaterExeLength);
 				writeLog(L"Updater dir is: " + updaterDir);
 				if (!writeprotected) {
 					updateTo = updaterDir;
+				}
+				if (!updateTo.empty() && updateTo.back() != L'\\') {
+					updateTo += L'\\';
 				}
 				writeLog(L"Update to: " + updateTo);
 				if (needupdate && update()) {
 					updateRegistry();
 				}
-				if (writeprotected) { // if we can't clear all tupdates\ready (Updater.exe is there) - clear only version
-					if (DeleteFile(L"tupdates\\temp\\tdata\\version") || DeleteFile(L"tupdates\\ready\\tdata\\version")) {
+				if (writeprotected) {
+					if (DeleteFile(L"tupdates\\temp\\tdata\\version")) {
 						writeLog(L"Version file deleted!");
 					} else {
 						writeLog(L"Error: could not delete version file");
@@ -437,7 +955,7 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 	writeLog(L"Result arguments: " + targs);
 
 	bool executed = false;
-	if (writeprotected) { // run un-elevated
+	if (writeprotected) {
 		writeLog(L"Trying to run un-elevated by temp.lnk");
 
 		HRESULT hres = CoInitialize(0);
@@ -458,10 +976,6 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 				if (SUCCEEDED(hres)) {
 					wstring lnk = L"tupdates\\temp\\temp.lnk";
 					hres = ppf->Save(lnk.c_str(), TRUE);
-					if (!SUCCEEDED(hres)) {
-						lnk = L"tupdates\\ready\\temp.lnk"; // old
-						hres = ppf->Save(lnk.c_str(), TRUE);
-					}
 					ppf->Release();
 
 					if (SUCCEEDED(hres)) {
@@ -493,8 +1007,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 	return 0;
 }
 
-static const WCHAR *_programName = L"Telegram Desktop"; // folder in APPDATA, if current path is unavailable for writing
-static const WCHAR *_exeName = L"Updater.exe";
+static const WCHAR *_programName = L"Allowgram"; // folder in APPDATA, if current path is unavailable for writing
+static const WCHAR *_exeName = L"AllowgramUpdater.exe";
 
 LPTOP_LEVEL_EXCEPTION_FILTER _oldWndExceptionFilter = 0;
 

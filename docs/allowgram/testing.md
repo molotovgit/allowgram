@@ -2,7 +2,72 @@
 
 [Back to Allowgram](../../README.md)
 
+## 7.2.8.7 private-call checks
+
+The call suite exercises production Call/Instance admission, response binding,
+acceptance, confirmation, signaling, redial and policy-reload revocation with
+synthetic account data. The disposable overlay returns synthetic server replies
+after the real serialized request filter. It replaces key exchange and intercepts
+network, permission, ringing, panel and media-controller effects. No real calls,
+sign-in, microphone/camera capture or messages are authorized by these tests.
+
+Serialized tests cover peer-bearing constructors and wrappers, call ID/hash and
+account mismatches, stale generations, lifecycle phases, malformed call hashes
+and protocol ranges, revocation and bound cleanup. Native positive controls
+must reach actual call/request callbacks. Source-string checks alone cannot
+establish usable calls. Prior hardening and layout checks remain required.
+
+Build fixtures from the coherent configured object graph for the same source
+revision; header/layout changes require affected dependencies to rebuild. Keep
+source/overlay hashes, finished reports and actual zero application/runner exits.
+The revision-specific package receipt records completed runs; this page does not
+claim live interoperability. The preexisting IPC CMD:quit crash remains disclosed;
+isolated startup/teardown uses normal WM_CLOSE and treats nonzero exits as failure.
+
+## Historical 7.2.8.6 hardening checks
+
+The native suite additionally checks the actual sidebar and sender/conversation
+context menus, direct creation and short-info factories, retained Calls routes,
+incoming and outgoing call gates, own Settings/Contacts and allowed group/DM
+navigation. All prior hardening checks remain. Complete serialized creation/call
+constructors and wrappers are negative controls; existing allowed group/channel
+text and channel joining are positive controls.
+
+Call-entry probes in the disposable overlay stop before device permissions,
+join/panel UI or call allocation. They do not simulate a successful call and are
+not compiled into the delivered application. Use complete finished reports and
+zero process exits; an early exit with fewer checks is not success.
+
+The short-info regression passes denied user/self results through the real
+window presentation boundary, not just the factory. A denied nullable box must
+leave an existing allowed-group information layer intact; explicit hide-layer
+must still close it. All short-info callers must handle nullable results before
+passing them to other UI show adapters.
+
+Run `python Telegram/build/allowgram/check_emoji_data.py` to verify that the
+production scalar table matches the pinned Telegram sequence source. The native
+request suite decodes real serialized requests and tests every listed emoji
+sequence, custom entities, malformed UTF-8, embedded NUL, valid photo captions,
+mixed albums, cached documents/forwards, upload prefixes, reactions and effects.
+Positive controls include numeric IDs, Uzbek/Cyrillic/CJK, ordinary documents,
+photos/videos and allowed-bot Mini App gates. Parser tests also exercise the
+production profile-presentation and initial-login permission functions.
+
+These are no-network policy tests, not signed-in navigation or sending E2E.
+Consult the private revision-specific report for actual commands, RED/GREEN
+receipts, native UI/build/startup/package results and untested routes. Historical
+7.2.8.4 counts below are not evidence for the new restrictions.
+
 ## Repeat the native form regression
+
+For the synthetic hardening fixture, build with `--hardening` and run
+`python Telegram/build/allowgram/test_native_hardening.py --executable <fixture>/Allowgram-Docs.exe --output <fresh-results>`.
+This separate executable uses production account, navigation, media-viewer and
+composer components with synthetic data. Disposable overlays prevent MTProto
+connections and request delivery; they are not included in the shipped client.
+The native runners require noninteractive Windows session 0 to avoid affecting
+the owner's desktop. They direct no OS keys and take no screenshots. Fixture
+timeouts or nonzero teardown exits are failures, regardless of check counts.
 
 After building the Windows client, use the same x64 MSVC environment to build
 a separate test executable. The configured Ninja Release objects and generated
@@ -95,7 +160,9 @@ cl.exe /nologo /std:c++20 /EHsc /utf-8 /W4 /WX /ITelegram/SourceFiles `
 python Telegram/SourceFiles/test/allowlist_request_schema_test.py
 ```
 
-Install Qt Base 6.8.3 for MSVC x64 separately, then pass its directory:
+Pass the installed matching Qt directory. The helper also supports static Qt;
+the local Windows build uses the existing Qt 6.11.2 installation, without
+rebuilding dependencies. For example, with a Qt 6.8.3 shared installation:
 
 ```powershell
 & Telegram/build/allowgram/test_request_guard.ps1 -QtDirectory 'C:\Qt\6.8.3\msvc2022_64'

@@ -17,7 +17,6 @@ namespace Core {
 
 bool UpdaterDisabled();
 void SetUpdaterDisabledAtStartup();
-
 class Updater;
 
 class UpdateChecker {
@@ -36,7 +35,6 @@ public:
 	rpl::producer<Progress> progress() const;
 	rpl::producer<> failed() const;
 	rpl::producer<> ready() const;
-
 	void start(bool forceWait = false);
 	void stop();
 	void test();
@@ -54,6 +52,7 @@ private:
 };
 
 bool checkReadyUpdate();
+[[nodiscard]] QString ReadyUpdateStageHash();
 void UpdateApplication();
 QString countAlphaVersionSignature(uint64 version);
 

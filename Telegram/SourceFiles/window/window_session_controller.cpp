@@ -107,6 +107,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_app_config.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
+#include "main/allowlist_policy.h"
 #include "main/main_session_settings.h"
 #include "lang/lang_keys.h"
 #include "apiwrap.h"
@@ -155,11 +156,11 @@ base::options::toggle OptionExternalMediaViewer({
 	return v::match(origin.data, [&](const Data::FileOriginMessage &value) {
 		return session->allowlistAllows(value.peer);
 	}, [&](const Data::FileOriginUserPhoto &value) {
-		return session->allowlistAllows(peerFromUser(value.userId));
+		return session->canPresentPeerProfile(peerFromUser(value.userId));
 	}, [&](const Data::FileOriginFullUser &value) {
-		return session->allowlistAllows(peerFromUser(value.userId));
+		return session->canPresentPeerProfile(peerFromUser(value.userId));
 	}, [&](const Data::FileOriginPeerPhoto &value) {
-		return session->allowlistAllows(value.peerId);
+		return session->canPresentPeerProfile(value.peerId);
 	}, [&](const Data::FileOriginCloudDraft &value) {
 		return session->allowlistAllows(value.peerId);
 	}, [](const Data::FileOriginStory &) {
@@ -1024,6 +1025,9 @@ void SessionNavigation::resolveConferenceCall(
 		QString slug,
 		MsgId inviteMsgId,
 		FullMsgId contextId) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	_conferenceCallResolveContextId = contextId;
 	if (_conferenceCallSlug == slug
 		&& _conferenceCallInviteMsgId == inviteMsgId) {
@@ -1442,7 +1446,7 @@ void SessionNavigation::showPeerInfo(
 		not_null<PeerData*> peer,
 		const SectionShow &params) {
 	if (&peer->session() != _session
-		|| !_session->allowlistAllows(peer->id)) {
+		|| !_session->canPresentPeerProfile(peer->id)) {
 		return;
 	}
 
@@ -3359,7 +3363,7 @@ bool SessionController::allowlistAllowsSection(
 		return &history->session() == &session()
 			&& session().allowlistAllows(history->peer->id);
 	}
-	return dynamic_cast<ChatHelpers::TabbedMemento*>(raw) != nullptr;
+	return false;
 }
 
 void SessionController::showSection(
@@ -3485,10 +3489,16 @@ void SessionController::showAddContact() {
 }
 
 void SessionController::showNewGroup() {
+	if (!Main::Allowlist::CanCreateConversations()) {
+		return;
+	}
 	_window->show(Box<GroupInfoBox>(this, GroupInfoBox::Type::Group));
 }
 
 void SessionController::showNewChannel() {
+	if (!Main::Allowlist::CanCreateConversations()) {
+		return;
+	}
 	_window->show(Box<GroupInfoBox>(this, GroupInfoBox::Type::Channel));
 }
 
@@ -3587,7 +3597,7 @@ void SessionController::openPhoto(
 void SessionController::openPhoto(
 		not_null<PhotoData*> photo,
 		not_null<PeerData*> peer) {
-	if (!session().allowlistAllows(peer->id)) {
+	if (!session().canPresentPeerProfile(peer->id)) {
 		return;
 	}
 

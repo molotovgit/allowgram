@@ -969,8 +969,9 @@ void GiftCodePendingBox(
 		const auto peerTo = controller->session().data().peer(data.to);
 		const auto clickContext = [=, weak = base::make_weak(controller)] {
 			if (const auto strong = weak.get()) {
-				strong->uiShow()->showBox(
-					PrepareShortInfoBox(peerTo, strong));
+				if (auto box = PrepareShortInfoBox(peerTo, strong)) {
+					strong->uiShow()->showBox(std::move(box));
+				}
 			}
 			return QVariant();
 		};
@@ -1779,8 +1780,13 @@ void AddStarGiftTable(
 				entry.starsForDetailsRemove,
 				std::move(removeDetails));
 			const auto showBoxLink = [=](not_null<PeerData*> peer) {
+				if (!peer->session().canPresentPeerProfile(peer->id)) {
+					return std::shared_ptr<LambdaClickHandler>();
+				}
 				return std::make_shared<LambdaClickHandler>([=] {
-					show->showBox(PrepareShortInfoBox(peer, show));
+					if (auto box = PrepareShortInfoBox(peer, show)) {
+						show->showBox(std::move(box));
+					}
 				});
 			};
 			made.label->setLink(1, showBoxLink(to));

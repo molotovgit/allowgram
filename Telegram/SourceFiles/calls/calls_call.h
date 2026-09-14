@@ -104,7 +104,8 @@ public:
 		not_null<Delegate*> delegate,
 		not_null<UserData*> user,
 		Type type,
-		bool video);
+		bool video,
+		uint64 allowlistToken);
 	Call(
 		not_null<Delegate*> delegate,
 		not_null<UserData*> user,
@@ -137,6 +138,7 @@ public:
 	}
 	[[nodiscard]] bool isIncomingWaiting() const;
 
+	[[nodiscard]] bool revalidateAuthorization();
 	void start(bytes::const_span random);
 	bool handleUpdate(const MTPPhoneCall &call);
 	bool handleSignalingData(const MTPDupdatePhoneCallSignalingData &data);
@@ -343,7 +345,12 @@ private:
 
 	const not_null<Delegate*> _delegate;
 	const not_null<UserData*> _user;
-	MTP::Sender _api;
+	// The requestCall response first supplies the authenticated call identity.
+	// Keep that response alive while closing an outgoing call so its exact
+	// server-validated identity can be discarded. Other queued lifecycle
+	// requests use the revocable sender and are canceled immediately.
+	std::unique_ptr<MTP::Sender> _api;
+	MTP::Sender _requestCallApi;
 	Type _type = Type::Outgoing;
 	rpl::variable<State> _state = State::Starting;
 	rpl::variable<bool> _conferenceSupported = false;
@@ -374,6 +381,8 @@ private:
 	bytes::vector _randomPower;
 	MTP::AuthKey::Data _authKey;
 
+	uint64 _allowlistToken = 0;
+	bool _authorizationRevoked = false;
 	CallId _id = 0;
 	uint64 _accessHash = 0;
 	int _rating = 0;

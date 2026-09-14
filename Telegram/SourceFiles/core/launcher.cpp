@@ -170,22 +170,12 @@ QString InstallBetaVersionsSettingPath() {
 void WriteInstallBetaVersionsSetting() {
 	QFile f(InstallBetaVersionsSettingPath());
 	if (f.open(QIODevice::WriteOnly)) {
-		f.write(cInstallBetaVersion() ? "1" : "0");
+		f.write("0");
 	}
 }
 
 void ComputeInstallBetaVersions() {
-	const auto installBetaSettingPath = InstallBetaVersionsSettingPath();
-	if (cAlphaVersion()) {
-		cSetInstallBetaVersion(false);
-	} else if (QFile::exists(installBetaSettingPath)) {
-		QFile f(installBetaSettingPath);
-		if (f.open(QIODevice::ReadOnly)) {
-			cSetInstallBetaVersion(f.read(1) != "0");
-		}
-	} else if (AppBetaVersion) {
-		WriteInstallBetaVersionsSetting();
-	}
+	cSetInstallBetaVersion(false);
 }
 
 void ComputeInstallationTag() {

@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/editor/iv_editor_page_blocks.h"
 #include "iv/iv_rich_page.h"
 #include "mtproto/mtproto_config.h"
+#include "mtproto/allowlist_request_guard.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_isolated_emoji.h"
 #include "ui/text/text_utilities.h"
@@ -2292,6 +2293,9 @@ void HistoryItem::setCustomServiceLink(ClickHandlerPtr link) {
 }
 
 void HistoryItem::destroy() {
+	if (IsServerMsgId(id)) {
+		history()->session().allowlistContent().forgetMessage(history()->peer->id, int(id.bare));
+	}
 	_history->destroyMessage(this);
 }
 
@@ -2343,6 +2347,9 @@ void HistoryItem::clearMainView() {
 }
 
 void HistoryItem::applyEdition(HistoryMessageEdition &&edition) {
+	if (IsServerMsgId(id)) {
+		history()->session().allowlistContent().forgetMessage(history()->peer->id, int(id.bare));
+	}
 	history()->session().ephemeralMessages().revertAnchored(this);
 
 	int keyboardTop = -1;
@@ -2646,6 +2653,9 @@ void HistoryItem::applyEdition(
 }
 
 void HistoryItem::applySentMessage(const MTPDmessage &data) {
+	if (IsServerMsgId(id)) {
+		history()->session().allowlistContent().recordMessage(data);
+	}
 	history()->session().ephemeralMessages().revertAnchored(this);
 
 	if (data.is_invert_media()) {
@@ -3562,34 +3572,12 @@ void HistoryItem::translationDone(
 }
 
 bool HistoryItem::canReact() const {
-	if (!isRegular()) {
-		return false;
-	} else if (isService()) {
-		return (_flags & MessageFlag::ReactionsAllowed);
-	} else if (const auto media = this->media()) {
-		if (media->call()) {
-			return (_flags & MessageFlag::ReactionsAllowed);
-		}
-	}
-	const auto peer = history()->peer;
-	return (peer->isChat() || peer->isMegagroup())
-		? !peer->amRestricted(ChatRestriction::SendReactions)
-		: true;
+	return false;
 }
 
 void HistoryItem::addPaidReaction(
 		int count,
 		std::optional<PeerId> shownPeer) {
-	Expects(count >= 0);
-	Expects(_history->peer->isBroadcast() || isDiscussionPost());
-
-	if (!_reactions) {
-		_reactions = std::make_unique<Data::MessageReactions>(this);
-	}
-	_reactions->scheduleSendPaid(count, shownPeer);
-	if (count > 0) {
-		_history->owner().notifyItemDataChange(this);
-	}
 }
 
 void HistoryItem::cancelScheduledPaidReaction() {
@@ -3617,30 +3605,6 @@ void HistoryItem::finishPaidReactionSending(
 void HistoryItem::toggleReaction(
 		const Data::ReactionId &reaction,
 		HistoryReactionSource source) {
-	Expects(!reaction.paid());
-
-	const auto addToRecent = (source == HistoryReactionSource::Selector);
-	if (_reactions
-		&& ranges::contains(_reactions->chosen(), reaction)) {
-		_reactions->remove(reaction);
-		if (_reactions->empty() && !_reactions->localPaidData()) {
-			_reactions = nullptr;
-			_flags &= ~MessageFlag::CanViewReactions;
-		}
-	} else if (!reactionsAreTags() && !canReact()) {
-		return;
-	} else if (!_reactions) {
-		_reactions = std::make_unique<Data::MessageReactions>(this);
-		const auto canViewReactions = !isDiscussionPost()
-			&& (_history->peer->isChat() || _history->peer->isMegagroup());
-		if (canViewReactions) {
-			_flags |= MessageFlag::CanViewReactions;
-		}
-		_reactions->add(reaction, addToRecent);
-	} else {
-		_reactions->add(reaction, addToRecent);
-	}
-	_history->owner().notifyItemDataChange(this);
 }
 
 bool HistoryItem::removeReactionsFromParticipant(

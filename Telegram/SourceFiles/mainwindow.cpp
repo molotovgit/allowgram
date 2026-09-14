@@ -545,6 +545,9 @@ void MainWindow::showOrHideBoxOrLayer(
 		ensureLayerCreated();
 		_layer->showLayer(std::move(*layerWidget), options, animated);
 	} else if (auto box = std::get_if<ObjectBox>(&layer)) {
+		if (!*box) {
+			return;
+		}
 		ensureLayerCreated();
 		_layer->showBox(std::move(*box), options, animated);
 	} else {

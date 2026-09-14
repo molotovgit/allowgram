@@ -153,8 +153,8 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 	const auto binaryPath = (action == UpdaterLaunch::JustRelaunch)
 		? (cExeDir() + cExeName())
 		: (cWriteProtected()
-			? (cWorkingDir() + u"tupdates/temp/Updater.exe"_q)
-			: (cExeDir() + u"Updater.exe"_q));
+			? (cWorkingDir() + u"tupdates/temp/AllowgramUpdater.exe"_q)
+			: (cExeDir() + u"AllowgramUpdater.exe"_q));
 
 	auto argumentsList = QStringList();
 	const auto pushArgument = [&](const QString &argument) {
@@ -184,7 +184,13 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 			pushArgument(u"-tosettings"_q);
 		}
 	} else {
+		const auto stageHash = Core::ReadyUpdateStageHash();
+		if (stageHash.isEmpty()) {
+			return false;
+		}
 		pushArgument(u"-update"_q);
+		pushArgument(u"-stagehash"_q);
+		pushArgument('"' + stageHash + '"');
 		pushArgument(u"-exename"_q);
 		pushArgument('"' + cExeName() + '"');
 		if (cWriteProtected()) {

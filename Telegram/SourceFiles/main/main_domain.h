@@ -69,7 +69,7 @@ public:
 	[[nodiscard]] rpl::producer<> unreadBadgeChanges() const;
 	void notifyUnreadBadgeChanged();
 
-	[[nodiscard]] not_null<Main::Account*> add(MTP::Environment environment);
+	[[nodiscard]] Main::Account *add(MTP::Environment environment);
 	void maybeActivate(not_null<Main::Account*> account);
 	void activate(not_null<Main::Account*> account);
 	void addActivated(MTP::Environment environment, bool newWindow = false);

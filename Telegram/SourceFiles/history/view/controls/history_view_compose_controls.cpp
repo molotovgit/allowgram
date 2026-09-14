@@ -1427,7 +1427,7 @@ ComposeControls::ComposeControls(
 				updateControlsGeometry(_wrap->size());
 			} else if (_botKeyboardHide && !has) {
 				_botKeyboardHide = nullptr;
-				_tabbedSelectorToggle->show();
+				_tabbedSelectorToggle->hide();
 				updateControlsGeometry(_wrap->size());
 			}
 		}, _wrap->lifetime());
@@ -2196,7 +2196,13 @@ rpl::producer<Api::SendOptions> ComposeControls::scrollToMaxRequests() const {
 rpl::producer<Api::SendOptions> ComposeControls::sendRequests() const {
 	return sendContentRequests(
 		SendRequestType::Text
-	) | rpl::filter([=] {
+	) | rpl::filter([=](const Api::SendOptions &options) {
+		if (options.effectId
+			|| !AllowgramSendTextAllowed(getTextWithAppliedMarkdown())
+			|| !AllowgramSendReplyAllowed(replyingToMessage())) {
+			_show->showToast(tr::lng_allowgram_content_disabled(tr::now));
+			return false;
+		}
 		if (!_chosenStarsCount) {
 			return true;
 		}
@@ -2226,6 +2232,10 @@ rpl::producer<QString> ComposeControls::sendCommandRequests() const {
 rpl::producer<MessageToEdit> ComposeControls::editRequests() const {
 	auto toValue = rpl::map([=] { return _header->queryToEdit(); });
 	auto filter = rpl::filter([=] {
+		if (!AllowgramSendTextAllowed(getTextWithAppliedMarkdown())) {
+			_show->showToast(tr::lng_allowgram_content_disabled(tr::now));
+			return false;
+		}
 		return (_send->type() == Ui::SendButton::Type::Save)
 			&& !_header->mediaEditCoverUploading();
 	});
@@ -2720,6 +2730,7 @@ void ComposeControls::init() {
 		_attachToggle->setAccessibleName(tr::lng_attach(tr::now));
 	}
 	_tabbedSelectorToggle->setAccessibleName(tr::lng_emoji_sticker_gif(tr::now));
+	_tabbedSelectorToggle->hide();
 
 	initField();
 	initTabbedSelector();
@@ -5640,25 +5651,7 @@ void ComposeControls::escape() {
 bool ComposeControls::pushTabbedSelectorToThirdSection(
 		not_null<Data::Thread*> thread,
 		const Window::SectionShow &params) {
-	if (!_tabbedPanel || !_regularWindow || !_features.commonTabbedPanel) {
-		return true;
-	} else if (!Data::CanSendAnyOf(
-			thread,
-			Data::TabbedPanelSendRestrictions())) {
-		Core::App().settings().setTabbedReplacedWithInfo(true);
-		_regularWindow->showPeerInfo(thread, params.withThirdColumn());
-		return false;
-	}
-	Core::App().settings().setTabbedReplacedWithInfo(false);
-	_tabbedSelectorToggle->setColorOverrides(
-		&st::historyAttachEmojiActive,
-		&st::historyRecordVoiceFgActive,
-		&st::historyRecordVoiceRippleBgActive);
-	_regularWindow->resizeForThirdSection();
-	_regularWindow->showSection(
-		std::make_shared<ChatHelpers::TabbedMemento>(),
-		params.withThirdColumn());
-	return true;
+	return false;
 }
 
 bool ComposeControls::returnTabbedSelector() {
@@ -5700,26 +5693,6 @@ void ComposeControls::setTabbedPanel(
 }
 
 void ComposeControls::toggleTabbedSelectorMode() {
-	if (!_history || !_regularWindow || !_features.commonTabbedPanel) {
-		return;
-	}
-	if (_tabbedPanel) {
-		if (_regularWindow->canShowThirdSection()
-				&& !_regularWindow->adaptive().isOneColumn()) {
-			Core::App().settings().setTabbedSelectorSectionEnabled(true);
-			Core::App().saveSettingsDelayed();
-			const auto thread = _history->threadFor(
-				_topicRootId,
-				_monoforumPeerId);
-			pushTabbedSelectorToThirdSection(
-				thread ? thread : _history,
-				Window::SectionShow::Way::ClearStack);
-		} else {
-			_tabbedPanel->toggleAnimated();
-		}
-	} else {
-		_regularWindow->closeThirdSection();
-	}
 }
 
 int ComposeControls::composeFieldHeight() const {

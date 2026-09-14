@@ -43,6 +43,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "{#PayloadPath}\Allowgram.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PayloadPath}\AllowgramUpdater.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadPath}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadPath}\LEGAL"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadPath}\README.txt"; DestDir: "{app}"; Flags: ignoreversion

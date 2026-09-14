@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 
 #include "main/allowlist_policy.h"
+#include "mtproto/allowlist_request_guard.h"
 
 #include "apiwrap.h"
 #include "api/api_peer_colors.h"
@@ -50,6 +51,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_changes.h"
 #include "data/data_user.h"
+#include "data/data_document.h"
+#include "data/data_document_media.h"
+#include <QtCore/QFile>
 #include "data/data_download_manager.h"
 #include "data/stickers/data_stickers.h"
 #include "window/window_session_controller.h"
@@ -413,6 +417,23 @@ bool Session::allowlistConfigured() const {
 	return _allowlistConfigured.current();
 }
 
+MTP::AllowlistContentContext &Session::allowlistContent() {
+	if (!_allowlistContent) {
+		_allowlistContent = std::make_unique<MTP::AllowlistContentContext>([=](uint64 id) {
+			const auto document = data().document(id);
+			if (const auto media = document->activeMediaView()) {
+				const auto bytes = media->bytes();
+				if (!bytes.isEmpty()) {
+					return bytes.left(1024);
+				}
+			}
+			auto file = QFile(document->filepath(true));
+			return file.open(QIODevice::ReadOnly) ? file.read(1024) : QByteArray();
+		});
+	}
+	return *_allowlistContent;
+}
+
 rpl::producer<bool> Session::allowlistConfiguredValue() const {
 	return _allowlistConfigured.value();
 }
@@ -420,7 +441,37 @@ rpl::producer<bool> Session::allowlistConfiguredValue() const {
 bool Session::allowlistAllows(PeerId peer) const {
 	return allowlistConfigured()
 		&& peer
+		&& peer != userPeerId()
 		&& _settings->allowlistPeers().contains(peer);
+}
+
+
+bool Session::canCallPeer(PeerId peer) const {
+	if (!peerIsUser(peer)) {
+		return false;
+	}
+	const auto user = data().userLoaded(peerToUser(peer));
+	return Allowlist::CanCallUser(
+		Allowlist::Kind::User,
+		allowlistAllows(peer),
+		user && user->isLoaded() && !user->isInaccessible() && !user->isServiceUser(),
+		peer == userPeerId(),
+		user && user->isBot());
+}
+
+MTP::AllowlistCallContext &Session::allowlistCalls() {
+	if (!_allowlistCalls) {
+		_allowlistCalls = std::make_unique<MTP::AllowlistCallContext>(
+			userId(), [=](UserId peer) { return canCallPeer(peerFromUser(peer)); });
+	}
+	return *_allowlistCalls;
+}
+
+bool Session::canPresentPeerProfile(PeerId peer) const {
+	using Kind = Allowlist::Kind;
+	return Allowlist::CanPresentPeerProfile(
+		peerIsUser(peer) ? Kind::User : peerIsChat(peer) ? Kind::Chat : Kind::Channel,
+		allowlistAllows(peer));
 }
 
 const base::flat_set<PeerId> &Session::allowlistPeers() const {
@@ -480,6 +531,7 @@ QString Session::configureAllowlist(
 	}
 	_settings->_allowlistPeers = std::move(peers);
 	_allowlistConfigured = true;
+	_settings->_allowlistChanges.fire({});
 	return QString();
 }
 

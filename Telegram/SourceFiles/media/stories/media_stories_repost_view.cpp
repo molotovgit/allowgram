@@ -179,8 +179,8 @@ RepostClickHandler RepostView::lookupHandler(QPoint position) {
 				if (of) {
 					using namespace Data;
 					_controller->jumpTo(*of, { StoriesContextSingle() });
-				} else {
-					_controller->uiShow()->show(PrepareShortInfoBox(peer));
+				} else if (auto box = PrepareShortInfoBox(peer)) {
+					_controller->uiShow()->show(std::move(box));
 				}
 			} else {
 				_controller->uiShow()->showToast(

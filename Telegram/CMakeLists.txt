@@ -599,6 +599,10 @@ PRIVATE
     core/update_channel.h
     core/update_checker.cpp
     core/update_checker.h
+    core/update_feed.cpp
+    core/update_feed.h
+    core/update_stage.cpp
+    core/update_stage.h
     core/update_keys.cpp
     core/update_keys.h
     core/update_verify.cpp
@@ -2461,6 +2465,7 @@ if (MSVC)
     target_link_libraries(Telegram
     PRIVATE
         delayimp
+        dnsapi
     )
     target_link_options(Telegram
     PRIVATE
@@ -2476,6 +2481,7 @@ if (MSVC)
         /DELAYLOAD:oleaut32.dll
         /DELAYLOAD:shlwapi.dll
         /DELAYLOAD:iphlpapi.dll
+        /DELAYLOAD:dnsapi.dll
         /DELAYLOAD:gdiplus.dll
         /DELAYLOAD:version.dll
         /DELAYLOAD:dwmapi.dll
@@ -2556,6 +2562,10 @@ if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE AND NOT build_macstore AND NOT build_wins
             base/platform/win/base_windows_safe_library.cpp
             base/platform/win/base_windows_safe_library.h
         )
+        nice_target_sources(Updater ${res_loc}
+        PRIVATE
+            winrc/Updater.rc
+        )
         target_include_directories(Updater PRIVATE ${lib_base_loc})
         if (MSVC)
             target_link_libraries(Updater
@@ -2608,6 +2618,7 @@ if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE AND NOT build_macstore AND NOT build_wins
         if (DESKTOP_APP_USE_PACKAGED)
             target_compile_definitions(Packer PRIVATE PACKER_USE_PACKAGED)
         endif()
+        target_compile_definitions(Packer PRIVATE PACKER_DISABLE_PRIVATE)
 
         set_target_properties(Packer PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${output_folder})
     endif()

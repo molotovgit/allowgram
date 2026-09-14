@@ -28,7 +28,20 @@ No. A Mini App's owning bot must also be explicitly allowed under Allowed users,
 
 ### Why are Saved Messages or channel comments missing?
 
-Saved Messages needs your own user ID. Channel comments need the linked discussion group's ID. A group that migrates to a supergroup receives a new peer ID.
+Saved Messages is disabled in 7.2.8.5, even when your own ID is listed. Channel comments need the linked discussion group's ID. A group that migrates to a supergroup receives a new peer ID.
+
+### Why can I not open a member profile, add an account or send emoji?
+
+These are 7.2.8.5 client restrictions, not list configuration errors. They also cover allowlisted members, typed/pasted Unicode emoji, custom emoji, stickers and GIF animations. See [hardening scope and limits](../allowgram-7.2.8.5.md). Existing account data and received history are not deleted.
+
+### Why are creation, Calls and My Profile missing?
+
+New Group, New Channel, the sidebar Calls/history entry and My Profile remain
+unavailable. Version 7.2.8.7 permits incoming and outgoing voice/video calls with
+explicitly allowed, known users. Use the call button in an eligible private chat;
+right-click it for voice/video choices. Allowing a group does not authorize calls
+with its members. Contacts, Settings and existing allowed conversations remain
+available. See [7.2.8.7 scope](../allowgram-7.2.8.7.md).
 
 ### Is there a public installer here?
 

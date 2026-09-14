@@ -12,10 +12,15 @@
 add_executable(test_update_verify)
 init_target(test_update_verify "(tests)")
 
-target_include_directories(test_update_verify PRIVATE ${src_loc})
+get_filename_component(lib_base_loc lib_base REALPATH)
+target_include_directories(test_update_verify PRIVATE ${src_loc} ${lib_base_loc})
 
 nice_target_sources(test_update_verify ${src_loc}
 PRIVATE
+    core/update_feed.cpp
+    core/update_feed.h
+    core/update_stage.cpp
+    core/update_stage.h
     core/update_keys.cpp
     core/update_keys.h
     core/update_verify.cpp

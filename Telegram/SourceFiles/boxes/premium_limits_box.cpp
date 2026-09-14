@@ -341,8 +341,9 @@ void PublicsController::prepare() {
 }
 
 void PublicsController::rowClicked(not_null<PeerListRow*> row) {
-	_navigation->parentController()->show(
-		PrepareShortInfoBox(row->peer(), _navigation));
+	if (auto box = PrepareShortInfoBox(row->peer(), _navigation)) {
+		_navigation->parentController()->show(std::move(box));
+	}
 }
 
 void PublicsController::rowRightActionClicked(not_null<PeerListRow*> row) {

@@ -544,6 +544,9 @@ void UserpicButton::openPeerPhoto() {
 		return;
 	}
 
+	if (!_peer->session().canPresentPeerProfile(_peer->id)) {
+		return;
+	}
 	const auto id = _peer->userpicPhotoId();
 	if (!id) {
 		return;
@@ -837,7 +840,8 @@ void UserpicButton::processPeerPhoto() {
 		if (_peer->userpicPhotoUnknown()) {
 			_peer->updateFullForced();
 		}
-		_canOpenPhoto = (_peer->userpicPhotoId() != 0);
+		_canOpenPhoto = (_peer->userpicPhotoId() != 0)
+			&& _peer->session().canPresentPeerProfile(_peer->id);
 		updateCursor();
 		updateVideo();
 	}

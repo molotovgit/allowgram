@@ -13,6 +13,24 @@ $QtDirectory = (Resolve-Path -LiteralPath $QtDirectory).Path
 $build = Join-Path $Repository 'out/allowgram-guard-tests'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $scheme = Join-Path $build 'scheme'
+$staticQt = (Get-Content -LiteralPath "$QtDirectory/lib/Qt6Core.prl" -ErrorAction SilentlyContinue) -contains 'QMAKE_PRL_CONFIG = static'
+$runtime = if ($staticQt) { '/MT' } else { '/MD' }
+$definitions = @()
+if ($staticQt) { $definitions += '/DQT_STATIC' }
+$linkLibraries = @("$QtDirectory/lib/Qt6Core.lib")
+if ($staticQt) {
+    $dependencies = Get-Content -LiteralPath "$QtDirectory/lib/Qt6Core.prl" | Where-Object { $_.StartsWith('QMAKE_PRL_LIBS_FOR_CMAKE = ') }
+    if (-not $dependencies) { throw 'Static Qt link dependencies missing.' }
+    foreach ($dependency in $dependencies.Substring('QMAKE_PRL_LIBS_FOR_CMAKE = '.Length).Split(';')) {
+        if ($dependency.StartsWith('-L')) {
+            $linkLibraries += '/LIBPATH:' + $dependency.Substring(2).Trim('"')
+        } elseif ($dependency.StartsWith('-l')) {
+            $linkLibraries += $dependency.Substring(2) + '.lib'
+        } else {
+            $linkLibraries += $dependency.Replace('$$[QT_INSTALL_LIBS]', "$QtDirectory/lib")
+        }
+    }
+}
 python (Join-Path $Repository 'Telegram/SourceFiles/codegen/scheme/codegen_scheme.py') "-o$scheme" `
     (Join-Path $Repository 'Telegram/SourceFiles/mtproto/scheme/api.tl') `
     (Join-Path $Repository 'Telegram/SourceFiles/mtproto/scheme/mtproto.tl')
@@ -29,6 +47,7 @@ $sources = @(
     "$Repository/Telegram/SourceFiles/test/allowlist_request_guard_test.cpp",
     "$Repository/Telegram/SourceFiles/test/allowlist_webview_test.cpp",
     "$Repository/Telegram/SourceFiles/mtproto/allowlist_request_guard.cpp",
+    "$Repository/Telegram/SourceFiles/main/allowlist_policy.cpp",
     "$Repository/Telegram/SourceFiles/data/data_peer_id.cpp",
     "$scheme.cpp",
     "$Repository/Telegram/SourceFiles/mtproto/details/mtproto_serialized_request.cpp",
@@ -43,11 +62,11 @@ try {
         if ([IO.Path]::GetFileName($source) -in @('mtproto_serialized_request.cpp', 'data_peer_id.cpp')) {
             $forcedIncludes = @('/FIscheme.h')
         }
-        cl.exe /nologo /c /std:c++20 /EHsc /MD /O1 /Gy /bigobj /Zc:__cplusplus /permissive- /utf-8 /W3 /DQT_NO_DEBUG @includes @forcedIncludes $source
+        cl.exe /nologo /c /std:c++20 /EHsc $runtime /O1 /Gy /bigobj /Zc:__cplusplus /permissive- /utf-8 /W3 /DQT_NO_DEBUG @definitions @includes @forcedIncludes $source
         if ($LASTEXITCODE -ne 0) { throw "Compilation failed: $source" }
     }
     $objects = $sources | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) + '.obj' }
-    link.exe /nologo /OUT:allowlist_request_guard_test.exe /OPT:REF @objects "$QtDirectory/lib/Qt6Core.lib"
+    link.exe /nologo /OUT:allowlist_request_guard_test.exe /OPT:REF @objects @linkLibraries
     if ($LASTEXITCODE -ne 0) { throw 'Allow-list message/request regression test linking failed.' }
     $previousPath = $env:PATH
     try {

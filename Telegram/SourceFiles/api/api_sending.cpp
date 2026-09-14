@@ -32,6 +32,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/attach/attach_prepare.h"
 #include "main/main_session.h"
 #include "main/main_app_config.h"
+#include "mtproto/allowlist_request_guard.h"
+#include "lang/lang_keys.h"
 #include "storage/localimageloader.h"
 #include "storage/file_upload.h"
 #include "mainwidget.h"
@@ -72,6 +74,10 @@ void SendSimpleMedia(SendAction action, MTPInputMedia inputMedia) {
 	const auto history = action.history;
 	const auto peer = history->peer;
 	const auto session = &history->session();
+	if (!session->allowlistAllows(peer->id) || action.options.effectId
+		|| !AllowgramSendReplyAllowed(action.replyTo)) {
+		return;
+	}
 	const auto api = &session->api();
 
 	action.clearDraft = false;
@@ -188,6 +194,11 @@ void SendExistingMedia(
 	const auto history = message.action.history;
 	const auto peer = history->peer;
 	const auto session = &history->session();
+	if (!session->allowlistAllows(peer->id) || message.action.options.effectId
+		|| !AllowgramSendReplyAllowed(message.action.replyTo)
+		|| !AllowgramSendTextAllowed(message.textWithTags)) {
+		return;
+	}
 	const auto api = &session->api();
 	const auto welcomeTemplate = message.action.options.welcomeTemplate;
 
@@ -702,6 +713,10 @@ void SendExistingDocument(
 		MessageToSend &&message,
 		not_null<DocumentData*> document,
 		std::optional<MsgId> localMessageId) {
+	if (!AllowgramSendDocumentAllowed(document)
+		|| !AllowgramSendTextAllowed(message.textWithTags)) {
+		return;
+	}
 	const auto inputMedia = [=] {
 		return MTP_inputMediaDocument(
 			MTP_flags(message.action.options.mediaSpoiler
@@ -1299,6 +1314,27 @@ void AddConfirmedLocalPlaceholder(const ConfirmedLocalFile &local) {
 void SendConfirmedFile(
 		not_null<Main::Session*> session,
 		const std::shared_ptr<FilePrepareResult> &file) {
+	if (!session->allowlistAllows(file->to.peer)) {
+		return;
+	}
+	auto candidate = Ui::PreparedFile(file->filepath);
+	candidate.content = file->fileparts.empty() ? file->content : file->fileparts.front();
+	candidate.displayName = file->filename;
+	candidate.caption = file->caption;
+	const auto documentAllowed = file->document.match([](const MTPDdocument &data) {
+		return MTP::AllowlistDocumentContentAllowed(qs(data.vmime_type()), data.vattributes().v);
+	}, [](const MTPDdocumentEmpty &) {
+		return true;
+	});
+	if (file->to.options.effectId || file->animationJob
+		|| !AllowgramSendReplyAllowed(file->to.replyTo)
+		|| !file->attachedStickers.empty() || !documentAllowed
+		|| !AllowgramSendFileAllowed(candidate)) {
+		session->api().sendMessageFail(
+			tr::lng_allowgram_content_disabled(tr::now),
+			session->data().peer(file->to.peer));
+		return;
+	}
 	const auto welcomeTemplate = file->to.options.welcomeTemplate;
 	if (welcomeTemplate && file->to.replaceMediaOf) {
 		return;

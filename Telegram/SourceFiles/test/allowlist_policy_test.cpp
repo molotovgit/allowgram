@@ -26,6 +26,43 @@ void CheckInvalid(std::string_view value, bool users, Error expected) {
 
 int main() {
 	using namespace Main::Allowlist;
+	Check(!CanCreateConversations(), "Conversation creation must be disabled");
+	Check(!CanUseCalls(), "Generic call navigation and group calls remain disabled");
+	for (const auto kind : { Kind::User, Kind::Chat, Kind::Channel }) {
+		for (auto flags = 0; flags != 16; ++flags) {
+			const auto allowed = bool(flags & 1);
+			const auto known = bool(flags & 2);
+			const auto self = bool(flags & 4);
+			const auto bot = bool(flags & 8);
+			Check(CanCallUser(kind, allowed, known, self, bot)
+				== (kind == Kind::User && allowed && known && !self && !bot),
+				"Private calls require explicit known nonself nonbot user permission");
+		}
+	}
+	for (const auto text : { U"\U0001F600", U"\u2764\uFE0F", U"\u263A\uFE0E",
+		U"\U0001F468\u200D\U0001F469\u200D\U0001F467", U"\U0001F1FA\U0001F1FF",
+		U"\U0001F44D\U0001F3FD", U"1\uFE0F\u20E3", U"#\u20E3", U"*\uFE0F\u20E3",
+		U"\U0001FAE9" }) {
+		Check(ContainsEmoji(text), "Telegram emoji sequence accepted");
+	}
+	Check(!ContainsEmoji(U"0123456789 # * ! ?.,:; -1001234567890"),
+		"Ordinary digits or punctuation rejected");
+	Check(!ContainsEmoji(U"O'zbekiston \u040E\u0437\u0431\u0435\u043A \u4F60\u597D \u65E5\u672C\u8A9E"),
+		"Multilingual text rejected");
+	Check(!CanPresentPeerProfile(Kind::User, true),
+		"Allowlisted member profile presentation accepted");
+	Check(!CanPresentPeerProfile(Kind::User, false),
+		"Nonallowlisted member profile presentation accepted");
+	Check(CanPresentPeerProfile(Kind::Chat, true),
+		"Allowed group information rejected");
+	Check(CanPresentPeerProfile(Kind::Channel, true),
+		"Allowed channel information rejected");
+	Check(!CanPresentPeerProfile(Kind::Chat, false),
+		"Denied group information accepted");
+	Check(CanStartUserSession(0), "Initial login or relogin rejected");
+	Check(!CanStartUserSession(1), "Additional authenticated account accepted");
+	Check(!CanStartUserSession(2), "Legacy multi-account state permits addition");
+	Check(!CanStartUserSession(-1), "Invalid account count permits login");
 	const auto parsed = Parse(
 		"123, user:456\n123; 000123",
 		"-789 channel:42 -1000000000042 chat:789");

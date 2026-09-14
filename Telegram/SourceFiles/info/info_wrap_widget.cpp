@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/info_wrap_widget.h"
+#include "main/allowlist_policy.h"
 
 #include "info/profile/info_profile_widget.h"
 #include "info/profile/info_profile_values.h"
@@ -574,6 +575,9 @@ bool WrapWidget::closeByOutsideClick() const {
 void WrapWidget::addProfileCallsButton() {
 	Expects(_topBar != nullptr);
 
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	const auto peer = key().peer();
 	const auto user = peer ? peer->asUser() : nullptr;
 	if (!user || user->sharedMediaInfo() || user->isInaccessible()) {

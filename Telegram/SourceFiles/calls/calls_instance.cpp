@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "calls/calls_instance.h"
+#include "main/allowlist_policy.h"
 
 #include "calls/calls_call.h"
 #include "calls/group/calls_group_common.h"
@@ -21,6 +22,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/session/session_show.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
+#include "main/main_session_settings.h"
+#include "mtproto/allowlist_request_guard.h"
 #include "main/main_account.h"
 #include "apiwrap.h"
 #include "lang/lang_keys.h"
@@ -203,6 +206,9 @@ Instance::~Instance() {
 void Instance::startOutgoingCall(
 		not_null<UserData*> user,
 		StartOutgoingCallArgs args) {
+	if (!user->session().canCallPeer(user->id)) {
+		return;
+	}
 	if (activateCurrentCall()
 		|| (!args.isConfirmed && activateUnconfirmedCall(user))) {
 		return;
@@ -216,7 +222,10 @@ void Instance::startOutgoingCall(
 			user->name())));
 		return;
 	}
-	requestPermissionsOrFail(crl::guard(this, [=] {
+	requestPermissionsOrFail(crl::guard(&user->session(), [=] {
+		if (!user->session().canCallPeer(user->id)) {
+			return;
+		}
 		if (activateCurrentCall()
 			|| (!args.isConfirmed && activateUnconfirmedCall(user))) {
 			return;
@@ -229,6 +238,9 @@ void Instance::startOrJoinGroupCall(
 		std::shared_ptr<Ui::Show> show,
 		not_null<PeerData*> peer,
 		StartGroupCallArgs args) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	confirmLeaveCurrent(show, peer, args, [=](StartGroupCallArgs args) {
 		using JoinConfirm = Calls::StartGroupCallArgs::JoinConfirm;
 		const auto context = (args.confirm == JoinConfirm::Always)
@@ -252,6 +264,9 @@ void Instance::startOrJoinGroupCall(
 }
 
 void Instance::startOrJoinConferenceCall(StartConferenceInfo args) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	Expects(args.call || args.show);
 
 	const auto migrationInfo = (args.migrating
@@ -376,6 +391,9 @@ void Instance::confirmLeaveCurrent(
 void Instance::showStartWithRtmp(
 		std::shared_ptr<Ui::Show> show,
 		not_null<PeerData*> peer) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	_startWithRtmp->start(peer, show, [=](Group::JoinInfo info) {
 		confirmLeaveCurrent(show, peer, {}, [=](auto) {
 			_startWithRtmp->close();
@@ -424,7 +442,8 @@ void Instance::destroyCall(not_null<Call*> call) {
 void Instance::createCall(
 		not_null<UserData*> user,
 		CallType type,
-		StartOutgoingCallArgs args) {
+		StartOutgoingCallArgs args,
+		std::optional<MTPPhoneCall> incoming) {
 	struct Performer final {
 		explicit Performer(Fn<void(bool, bool, const Performer &)> callback)
 		: callback(std::move(callback)) {
@@ -435,8 +454,20 @@ void Instance::createCall(
 			bool video,
 			bool isConfirmed,
 			const Performer &repeater) {
+		if (!user->session().canCallPeer(user->id)) {
+			return;
+		}
+		auto &permissions = user->session().allowlistCalls();
+		const auto token = permissions.begin(peerToUser(user->id), type == Call::Type::Outgoing);
+		if (!token || (incoming && !permissions.bind(token, *incoming))) {
+			permissions.forget(token);
+			return;
+		}
 		const auto delegate = _delegate.get();
-		auto call = std::make_unique<Call>(delegate, user, type, video);
+		auto call = std::make_unique<Call>(delegate, user, type, video, token);
+		if (incoming && !call->handleUpdate(*incoming)) {
+			return;
+		}
 		if (isConfirmed) {
 			call->applyUserConfirmation();
 		}
@@ -455,6 +486,13 @@ void Instance::createCall(
 			_currentCallPanel = std::make_unique<Panel>(raw);
 			_currentCall = std::move(call);
 		}
+		user->session().settings().allowlistChanges(
+		) | rpl::on_next([=] {
+			if (!raw->revalidateAuthorization() && _currentCall.get() == raw) {
+				_currentCallPanel->closeBeforeDestroy();
+			}
+		}, raw->lifetime());
+
 		if (raw->state() == Call::State::WaitingUserConfirmation) {
 			_currentCallPanel->startOutgoingRequests(
 			) | rpl::on_next([=](bool video) {
@@ -509,6 +547,9 @@ void Instance::createGroupCall(
 }
 
 void Instance::refreshDhConfig() {
+	if (!_currentCall || !_currentCall->revalidateAuthorization()) {
+		return;
+	}
 	Expects(_currentCall != nullptr);
 	Expects(!_currentCall->conferenceInvite());
 
@@ -518,10 +559,10 @@ void Instance::refreshDhConfig() {
 		MTP_int(MTP::ModExpFirst::kRandomPowerSize)
 	)).done([=](const MTPmessages_DhConfig &result) {
 		const auto call = weak.get();
-		const auto random = updateDhConfig(result);
-		if (!call) {
+		if (!call || !call->revalidateAuthorization()) {
 			return;
 		}
+		const auto random = updateDhConfig(result);
 		if (!random.empty()) {
 			Assert(random.size() == MTP::ModExpFirst::kRandomPowerSize);
 			call->start(random);
@@ -571,6 +612,10 @@ bytes::const_span Instance::updateDhConfig(
 }
 
 void Instance::refreshServerConfig(not_null<Main::Session*> session) {
+	if (!_currentCall || &_currentCall->user()->session() != session
+		|| !_currentCall->revalidateAuthorization()) {
+		return;
+	}
 	if (_serverConfigRequestSession) {
 		return;
 	}
@@ -621,7 +666,7 @@ void Instance::handleUpdate(
 }
 
 void Instance::showInfoPanel(not_null<Call*> call) {
-	if (_currentCall.get() == call) {
+	if (_currentCall.get() == call && call->revalidateAuthorization()) {
 		_currentCallPanel->showAndActivate();
 	}
 }
@@ -677,58 +722,33 @@ void Instance::handleCallUpdate(
 		not_null<Main::Session*> session,
 		const MTPPhoneCall &call) {
 	if (call.type() == mtpc_phoneCallRequested) {
-		auto &phoneCall = call.c_phoneCallRequested();
-		if (!session->allowlistAllows(UserId(phoneCall.vadmin_id()))) {
+		const auto &phoneCall = call.c_phoneCallRequested();
+		const auto peer = peerFromUser(UserId(phoneCall.vadmin_id()));
+		if (!session->canCallPeer(peer)
+			|| UserId(phoneCall.vparticipant_id()) != session->userId()
+			|| !phoneCall.vid().v || !phoneCall.vaccess_hash().v
+			|| phoneCall.vg_a_hash().v.size() != 32) {
 			return;
 		}
-		auto user = session->data().userLoaded(phoneCall.vadmin_id());
-		if (!user) {
-			LOG(("API Error: User not loaded for phoneCallRequested."));
-		} else if (user->isSelf()) {
-			LOG(("API Error: Self found in phoneCallRequested."));
-		} else if (_currentCall
-			&& _currentCall->user() == user
-			&& _currentCall->id() == phoneCall.vid().v) {
-			// May be a repeated phoneCallRequested update from getDifference.
-			return;
-		}
-		if (inCall()
-			&& _currentCall->type() == Call::Type::Outgoing
-			&& _currentCall->user()->id == session->userPeerId()
-			&& (user->id == _currentCall->user()->session().userPeerId())) {
-			// Ignore call from the same running app, other account.
-			return;
-		}
-
+		const auto user = session->data().userLoaded(peerToUser(peer));
 		const auto &config = session->serverConfig();
-		if (inCall() || inGroupCall() || !user || user->isSelf()) {
-			const auto flags = phoneCall.is_video()
-				? MTPphone_DiscardCall::Flag::f_video
-				: MTPphone_DiscardCall::Flag(0);
-			session->api().request(MTPphone_DiscardCall(
-				MTP_flags(flags),
-				MTP_inputPhoneCall(phoneCall.vid(), phoneCall.vaccess_hash()),
-				MTP_int(0),
-				MTP_phoneCallDiscardReasonBusy(),
-				MTP_long(0)
-			)).send();
-		} else if (phoneCall.vdate().v + (config.callRingTimeoutMs / 1000)
-			< base::unixtime::now()) {
-			LOG(("Ignoring too old call."));
-		} else {
-			createCall(user, Call::Type::Incoming, { phoneCall.is_video() });
-			_currentCall->handleUpdate(call);
+		if (inCall() || inGroupCall()
+			|| phoneCall.vdate().v + (config.callRingTimeoutMs / 1000)
+				< base::unixtime::now()) {
+			return;
 		}
-	} else if (!_currentCall
-		|| (&_currentCall->user()->session() != session)
-		|| !_currentCall->handleUpdate(call)) {
-		DEBUG_LOG(("API Warning: unexpected phone call update %1").arg(call.type()));
+		createCall(user, Call::Type::Incoming, { phoneCall.is_video() }, call);
+	} else if (_currentCall && &_currentCall->user()->session() == session) {
+		_currentCall->handleUpdate(call);
 	}
 }
 
 void Instance::handleGroupCallUpdate(
 		not_null<Main::Session*> session,
 		const MTPUpdate &update) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	if (const auto i = _streams.find(session); i != end(_streams)) {
 		for (auto j = begin(i->second); j != end(i->second);) {
 			if (const auto strong = j->get()) {
@@ -819,6 +839,9 @@ void Instance::handleGroupCallUpdate(
 void Instance::applyGroupCallUpdateChecked(
 		not_null<Main::Session*> session,
 		const MTPUpdate &update) {
+	if (!Main::Allowlist::CanUseCalls()) {
+		return;
+	}
 	const auto groupCall = _currentGroupCall
 		? _currentGroupCall.get()
 		: _startingGroupCall.get();
@@ -901,6 +924,9 @@ bool Instance::hasActivePanel(Main::Session *session) const {
 }
 
 bool Instance::activateCurrentCall(const QString &joinHash) {
+	if (_currentCall && !_currentCall->revalidateAuthorization()) {
+		return true;
+	}
 	if (inCall()) {
 		_currentCallPanel->showAndActivate();
 		return true;
@@ -1175,7 +1201,8 @@ void Instance::declineOutgoingConferenceInvite(
 void Instance::showConferenceInvite(
 		not_null<UserData*> user,
 		MsgId conferenceInviteMsgId) {
-	if (!user->session().allowlistAllows(user->id)) {
+	if (!Main::Allowlist::CanUseCalls()
+		|| !user->session().allowlistAllows(user->id)) {
 		return;
 	}
 	const auto item = user->owner().message(user, conferenceInviteMsgId);

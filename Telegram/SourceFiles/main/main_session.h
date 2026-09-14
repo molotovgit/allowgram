@@ -20,6 +20,8 @@ class SendProgressManager;
 
 namespace MTP {
 class Instance;
+class AllowlistContentContext;
+class AllowlistCallContext;
 struct ConfigFields;
 } // namespace MTP
 
@@ -243,6 +245,10 @@ public:
 	[[nodiscard]] bool allowlistConfigured() const;
 	[[nodiscard]] rpl::producer<bool> allowlistConfiguredValue() const;
 	[[nodiscard]] bool allowlistAllows(PeerId peer) const;
+	[[nodiscard]] MTP::AllowlistContentContext &allowlistContent();
+	[[nodiscard]] bool canCallPeer(PeerId peer) const;
+	[[nodiscard]] MTP::AllowlistCallContext &allowlistCalls();
+	[[nodiscard]] bool canPresentPeerProfile(PeerId peer) const;
 	[[nodiscard]] const base::flat_set<PeerId> &allowlistPeers() const;
 	[[nodiscard]] QString configureAllowlist(
 		const QString &userIds,
@@ -317,6 +323,8 @@ private:
 
 	const std::unique_ptr<SessionSettings> _settings;
 	rpl::variable<bool> _allowlistConfigured;
+	std::unique_ptr<MTP::AllowlistContentContext> _allowlistContent;
+	std::unique_ptr<MTP::AllowlistCallContext> _allowlistCalls;
 	const std::unique_ptr<Data::Changes> _changes;
 	const std::unique_ptr<ApiWrap> _api;
 	const std::unique_ptr<Api::Updates> _updates;

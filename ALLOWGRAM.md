@@ -46,8 +46,15 @@ attachments, albums, forwards, edits, scheduled-message sends, reactions, poll
 votes, and supported bot interactions. Forwarded messages and stories also
 require their source conversation to be allowed. Unknown request types are rejected by
 default. A bot queried through inline search must also be allowed. Saved
-Messages requires your own user ID. Channel comments require the ID of the
+Messages is disabled, including when your own ID is listed. Channel comments require the ID of the
 linked discussion group.
+
+Version 7.2.8.5 also blocks other-user profiles, additional-account creation and
+outgoing emoji/stickers/GIF animations. Plain URL text has no outgoing preview.
+Opaque outgoing content is conservatively restricted; see the exact
+[hardening scope and limits](docs/allowgram-7.2.8.5.md). Initial login and restored
+legacy account data are preserved. A participant's metadata is not permission
+to display their profile, even when their DM is allowed.
 
 Mini Apps can open only for server-resolved bots explicitly included under
 Users. The launching conversation, reply sources and send-as identities must

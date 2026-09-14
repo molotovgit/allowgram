@@ -1,5 +1,26 @@
 # Allowgram changelog
 
+## 7.2.8.7
+
+- Permit incoming and outgoing private voice/video calls only with explicitly allowlisted, known nonbot users; restore the eligible private-chat call action.
+- Bind call lifecycle requests to the verified account, peer, call ID and access hash. Recheck authorization and terminate pending/active calls on revocation.
+- Keep Calls history, group/conference calls, creation and personal profiles unavailable, with all earlier hardening retained. See [scope and verification](docs/allowgram-7.2.8.7.md).
+
+## 7.2.8.6
+
+- Remove New Group/New Channel and guard direct creation dialogs and navigation; existing permitted conversations remain usable.
+- Remove Calls history, voice/video/group-call controls and incoming-call presentation; retain the deny-unknown transport restrictions.
+- Remove My Profile and View profile actions, including own-user views, and close the short-info profile route.
+- Preserve Contacts, own-account Settings, initial login, allowed messaging, Mini App gates and all earlier content restrictions. See [scope and verification](docs/allowgram-7.2.8.6.md).
+
+## 7.2.8.5
+
+- Block other-user profile presentation and Saved Messages, independently of the saved allow-list.
+- Remove additional-account entry points and guard new logins without deleting restored accounts.
+- Reject outgoing Unicode/custom emoji, stickers, GIF animations and reactions; remove composer pickers and suggestions.
+- Classify final text, media metadata, uploaded file prefixes and cached forwards before transport. Suppress outgoing URL previews and effects.
+- Preserve ordinary allowed text and attachments, allowed-bot Mini App gates and the 7.2.8.4 form layout. See [hardening scope and limits](docs/allowgram-7.2.8.5.md).
+
 ## 7.2.8.4
 
 - Restore native input-field height so numeric IDs, prefixed group/channel IDs and the caret fit below floating labels.

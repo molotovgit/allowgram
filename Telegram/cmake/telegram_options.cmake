@@ -59,6 +59,7 @@ endif()
 
 set(TDESKTOP_UPDATE_CHANNEL "stable" CACHE STRING "Compile-time update channel (stable, beta, canary-public, canary-private).")
 set(TDESKTOP_CANARY_COUNTER "0" CACHE STRING "Per-channel canary build counter, required positive for canary channels.")
+set(TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE "8" CACHE STRING "Monotonic Allowgram stable update sequence.")
 set(TDESKTOP_CANARY_COMMIT "" CACHE STRING "Short commit hash shown in the canary version string.")
 set(TDESKTOP_CANARY_PUBLIC_CHANNEL "" CACHE STRING "Public canary channel username (canary-public builds).")
 set(TDESKTOP_CANARY_PRIVATE_CHANNEL_ID "0" CACHE STRING "Private canary channel numeric id (canary-private builds).")
@@ -69,6 +70,7 @@ set(TDESKTOP_CANARY_METADATA_MSG_ID "0" CACHE STRING "Fixed metadata message id 
 # empty macro body.
 foreach(numeric_option
     TDESKTOP_CANARY_COUNTER
+    TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE
     TDESKTOP_CANARY_PRIVATE_CHANNEL_ID
     TDESKTOP_CANARY_METADATA_MSG_ID)
     if (${numeric_option} STREQUAL "")
@@ -90,6 +92,13 @@ else()
     message(FATAL_ERROR "Bad TDESKTOP_UPDATE_CHANNEL '${TDESKTOP_UPDATE_CHANNEL}'")
 endif()
 
+if (NOT tdesktop_update_channel_value EQUAL 0)
+    message(FATAL_ERROR "Allowgram update builds only support the stable channel.")
+endif()
+if (TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE LESS_EQUAL 0 OR TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE GREATER 65535)
+    message(FATAL_ERROR "TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE must be in 1..65535.")
+endif()
+
 if (tdesktop_update_channel_value GREATER 1)
     if (TDESKTOP_CANARY_COUNTER LESS_EQUAL 0)
         message(FATAL_ERROR "Canary channels require a positive TDESKTOP_CANARY_COUNTER.")
@@ -102,6 +111,7 @@ target_compile_definitions(Telegram
 PRIVATE
     TDESKTOP_UPDATE_CHANNEL=${tdesktop_update_channel_value}
     TDESKTOP_CANARY_COUNTER=${TDESKTOP_CANARY_COUNTER}
+    TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE=${TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE}
     TDESKTOP_CANARY_PRIVATE_CHANNEL_ID=${TDESKTOP_CANARY_PRIVATE_CHANNEL_ID}
     TDESKTOP_CANARY_METADATA_MSG_ID=${TDESKTOP_CANARY_METADATA_MSG_ID}
 )

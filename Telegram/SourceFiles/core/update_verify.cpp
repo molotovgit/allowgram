@@ -830,6 +830,24 @@ bool VerifyChannelAuthorization(
 	return true;
 }
 
+QString DisplayUpdateVersion(quint64 version) {
+	const auto base = UpdateVersionBase(version);
+	const auto major = base / 1000000;
+	const auto minor = (base / 1000) % 1000;
+	const auto patch = base % 1000;
+	if (!major || minor > 999 || patch > 999) {
+		return QString();
+	}
+	auto result = QStringLiteral("%1.%2.%3"
+	).arg(major
+	).arg(minor
+	).arg(patch);
+	if (const auto counter = UpdateVersionCounter(version)) {
+		result += QStringLiteral(".%1").arg(counter);
+	}
+	return result;
+}
+
 bool ChannelPolicyAllows(
 		Channel build,
 		bool betaSet,
@@ -838,8 +856,7 @@ bool ChannelPolicyAllows(
 		quint64 runningVersion) {
 	switch (build) {
 	case Channel::Stable:
-		return (package == Channel::Stable)
-			|| (betaSet && package == Channel::Beta);
+		return (package == Channel::Stable);
 	case Channel::Beta:
 		return (package == Channel::Stable) || (package == Channel::Beta);
 	case Channel::CanaryPublic:

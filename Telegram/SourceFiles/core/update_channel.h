@@ -24,6 +24,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #define TDESKTOP_CANARY_COUNTER 0
 #endif // TDESKTOP_CANARY_COUNTER
 
+#ifndef TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE
+#define TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE AllowgramUpdateSequence
+#endif // TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE
+
 #ifndef TDESKTOP_CANARY_PRIVATE_CHANNEL_ID
 #define TDESKTOP_CANARY_PRIVATE_CHANNEL_ID 0
 #endif // TDESKTOP_CANARY_PRIVATE_CHANNEL_ID
@@ -37,12 +41,15 @@ namespace Core {
 inline constexpr auto BuildUpdateChannel = Updates::Channel(
 	TDESKTOP_UPDATE_CHANNEL);
 inline constexpr auto CanaryBuildCounter = quint32(TDESKTOP_CANARY_COUNTER);
+inline constexpr auto BuildAllowgramSequence
+	= quint32(TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE);
 inline constexpr auto BuildIsCanary
 	= (BuildUpdateChannel == Updates::Channel::CanaryPublic)
 	|| (BuildUpdateChannel == Updates::Channel::CanaryPrivate);
 
 static_assert(!BuildIsCanary || CanaryBuildCounter > 0);
 static_assert(BuildIsCanary || CanaryBuildCounter == 0);
+static_assert(BuildAllowgramSequence > 0);
 
 // The string-valued defines are passed as bare tokens and stringified,
 // so they are only ever defined when non-empty: stringifying an empty
@@ -68,7 +75,7 @@ inline constexpr auto CanaryMetadataMessageId
 [[nodiscard]] inline constexpr quint64 RunningUpdateVersion() {
 	return Updates::MakeUpdateVersion(
 		quint32(AppVersion),
-		CanaryBuildCounter);
+		BuildAllowgramSequence);
 }
 
 [[nodiscard]] inline QString CanaryVersionSuffix() {

@@ -5,10 +5,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mtproto/allowlist_request_guard.h"
 #include "mtproto/allowlist_webview_guard.h"
+#include "main/allowlist_policy.h"
 
 #include <QtCore/QRegularExpression>
 #include <QtCore/QUrl>
 #include <QtCore/QUrlQuery>
+#include <algorithm>
 
 namespace MTP {
 namespace {
@@ -53,14 +55,37 @@ namespace {
 	});
 }
 
+[[nodiscard]] bool TextAllowed(const MTPstring &text) {
+	const auto decoded = QString::fromUtf8(text.v);
+	return decoded.toUtf8() == text.v
+		&& !Main::Allowlist::ContainsEmoji(decoded.toStdU32String());
+}
+
+[[nodiscard]] bool EntitiesAllowed(const MTPVector<MTPMessageEntity> &entities) {
+	return std::ranges::none_of(entities.v, [](const MTPMessageEntity &entity) {
+		return entity.match([](const MTPDmessageEntityCustomEmoji &) {
+			return true;
+		}, [](const MTPDmessageEntityPre &data) {
+			return !TextAllowed(data.vlanguage());
+		}, [](const MTPDmessageEntityTextUrl &data) {
+			return !TextAllowed(data.vurl());
+		}, [](const auto &) {
+			return false;
+		});
+	});
+}
+
 [[nodiscard]] bool ReplyAllowed(
 		const MTPInputReplyTo &reply,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows) {
 	return reply.match([&](const MTPDinputReplyToMessage &data) {
 		const auto monoforumPeer = data.vmonoforum_peer_id();
-		return !monoforumPeer
-			|| allows(Destination(*monoforumPeer, selfId));
+		return (!monoforumPeer || allows(Destination(*monoforumPeer, selfId)))
+			&& (!data.vreply_to_peer_id()
+				|| allows(Destination(*data.vreply_to_peer_id(), selfId)))
+			&& (!data.vquote_text() || TextAllowed(*data.vquote_text()))
+			&& (!data.vquote_entities() || EntitiesAllowed(*data.vquote_entities()));
 	}, [&](const MTPDinputReplyToMonoForum &data) {
 		return allows(Destination(data.vmonoforum_peer_id(), selfId));
 	}, [](const MTPDinputReplyToStory &) {
@@ -91,18 +116,42 @@ struct PeerRequestLayout {
 [[nodiscard]] bool MediaAllowed(
 		const MTPInputMedia &media,
 		UserId selfId,
-		const Fn<bool(PeerId)> &allows) {
-	return media.match([&](const MTPDinputMediaStory &data) {
-		return allows(Destination(data.vpeer(), selfId));
+		const Fn<bool(PeerId)> &allows,
+		AllowlistContentContext *content) {
+	return media.match([](const MTPDinputMediaEmpty &) {
+		return true;
+	}, [&](const MTPDinputMediaUploadedPhoto &data) {
+		return content && content->uploadAllowed(data.vfile())
+			&& !data.vstickers() && !data.vvideo();
+	}, [&](const MTPDinputMediaPhoto &data) {
+		return !data.vvideo();
+	}, [&](const MTPDinputMediaUploadedDocument &data) {
+		return content && content->uploadAllowed(data.vfile())
+			&& !data.vstickers() && !data.is_nosound_video()
+			&& AllowlistDocumentContentAllowed(qs(data.vmime_type()), data.vattributes().v);
+	}, [&](const MTPDinputMediaDocument &data) {
+		return content && content->documentAllowed(data.vid())
+			&& (!data.vquery() || TextAllowed(*data.vquery()));
+	}, [](const MTPDinputMediaGeoPoint &) {
+		return true;
+	}, [](const MTPDinputMediaGeoLive &) {
+		return true;
+	}, [](const MTPDinputMediaContact &data) {
+		return TextAllowed(data.vphone_number()) && TextAllowed(data.vfirst_name())
+			&& TextAllowed(data.vlast_name()) && TextAllowed(data.vvcard());
+	}, [](const MTPDinputMediaVenue &data) {
+		return TextAllowed(data.vtitle()) && TextAllowed(data.vaddress());
+	}, [](const MTPDinputMediaWebPage &) {
+		return false;
 	}, [&](const MTPDinputMediaPaidMedia &data) {
 		for (const auto &nested : data.vextended_media().v) {
-			if (!MediaAllowed(nested, selfId, allows)) {
+			if (!MediaAllowed(nested, selfId, allows, content)) {
 				return false;
 			}
 		}
 		return true;
 	}, [](const auto &) {
-		return true;
+		return false;
 	});
 }
 
@@ -112,6 +161,7 @@ template <typename Request>
 		const mtpPrime *end,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
+		AllowlistContentContext *content,
 		PeerRequestLayout layout) {
 	if (!ValidateRequest<Request>(from, end)) {
 		return false;
@@ -141,24 +191,102 @@ template <typename Request>
 	}
 	const auto readMedia = [&] {
 		auto media = MTPInputMedia();
-		return media.read(from, end) && MediaAllowed(media, selfId, allows);
+		return media.read(from, end) && MediaAllowed(media, selfId, allows, content);
 	};
-	if constexpr (std::is_same_v<Request, MTPmessages_SendMedia>
-		|| std::is_same_v<Request, MTPmessages_UploadMedia>) {
+	const auto readEntities = [&] {
+		auto entities = MTPVector<MTPMessageEntity>();
+		return !(flags.v & (1U << 2))
+			&& (!(flags.v & (1U << 3))
+				|| (entities.read(from, end) && EntitiesAllowed(entities)));
+	};
+	if constexpr (std::is_same_v<Request, MTPmessages_SetTyping>) {
+		auto action = MTPSendMessageAction();
+		if (!action.read(from, end)) {
+			return false;
+		}
+		switch (action.type()) {
+		case mtpc_sendMessageTypingAction:
+		case mtpc_sendMessageCancelAction:
+		case mtpc_sendMessageRecordVideoAction:
+		case mtpc_sendMessageUploadVideoAction:
+		case mtpc_sendMessageRecordAudioAction:
+		case mtpc_sendMessageUploadAudioAction:
+		case mtpc_sendMessageUploadPhotoAction:
+		case mtpc_sendMessageUploadDocumentAction:
+		case mtpc_sendMessageGeoLocationAction:
+		case mtpc_sendMessageChooseContactAction:
+		case mtpc_sendMessageRecordRoundAction:
+		case mtpc_sendMessageUploadRoundAction:
+		case mtpc_sendMessageStopDraftAction:
+			return true;
+		case mtpc_sendMessageTextDraftAction: {
+			const auto &text = action.c_sendMessageTextDraftAction().vtext().data();
+			return TextAllowed(text.vtext()) && EntitiesAllowed(text.ventities());
+		} break;
+		default:
+			return false;
+		}
+	} else if constexpr (std::is_same_v<Request, MTPmessages_SendInlineBotResult>
+		|| std::is_same_v<Request, MTPmessages_SendQuickReplyMessages>
+		|| std::is_same_v<Request, MTPmessages_SendScheduledMessages>
+		|| std::is_same_v<Request, MTPmessages_SendPaidReaction>) {
+		return false;
+	} else if constexpr (std::is_same_v<Request, MTPmessages_SendReaction>) {
+		auto id = MTPint();
+		auto reactions = MTPVector<MTPReaction>();
+		return id.read(from, end) && (!(flags.v & 1U)
+			|| (reactions.read(from, end) && reactions.v.isEmpty()));
+	} else if constexpr (std::is_same_v<Request, MTPstories_SendReaction>) {
+		auto id = MTPint();
+		auto reaction = MTPReaction();
+		return id.read(from, end) && reaction.read(from, end)
+			&& reaction.type() == mtpc_reactionEmpty;
+	} else if constexpr (std::is_same_v<Request, MTPmessages_UploadMedia>) {
 		return readMedia();
+	} else if constexpr (std::is_same_v<Request, MTPmessages_SendMessage>
+		|| std::is_same_v<Request, MTPmessages_SendMedia>) {
+		if constexpr (std::is_same_v<Request, MTPmessages_SendMessage>) {
+			if (!(flags.v & (1U << 1))) {
+				return false;
+			}
+		}
+		if (flags.v & ((1U << 18) | (1U << 23))) {
+			return false;
+		}
+		if constexpr (std::is_same_v<Request, MTPmessages_SendMedia>) {
+			if (!readMedia()) {
+				return false;
+			}
+		}
+		auto message = MTPstring();
+		auto randomId = MTPlong();
+		return message.read(from, end) && TextAllowed(message)
+			&& randomId.read(from, end) && readEntities();
 	} else if constexpr (std::is_same_v<Request, MTPmessages_EditMessage>) {
 		auto id = MTPint();
 		auto message = MTPstring();
-		return id.read(from, end)
-			&& (!(flags.v & (1U << 11)) || message.read(from, end))
-			&& (!(flags.v & (1U << 14)) || readMedia());
+		return !(flags.v & (1U << 23))
+			&& (!(flags.v & (1U << 11)) || (flags.v & (1U << 1)))
+			&& id.read(from, end)
+			&& (!(flags.v & (1U << 15))
+				|| (content && content->messageAllowed(Destination(peer, selfId), id.v, true)))
+			&& (!(flags.v & (1U << 11))
+				|| (message.read(from, end) && TextAllowed(message)))
+			&& (!(flags.v & (1U << 14)) || readMedia())
+			&& readEntities();
 	} else if constexpr (std::is_same_v<Request, MTPmessages_SendMultiMedia>) {
+		if (flags.v & (1U << 18)) {
+			return false;
+		}
 		auto media = MTPVector<MTPInputSingleMedia>();
 		if (!media.read(from, end)) {
 			return false;
 		}
 		for (const auto &single : media.v) {
-			if (!MediaAllowed(single.data().vmedia(), selfId, allows)) {
+			if (!MediaAllowed(single.data().vmedia(), selfId, allows, content)
+				|| !TextAllowed(single.data().vmessage())
+				|| (single.data().ventities()
+					&& !EntitiesAllowed(*single.data().ventities()))) {
 				return false;
 			}
 		}
@@ -170,7 +298,8 @@ template <typename Request>
 		const mtpPrime *from,
 		const mtpPrime *end,
 		UserId selfId,
-		const Fn<bool(PeerId)> &allows) {
+		const Fn<bool(PeerId)> &allows,
+		AllowlistContentContext *content) {
 	if (!ValidateRequest<MTPmessages_ForwardMessages>(from, end)) {
 		return false;
 	}
@@ -181,6 +310,7 @@ template <typename Request>
 	auto randomIds = MTPVector<MTPlong>();
 	auto destination = MTPInputPeer();
 	if (!flags.read(from, end)
+		|| (flags.v & (1U << 18))
 		|| !source.read(from, end)
 		|| !allows(Destination(source, selfId))
 		|| !ids.read(from, end)
@@ -188,6 +318,14 @@ template <typename Request>
 		|| !destination.read(from, end)
 		|| !allows(Destination(destination, selfId))) {
 		return false;
+	}
+	if (!content || ids.v.isEmpty() || ids.v.size() != randomIds.v.size()) {
+		return false;
+	}
+	for (const auto &id : ids.v) {
+		if (!content->messageAllowed(Destination(source, selfId), id.v)) {
+			return false;
+		}
 	}
 	if (flags.v & (1 << 9)) {
 		auto topMessageId = MTPint();
@@ -202,6 +340,31 @@ template <typename Request>
 		}
 	}
 	return true;
+}
+
+template <typename Request>
+[[nodiscard]] bool ReadSavedParentAllowed(
+		const mtpPrime *from,
+		const mtpPrime *end,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows,
+		uint32 parentFlag) {
+	if (!ValidateRequest<Request>(from, end)) {
+		return false;
+	}
+	++from;
+	if (parentFlag) {
+		auto flags = MTPint();
+		if (!flags.read(from, end) || !(flags.v & parentFlag)) {
+			return false;
+		}
+	}
+	auto parent = MTPInputPeer();
+	if (!parent.read(from, end)) {
+		return false;
+	}
+	const auto peer = Destination(parent, selfId);
+	return peerIsChannel(peer) && allows(peer);
 }
 
 template <typename Request>
@@ -229,6 +392,12 @@ template <typename Request>
 		if (!peer.read(from, end) || !allows(Destination(peer, selfId))) {
 			return false;
 		}
+	}
+	if constexpr (std::is_same_v<Request, MTPmessages_StartBot>) {
+		auto randomId = MTPlong();
+		auto parameter = MTPstring();
+		return randomId.read(from, end) && parameter.read(from, end)
+			&& TextAllowed(parameter);
 	}
 	return true;
 }
@@ -367,12 +536,112 @@ template <typename Request>
 	return true;
 }
 
+[[nodiscard]] bool PrivateCallProtocolAllowed(
+		const MTPPhoneCallProtocol &protocol) {
+	const auto &data = protocol.data();
+	const auto &versions = data.vlibrary_versions().v;
+	return data.vmin_layer().v > 0
+		&& data.vmax_layer().v >= data.vmin_layer().v
+		&& std::all_of(versions.begin(), versions.end(), [](const MTPstring &version) {
+			return !version.v.isEmpty();
+		});
+}
+
+template <typename Request>
+[[nodiscard]] bool ReadPrivateCallAllowed(
+		const mtpPrime *from,
+		const mtpPrime *end,
+		UserId selfId,
+		const Fn<bool(PeerId)> &allows,
+		AllowlistCallContext *calls) {
+	if (!calls || !ValidateRequest<Request>(from, end)) {
+		return false;
+	}
+	const auto type = mtpTypeId(*from++);
+	if constexpr (std::is_same_v<Request, MTPphone_GetCallConfig>) {
+		return calls->bootstrapAllowed(selfId);
+	} else if constexpr (std::is_same_v<Request, MTPmessages_GetDhConfig>) {
+		auto version = MTPint();
+		auto length = MTPint();
+		return version.read(from, end) && length.read(from, end)
+			&& version.v >= 0 && length.v == 256 && calls->bootstrapAllowed(selfId);
+	} else {
+		if constexpr (std::is_same_v<Request, MTPphone_RequestCall>
+			|| std::is_same_v<Request, MTPphone_DiscardCall>) {
+			auto flags = MTPint();
+			if (!flags.read(from, end) || (flags.v & ~1U)) {
+				return false;
+			}
+		}
+		if constexpr (std::is_same_v<Request, MTPphone_RequestCall>) {
+			auto user = MTPInputUser();
+			auto randomId = MTPint();
+			auto hash = MTPbytes();
+			auto protocol = MTPPhoneCallProtocol();
+			if (!user.read(from, end)
+				|| !randomId.read(from, end)
+				|| !hash.read(from, end)
+				|| hash.v.size() != 32
+				|| !protocol.read(from, end)
+				|| !PrivateCallProtocolAllowed(protocol)) {
+				return false;
+			}
+			const auto peer = Destination(user, selfId);
+			const auto contextAllowed = user.match([&](const MTPDinputUserFromMessage &data) {
+				return WebViewPeerAllowed(data.vpeer(), selfId, allows);
+			}, [](const MTPDinputUser &) {
+				return true;
+			}, [](const auto &) {
+				return false;
+			});
+			return contextAllowed && peerIsUser(peer) && allows(peer)
+				&& calls->outgoingAllowed(selfId, peerToUser(peer));
+		} else {
+			auto peer = MTPInputPhoneCall();
+			if (!peer.read(from, end)) {
+				return false;
+			}
+			if constexpr (std::is_same_v<Request, MTPphone_AcceptCall>
+				|| std::is_same_v<Request, MTPphone_ConfirmCall>) {
+				auto key = MTPbytes();
+				auto fingerprint = MTPlong();
+				auto protocol = MTPPhoneCallProtocol();
+				if (!key.read(from, end)) {
+					return false;
+				}
+				if constexpr (std::is_same_v<Request, MTPphone_ConfirmCall>) {
+					if (!fingerprint.read(from, end)) {
+						return false;
+					}
+				}
+				if (!protocol.read(from, end)
+					|| !PrivateCallProtocolAllowed(protocol)) {
+					return false;
+				}
+			}
+			if constexpr (std::is_same_v<Request, MTPphone_DiscardCall>) {
+				auto duration = MTPint();
+				auto reason = MTPPhoneCallDiscardReason();
+				if (!duration.read(from, end) || duration.v < 0
+					|| !reason.read(from, end)
+					|| reason.type() == mtpc_phoneCallDiscardReasonMigrateConferenceCall) {
+					return false;
+				}
+			}
+			const auto &data = peer.data();
+			return calls->requestAllowed(selfId, type, data.vid().v, data.vaccess_hash().v);
+		}
+	}
+}
+
 [[nodiscard]] bool BodyAllowed(
 		const mtpPrime *from,
 		const mtpPrime *end,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
 		const Fn<bool(UserId)> &knownBot,
+		AllowlistContentContext *content,
+		AllowlistCallContext *calls,
 		int depth) {
 	if (from == end || depth > 8) {
 		return false;
@@ -396,18 +665,82 @@ template <typename Request>
 	case mtpc_msg_resend_req:
 		return true;
 	case mtpc_invokeWithoutUpdates:
-		return BodyAllowed(from + 1, end, selfId, allows, knownBot, depth + 1);
+		return BodyAllowed(from + 1, end, selfId, allows, knownBot, content, calls, depth + 1);
 	case mtpc_account_initTakeoutSession:
 	case mtpc_invokeWithTakeout:
 		return false;
 	case mtpc_invokeAfterMsg:
 		return (end - from > 3)
-			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, depth + 1);
+			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, content, calls, depth + 1);
 	case mtpc_invokeWithLayer:
 		return (end - from > 2)
-			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, depth + 1);
+			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, content, calls, depth + 1);
+	case mtpc_phone_getCallConfig:
+		return ReadPrivateCallAllowed<MTPphone_GetCallConfig>(
+			from, end, selfId, allows, calls);
+	case mtpc_messages_getDhConfig:
+		return ReadPrivateCallAllowed<MTPmessages_GetDhConfig>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_requestCall:
+		return ReadPrivateCallAllowed<MTPphone_RequestCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_receivedCall:
+		return ReadPrivateCallAllowed<MTPphone_ReceivedCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_acceptCall:
+		return ReadPrivateCallAllowed<MTPphone_AcceptCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_confirmCall:
+		return ReadPrivateCallAllowed<MTPphone_ConfirmCall>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_sendSignalingData:
+		return ReadPrivateCallAllowed<MTPphone_SendSignalingData>(
+			from, end, selfId, allows, calls);
+	case mtpc_phone_discardCall:
+		return ReadPrivateCallAllowed<MTPphone_DiscardCall>(
+			from, end, selfId, allows, calls);
 	case mtpc_messages_forwardMessages:
-		return ReadForwardAllowed(from, end, selfId, allows);
+		return ReadForwardAllowed(from, end, selfId, allows, content);
+	case mtpc_account_updateEmojiStatus: {
+		if (!ValidateRequest<MTPaccount_UpdateEmojiStatus>(from, end)) {
+			return false;
+		}
+		++from;
+		auto status = MTPEmojiStatus();
+		return status.read(from, end) && status.type() == mtpc_emojiStatusEmpty;
+	}
+	case mtpc_upload_saveFilePart:
+	case mtpc_upload_saveBigFilePart: {
+		const auto big = type == mtpc_upload_saveBigFilePart;
+		if (!content || !(big
+			? ValidateRequest<MTPupload_SaveBigFilePart>(from, end)
+			: ValidateRequest<MTPupload_SaveFilePart>(from, end))) {
+			return false;
+		}
+		++from;
+		auto id = MTPlong();
+		auto part = MTPint();
+		auto total = MTPint();
+		auto bytes = MTPbytes();
+		return id.read(from, end) && part.read(from, end)
+			&& (!big || total.read(from, end)) && bytes.read(from, end)
+			&& content->recordUploadPart(id.v, part.v, bytes.v);
+	}
+	case mtpc_messages_getSavedDialogs:
+		return ReadSavedParentAllowed<MTPmessages_GetSavedDialogs>(
+			from, end, selfId, allows, 1U << 1);
+	case mtpc_messages_getSavedDialogsByID:
+		return ReadSavedParentAllowed<MTPmessages_GetSavedDialogsByID>(
+			from, end, selfId, allows, 1U << 1);
+	case mtpc_messages_getSavedHistory:
+		return ReadSavedParentAllowed<MTPmessages_GetSavedHistory>(
+			from, end, selfId, allows, 1U);
+	case mtpc_messages_deleteSavedHistory:
+		return ReadSavedParentAllowed<MTPmessages_DeleteSavedHistory>(
+			from, end, selfId, allows, 1U);
+	case mtpc_messages_readSavedHistory:
+		return ReadSavedParentAllowed<MTPmessages_ReadSavedHistory>(
+			from, end, selfId, allows, 0);
 	case mtpc_channels_joinChannel: {
 		if (!ValidateRequest<MTPchannels_JoinChannel>(from, end)) {
 			return false;
@@ -473,11 +806,350 @@ template <typename Request>
 
 } // namespace
 
+bool AllowlistDocumentContentAllowed(
+		const QString &mime,
+		const QVector<MTPDocumentAttribute> &attributes) {
+	const auto normalized = mime.toLower();
+	if (normalized.isEmpty() || normalized == u"image/gif"_q
+		|| normalized == u"application/x-tgsticker"_q
+		|| normalized == u"application/x-tgsdice"_q
+		|| normalized == u"video/webm"_q) {
+		return false;
+	}
+	for (const auto &attribute : attributes) {
+		switch (attribute.type()) {
+		case mtpc_documentAttributeAnimated:
+		case mtpc_documentAttributeSticker:
+		case mtpc_documentAttributeCustomEmoji:
+		case mtpc_documentAttributeHasStickers:
+			return false;
+		case mtpc_documentAttributeFilename: {
+			const auto &name = attribute.c_documentAttributeFilename().vfile_name();
+			const auto lower = qs(name).toLower();
+			if (!TextAllowed(name) || lower.endsWith(u".gif"_q)
+				|| lower.endsWith(u".tgs"_q) || lower.endsWith(u".webm"_q)) {
+				return false;
+			}
+		} break;
+		case mtpc_documentAttributeImageSize:
+		case mtpc_documentAttributeVideo:
+			break;
+		case mtpc_documentAttributeAudio: {
+			const auto &audio = attribute.c_documentAttributeAudio();
+			if ((audio.vtitle() && !TextAllowed(*audio.vtitle()))
+				|| (audio.vperformer() && !TextAllowed(*audio.vperformer()))) {
+				return false;
+			}
+		} break;
+		default:
+			return false;
+		}
+	}
+	return true;
+}
+
+bool AllowlistUploadPrefixAllowed(const QByteArray &bytes) {
+	return !bytes.isEmpty()
+		&& !bytes.startsWith("GIF87a") && !bytes.startsWith("GIF89a")
+		&& !bytes.startsWith(QByteArray::fromHex("1f8b"))
+		&& !bytes.startsWith(QByteArray::fromHex("1a45dfa3"))
+		&& !(bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WEBP"
+			&& ((bytes.mid(12, 4) == "VP8X" && bytes.size() > 20 && (bytes[20] & 2))
+				|| bytes.contains("ANIM")));
+}
+
+AllowlistContentContext::AllowlistContentContext(Fn<QByteArray(uint64)> resolveDocument)
+: _resolveDocument(std::move(resolveDocument)) {
+}
+
+void AllowlistContentContext::recordDocument(
+		uint64 id,
+		const QString &mime,
+		const QVector<MTPDocumentAttribute> &attributes) {
+	_documents[id] = AllowlistDocumentContentAllowed(mime, attributes);
+}
+
+void AllowlistContentContext::recordMessage(const MTPDmessage &message, bool scheduled) {
+	if (message.vid().v <= 0) {
+		return;
+	}
+	const auto key = std::pair(peerFromMTP(message.vpeer_id()),
+		scheduled ? -message.vid().v : message.vid().v);
+	_messageDocuments.erase(key);
+	const auto documentAllowed = [&](const MTPDocument &document) {
+		if (document.type() != mtpc_document) {
+			return false;
+		}
+		const auto &data = document.c_document();
+		_messageDocuments[key] = data.vid().v;
+		recordDocument(data.vid().v, qs(data.vmime_type()), data.vattributes().v);
+		return AllowlistDocumentContentAllowed(qs(data.vmime_type()), data.vattributes().v);
+	};
+	const auto mediaAllowed = [&](const MTPMessageMedia &media) {
+		return media.match([](const MTPDmessageMediaEmpty &) {
+			return true;
+		}, [&](const MTPDmessageMediaPhoto &data) {
+			return !data.vvideo();
+		}, [&](const MTPDmessageMediaDocument &data) {
+			return data.vdocument() && documentAllowed(*data.vdocument())
+				&& !data.valt_documents();
+		}, [](const auto &) {
+			return false;
+		});
+	};
+	_messages[key]
+		= TextAllowed(message.vmessage()) && !message.vrich_message()
+		&& !message.veffect() && !message.vreply_markup()
+		&& (!message.ventities() || EntitiesAllowed(*message.ventities()))
+		&& (!message.vmedia() || mediaAllowed(*message.vmedia()));
+}
+
+void AllowlistContentContext::forgetMessage(PeerId peer, int id, bool scheduled) {
+	if (id > 0) {
+		_messages.erase({ peer, scheduled ? -id : id });
+		_messageDocuments.erase({ peer, scheduled ? -id : id });
+	}
+}
+
+bool AllowlistContentContext::documentAllowed(const MTPInputDocument &document) const {
+	return document.match([&](const MTPDinputDocument &data) {
+		return documentContentAllowed(data.vid().v);
+	}, [](const auto &) {
+		return false;
+	});
+}
+
+bool AllowlistContentContext::documentContentAllowed(uint64 id) const {
+	const auto found = _documents.find(id);
+	return found != _documents.end() && found->second && _resolveDocument
+		&& AllowlistUploadPrefixAllowed(_resolveDocument(id));
+}
+
+bool AllowlistContentContext::messageAllowed(PeerId peer, int id, bool scheduled) const {
+	if (id <= 0) {
+		return false;
+	}
+	const auto found = _messages.find({ peer, scheduled ? -id : id });
+	const auto document = _messageDocuments.find({ peer, scheduled ? -id : id });
+	return found != _messages.end() && found->second
+		&& (document == _messageDocuments.end() || documentContentAllowed(document->second));
+}
+
+bool AllowlistContentContext::uploadAllowed(const MTPInputFile &file) const {
+	const auto check = [&](const auto &data) {
+		const auto found = _uploads.find(data.vid().v);
+		if (found == _uploads.end() || !found->second.allowed
+			|| !TextAllowed(data.vname())) {
+			return false;
+		}
+		const auto &proof = found->second;
+		const auto parts = data.vparts().v;
+		return parts > 0 && proof.parts.size() == size_t(parts)
+			&& *proof.parts.begin() == 0 && *proof.parts.rbegin() == parts - 1
+			&& (parts == 1 || proof.firstPartSize >= 32);
+	};
+	return file.match([&](const MTPDinputFile &data) {
+		return check(data);
+	}, [&](const MTPDinputFileBig &data) {
+		return check(data);
+	}, [](const auto &) {
+		return false;
+	});
+}
+
+bool AllowlistContentContext::recordUploadPart(uint64 id, int part, const QByteArray &bytes) {
+	if (!id || part < 0 || part >= 16384 || bytes.isEmpty()) {
+		return false;
+	}
+	auto &proof = _uploads[id];
+	if (!part) {
+		proof.allowed = AllowlistUploadPrefixAllowed(bytes);
+		proof.firstPartSize = int(bytes.size());
+	}
+	if (!proof.allowed) {
+		return false;
+	}
+	proof.parts.insert(part);
+	return true;
+}
+
+AllowlistCallContext::AllowlistCallContext(
+		UserId self,
+		Fn<bool(UserId)> eligible)
+: _self(self)
+, _eligible(std::move(eligible)) {
+}
+
+uint64 AllowlistCallContext::begin(UserId peer, bool outgoing) {
+	if (!_self || !peer || peer == _self || !_eligible || !_eligible(peer)) {
+		return 0;
+	}
+	const auto token = ++_nextToken;
+	_proofs.emplace(token, Proof{ .peer = peer, .outgoing = outgoing });
+	return token;
+}
+
+bool AllowlistCallContext::matches(
+		const Proof &proof,
+		const MTPPhoneCall &call) const {
+	const auto common = [&](const auto &data) {
+		return data.vid().v && data.vaccess_hash().v
+			&& PrivateCallProtocolAllowed(data.vprotocol())
+			&& (!proof.id || (proof.id == data.vid().v
+				&& proof.hash == data.vaccess_hash().v))
+			&& UserId(data.vadmin_id()) == (proof.outgoing ? _self : proof.peer)
+			&& UserId(data.vparticipant_id()) == (proof.outgoing ? proof.peer : _self);
+	};
+	return call.match([&](const MTPDphoneCallRequested &data) {
+		return !proof.outgoing && common(data) && data.vg_a_hash().v.size() == 32;
+	}, [&](const MTPDphoneCallWaiting &data) {
+		return common(data);
+	}, [&](const MTPDphoneCallAccepted &data) {
+		return proof.id && proof.outgoing && common(data);
+	}, [&](const MTPDphoneCall &data) {
+		return proof.id && common(data);
+	}, [&](const MTPDphoneCallDiscarded &data) {
+		return proof.id && proof.id == data.vid().v;
+	}, [&](const MTPDphoneCallEmpty &data) {
+		return proof.id && proof.id == data.vid().v;
+	});
+}
+
+bool AllowlistCallContext::bind(uint64 token, const MTPPhoneCall &call) {
+	const auto i = _proofs.find(token);
+	if (i == end(_proofs) || i->second.id) {
+		return false;
+	}
+	auto &proof = i->second;
+	if (call.type() != (proof.outgoing ? mtpc_phoneCallWaiting : mtpc_phoneCallRequested)
+		|| !matches(proof, call)) {
+		return false;
+	}
+	const auto id = call.match([](const auto &data) { return data.vid().v; });
+	if (!_usedIds.insert(id).second) {
+		return false;
+	}
+	proof.id = id;
+	proof.hash = proof.outgoing
+		? call.c_phoneCallWaiting().vaccess_hash().v
+		: call.c_phoneCallRequested().vaccess_hash().v;
+	if (!_eligible(proof.peer)) {
+		proof.phase = Phase::Closing;
+	}
+	return true;
+}
+
+bool AllowlistCallContext::authorized(uint64 token) {
+	const auto i = _proofs.find(token);
+	if (i == end(_proofs)) {
+		return false;
+	}
+	auto &proof = i->second;
+	if (!_eligible(proof.peer)) {
+		proof.phase = Phase::Closing;
+	}
+	return proof.phase != Phase::Closing;
+}
+
+bool AllowlistCallContext::validate(uint64 token, const MTPPhoneCall &call) {
+	const auto i = _proofs.find(token);
+	return i != end(_proofs) && matches(i->second, call)
+		&& (call.type() == mtpc_phoneCallDiscarded
+			|| call.type() == mtpc_phoneCallEmpty
+			|| authorized(token));
+}
+
+bool AllowlistCallContext::exchange(uint64 token) {
+	if (!authorized(token) || !_proofs.at(token).id) {
+		return false;
+	}
+	_proofs.at(token).phase = Phase::Exchanging;
+	return true;
+}
+
+bool AllowlistCallContext::activate(uint64 token) {
+	if (!authorized(token) || _proofs.at(token).phase != Phase::Exchanging) {
+		return false;
+	}
+	_proofs.at(token).phase = Phase::Active;
+	return true;
+}
+
+void AllowlistCallContext::close(uint64 token) {
+	const auto i = _proofs.find(token);
+	if (i != end(_proofs)) {
+		i->second.phase = Phase::Closing;
+	}
+}
+
+void AllowlistCallContext::forget(uint64 token) {
+	_proofs.erase(token);
+}
+
+bool AllowlistCallContext::bootstrapAllowed(UserId self) {
+	if (self != _self) {
+		return false;
+	}
+	for (const auto &[token, proof] : _proofs) {
+		if (authorized(token)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AllowlistCallContext::outgoingAllowed(UserId self, UserId peer) {
+	if (self != _self) {
+		return false;
+	}
+	for (const auto &[token, proof] : _proofs) {
+		if (proof.peer == peer && proof.outgoing && !proof.id && authorized(token)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AllowlistCallContext::requestAllowed(
+		UserId self,
+		mtpTypeId type,
+		uint64 id,
+		uint64 hash) {
+	if (self != _self || !id || !hash) {
+		return false;
+	}
+	for (const auto &[token, proof] : _proofs) {
+		if (proof.id != id || proof.hash != hash) {
+			continue;
+		}
+		if (type == mtpc_phone_discardCall) {
+			return true;
+		} else if (!authorized(token)) {
+			return false;
+		}
+		switch (type) {
+		case mtpc_phone_receivedCall:
+			return !proof.outgoing && proof.phase == Phase::Pending;
+		case mtpc_phone_acceptCall:
+			return !proof.outgoing && proof.phase == Phase::Exchanging;
+		case mtpc_phone_confirmCall:
+			return proof.outgoing && proof.phase == Phase::Exchanging;
+		case mtpc_phone_sendSignalingData:
+			return proof.phase == Phase::Active;
+		default:
+			return false;
+		}
+	}
+	return false;
+}
+
 bool AllowlistRequestAllowed(
 		const details::SerializedRequest &request,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
-		const Fn<bool(UserId)> &knownBot) {
+		const Fn<bool(UserId)> &knownBot,
+		AllowlistContentContext *content,
+		AllowlistCallContext *calls) {
 	constexpr auto offset = details::SerializedRequest::kMessageBodyPosition;
 	if (!request || request->size() <= offset) {
 		return false;
@@ -490,8 +1162,18 @@ bool AllowlistRequestAllowed(
 		|| size / sizeof(mtpPrime) != request->size() - offset) {
 		return false;
 	}
+	const auto conversationAllowed = Fn<bool(PeerId)>([&](PeerId peer) {
+		return peer && peer != peerFromUser(selfId) && allows(peer);
+	});
 	return BodyAllowed(
-		from, from + size / sizeof(mtpPrime), selfId, allows, knownBot, 0);
+		from,
+		from + size / sizeof(mtpPrime),
+		selfId,
+		conversationAllowed,
+		knownBot,
+		content,
+		calls,
+		0);
 }
 
 bool AllowlistWebViewAllowed(

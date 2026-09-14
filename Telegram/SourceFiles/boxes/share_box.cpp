@@ -283,6 +283,13 @@ void ShareBox::prepareCommentField() {
 }
 
 void ShareBox::prepare() {
+	const auto session = _descriptor.session;
+	_descriptor.filterCallback = [=, filter = std::move(_descriptor.filterCallback)](
+			not_null<Data::Thread*> thread) {
+		return &thread->session() == session
+			&& session->allowlistAllows(thread->peer()->id)
+			&& filter(thread);
+	};
 	prepareCommentField();
 
 	_select->resizeToWidth(st::boxWideWidth);
@@ -689,6 +696,10 @@ void ShareBox::submit(Api::SendOptions options) {
 	const auto weak = base::make_weak(this);
 	const auto field = _comment->entity();
 	auto comment = field->getTextWithAppliedMarkdown();
+	if (!AllowgramSendTextAllowed(comment)) {
+		showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 	const auto checkPaid = [=] {
 		if (!_descriptor.countMessagesCallback) {
 			return true;
@@ -846,11 +857,6 @@ ShareBox::Inner::Inner(
 		}, lifetime());
 	}
 
-	const auto self = _descriptor.session->user();
-	const auto selfHistory = self->owner().history(self);
-	if (_descriptor.filterCallback(selfHistory)) {
-		_defaultChatsIndexed->addToEnd(selfHistory);
-	}
 	const auto addList = [&](not_null<Dialogs::IndexedList*> list) {
 		for (const auto &row : list->all()) {
 			if (const auto history = row->history()) {

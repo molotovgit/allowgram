@@ -377,6 +377,9 @@ void PublicForwardsController::rowClicked(not_null<PeerListRow*> row) {
 base::unique_qptr<Ui::PopupMenu> PublicForwardsController::rowContextMenu(
 		QWidget *parent,
 		not_null<PeerListRow*> row) {
+	if (!row->peer()->session().canPresentPeerProfile(row->peer()->id)) {
+		return nullptr;
+	}
 	auto menu = base::make_unique_q<Ui::PopupMenu>(
 		parent,
 		st::popupMenuWithIcons);

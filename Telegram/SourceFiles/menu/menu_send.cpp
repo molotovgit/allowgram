@@ -620,6 +620,7 @@ FillMenuResult AttachSendMenuEffect(
 		Fn<void(Action, Details)> action,
 		std::optional<QPoint> desiredPositionOverride) {
 	Expects(show != nullptr);
+	details.effectAllowed = false;
 
 	using namespace HistoryView::Reactions;
 	const auto effect = std::make_shared<base::weak_qptr<EffectPreview>>();

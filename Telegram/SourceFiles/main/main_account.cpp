@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_account.h"
+#include "main/allowlist_policy.h"
 
 #include "base/platform/base_platform_info.h"
 #include "core/application.h"
@@ -133,14 +134,18 @@ uint64 Account::willHaveSessionUniqueId(MTP::Config *config) const {
 		| (config && config->isTestMode() ? 0x0100'0000'0000'0000ULL : 0ULL);
 }
 
-void Account::createSession(
+bool Account::createSession(
 		const MTPUser &user,
 		std::unique_ptr<SessionSettings> settings) {
+	if (!Allowlist::CanStartUserSession(domain().accountsAuthedCount())) {
+		return false;
+	}
 	createSession(
 		user,
 		QByteArray(),
 		0,
 		settings ? std::move(settings) : std::make_unique<SessionSettings>());
+	return true;
 }
 
 void Account::createSession(
@@ -444,7 +449,9 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 			[=](UserId botId) {
 				const auto bot = _session ? _session->data().userLoaded(botId) : nullptr;
 				return bot && bot->isBot();
-			});
+			},
+			_session ? &_session->allowlistContent() : nullptr,
+			_session ? &_session->allowlistCalls() : nullptr);
 	});
 
 	const auto writingKeys = _mtp->lifetime().make_state<bool>(false);

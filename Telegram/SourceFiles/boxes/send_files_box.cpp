@@ -2181,61 +2181,6 @@ void SendFilesBox::checkCharsLimitation() {
 }
 
 void SendFilesBox::setupEmojiPanel() {
-	const auto container = getDelegate()->outerContainer();
-	using Selector = ChatHelpers::TabbedSelector;
-	_emojiPanel = base::make_unique_q<ChatHelpers::TabbedPanel>(
-		container,
-		ChatHelpers::TabbedPanelDescriptor{
-			.ownedSelector = object_ptr<Selector>(
-				nullptr,
-				ChatHelpers::TabbedSelectorDescriptor{
-					.show = _show,
-					.st = _st.tabbed,
-					.level = Window::GifPauseReason::Layer,
-					.mode = ChatHelpers::TabbedSelector::Mode::EmojiOnly,
-					.features = {
-						.stickersSettings = false,
-						.openStickerSets = false,
-					},
-				}),
-		});
-	_emojiPanel->setDesiredHeightValues(
-		1.,
-		st::emojiPanMinHeight / 2,
-		st::emojiPanMinHeight);
-	_emojiPanel->hide();
-	_emojiPanel->selector()->setCurrentPeer(_toPeer);
-	_emojiPanel->selector()->setAllowEmojiWithoutPremium(
-		_limits & SendFilesAllow::EmojiWithoutPremium);
-	_emojiPanel->selector()->emojiChosen(
-	) | rpl::on_next([=](ChatHelpers::EmojiChosen data) {
-		Ui::InsertEmojiAtCursor(_caption->textCursor(), data.emoji);
-	}, lifetime());
-	_emojiPanel->selector()->customEmojiChosen(
-	) | rpl::on_next([=](ChatHelpers::FileChosen data) {
-		const auto info = data.document->sticker();
-		if (info
-			&& info->setType == Data::StickersType::Emoji
-			&& !_show->session().premium()
-			&& !Data::AllowEmojiWithoutPremium(_toPeer, data.document)) {
-			ShowPremiumPreviewBox(_show, PremiumFeature::AnimatedEmoji);
-		} else {
-			Data::InsertCustomEmoji(_caption.data(), data.document);
-		}
-	}, lifetime());
-
-	const auto filterCallback = [=](not_null<QEvent*> event) {
-		emojiFilterForGeometry(event);
-		return base::EventFilterResult::Continue;
-	};
-	_emojiFilter.reset(base::install_event_filter(container, filterCallback));
-
-	_emojiToggle.create(this, _st.files.emoji);
-	_emojiToggle->setVisible(!_caption->isHidden());
-	_emojiToggle->installEventFilter(_emojiPanel);
-	_emojiToggle->addClickHandler([=] {
-		_emojiPanel->toggleAnimated();
-	});
 }
 
 void SendFilesBox::emojiFilterForGeometry(not_null<QEvent*> event) {
@@ -2248,6 +2193,9 @@ void SendFilesBox::emojiFilterForGeometry(not_null<QEvent*> event) {
 }
 
 void SendFilesBox::updateEmojiPanelGeometry() {
+	if (!_emojiPanel || !_emojiToggle) {
+		return;
+	}
 	const auto parent = _emojiPanel->parentWidget();
 	const auto global = _emojiToggle->mapToGlobal({ 0, 0 });
 	const auto local = parent->mapFromGlobal(global);
@@ -2616,7 +2564,14 @@ void SendFilesBox::send(
 		return;
 	}
 
-	_confirmed = true;
+	if (options.effectId || !AllowgramSendTextAllowed(fieldText())
+		|| !AllowgramSendReplyAllowed(_replyTo)
+		|| ranges::any_of(_list.files, [](const auto &file) {
+			return !AllowgramSendFileAllowed(file);
+		})) {
+		showToast(tr::lng_allowgram_content_disabled(tr::now));
+		return;
+	}
 	if (_confirmedCallback) {
 		auto caption = fieldText();
 		if (!validateLength(caption.text)) {
@@ -2631,6 +2586,13 @@ void SendFilesBox::send(
 		const auto animated = (_limits & SendFilesAllow::Gifs)
 			|| (_limits & SendFilesAllow::Videos);
 		Storage::ApplyModifications(_list, animated);
+		if (ranges::any_of(_list.files, [](const auto &file) {
+			return !AllowgramSendFileAllowed(file);
+		})) {
+			showToast(tr::lng_allowgram_content_disabled(tr::now));
+			return;
+		}
+		_confirmed = true;
 		saveSendWaySettings(_wayRemember && _wayRemember->checked());
 		options.invertCaption = _invertCaption;
 		options.price = hasPrice() ? _price.current() : 0;

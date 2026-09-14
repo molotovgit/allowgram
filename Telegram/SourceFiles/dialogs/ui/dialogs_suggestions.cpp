@@ -216,9 +216,11 @@ void FillEntryMenu(
 		: channel
 		? tr::lng_context_view_channel(tr::now)
 		: tr::lng_context_view_profile(tr::now);
-	add(viewProfileText, [=] {
-		controller->showPeerInfo(peer);
-	}, peer->isUser() ? &st::menuIconProfile : &st::menuIconInfo);
+	if (peer->session().canPresentPeerProfile(peer->id)) {
+		add(viewProfileText, [=] {
+			controller->showPeerInfo(peer);
+		}, peer->isUser() ? &st::menuIconProfile : &st::menuIconInfo);
+	}
 
 	add({ .separatorSt = &st::expandedMenuSeparator });
 

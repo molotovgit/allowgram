@@ -1868,10 +1868,12 @@ void GiftBox(
 		tr::lng_context_send_message(tr::now),
 		[=] { pick(peer, PickType::SendMessage); },
 		&st::menuIconChatBubble);
-	result->addAction(
-		tr::lng_context_view_profile(tr::now),
-		[=] { pick(peer, PickType::OpenProfile); },
-		&st::menuIconProfile);
+	if (peer->session().canPresentPeerProfile(peer->id)) {
+		result->addAction(
+			tr::lng_context_view_profile(tr::now),
+			[=] { pick(peer, PickType::OpenProfile); },
+			&st::menuIconProfile);
+	}
 	return result;
 }
 
@@ -2480,7 +2482,9 @@ void ChooseStarGiftRecipient(
 					using Way = Window::SectionShow::Way;
 					window->showPeerHistory(peer, Way::Forward);
 				} else if (type == PickType::OpenProfile) {
-					window->show(PrepareShortInfoBox(peer, window));
+					if (auto box = PrepareShortInfoBox(peer, window)) {
+						window->show(std::move(box));
+					}
 				}
 			});
 		const auto controllerRaw = controller.get();

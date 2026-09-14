@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "inline_bots/inline_bot_result.h"
+#include "lang/lang_keys.h"
 
 #include "api/api_text_entities.h"
 #include "base/random.h"
@@ -398,9 +399,8 @@ not_null<HistoryItem*> Result::makeMessage(
 	return sendData->makeMessage(this, history, std::move(fields));
 }
 
-Data::SendError Result::getErrorOnSend(not_null<History*> history) const {
-	return sendData->getErrorOnSend(this, history).value_or(
-		Data::RestrictionError(history->peer, ChatRestriction::SendInline));
+Data::SendError Result::getErrorOnSend(not_null<History*>) const {
+	return tr::lng_allowgram_unclassified_content(tr::now);
 }
 
 std::optional<Data::LocationPoint> Result::getLocationPoint() const {

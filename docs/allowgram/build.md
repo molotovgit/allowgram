@@ -2,7 +2,7 @@
 
 [Back to Allowgram](../../README.md)
 
-The application source corresponds to the privately validated 7.2.8.4 Windows x64 release. This publication has not run a GitHub-hosted build. The [manual workflow](../../.github/workflows/allowgram-windows.yml) is opt-in and does not publish a GitHub Release automatically.
+The application source contains the 7.2.8.7 allowed-user private calls and earlier hardening changes. Build and package acceptance is recorded separately for each exact source commit. This publication has not run a GitHub-hosted build. The [manual workflow](../../.github/workflows/allowgram-windows.yml) is opt-in and does not publish a GitHub Release automatically.
 
 ## Checkout and prerequisites
 
@@ -20,7 +20,7 @@ Keep the pinned submodule commits. Do not update them to arbitrary branch tips. 
 | Compiler | Visual Studio 2022 MSVC 14.44, v143 C++ ATL headers/libraries |
 | Windows SDK | 10.0.26100.0 |
 | Client Qt | Upstream patched Qt 6.11.2, built from the pinned preparation sources |
-| Focused-test Qt | Qt Base 6.8.3 MSVC x64; separate from the production client |
+| Focused-test Qt | Qt Base MSVC x64; the test helper also supports the production static Qt 6.11.2 |
 | Packaging | Inno Setup 6 (`ISCC.exe` on PATH) |
 | Build tools | Python 3, CMake, Ninja and Git; dependency versions are pinned in upstream preparation and this workflow |
 

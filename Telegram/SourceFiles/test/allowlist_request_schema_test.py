@@ -97,15 +97,26 @@ class RequestPolicySchemaTest(unittest.TestCase):
                 name,
             )
 
+    def test_private_calls_require_explicit_decoders_and_never_safe_inventory(self):
+        guard = (SOURCE / "mtproto/allowlist_request_guard.cpp").read_text()
+        private = {"phone_getCallConfig", "messages_getDhConfig", "phone_requestCall",
+                   "phone_receivedCall", "phone_acceptCall", "phone_confirmCall",
+                   "phone_sendSignalingData", "phone_discardCall"}
+        decoded = set(re.findall(r"case mtpc_(\w+):\s*return ReadPrivateCallAllowed<", guard))
+        self.assertEqual(decoded, private)
+        self.assertFalse(SAFE & private)
+        self.assertFalse({name for name in SAFE if name.startswith("phone_")})
+
     def test_essential_account_startup_and_reading_remain_available(self):
         for name in (
             "auth_sendCode", "auth_signIn", "auth_checkPassword",
             "auth_importAuthorization", "auth_exportAuthorization",
             "auth_bindTempAuthKey", "help_getConfig", "help_getAppConfig",
             "users_getUsers", "updates_getState", "updates_getDifference",
-            "messages_getDialogs", "messages_getHistory", "upload_getFile",
+            "messages_getDialogs", "upload_getFile",
         ):
             self.assertIn(name, SAFE)
+        self.assertIn("messages_getHistory", PEER_CHECKED)
 
 
 if __name__ == "__main__":

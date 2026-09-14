@@ -63,7 +63,7 @@ After a successful save, the setup lock closes and only permitted conversations 
 
 ## Plan the list before saving
 
-- Include your own Telegram user ID if you need **Saved Messages**.
+- **Saved Messages is disabled in 7.2.8.5**, even when your own user ID is listed.
 - Include the linked discussion group's ID if you need channel comments.
 - An allowed group shows its participants' messages; add a participant separately only if you also want their DM.
 - A basic group migrating to a supergroup receives a different peer ID.

@@ -41,6 +41,10 @@ public:
 		return _allowlistPeers;
 	}
 
+	[[nodiscard]] rpl::producer<> allowlistChanges() const {
+		return _allowlistChanges.events();
+	}
+
 	void setSupportSwitch(Support::SwitchSettings value) {
 		_supportSwitch = value;
 	}
@@ -258,6 +262,7 @@ private:
 
 	std::vector<Data::ReactionId> _extraFavoriteReactions;
 	base::flat_set<PeerId> _allowlistPeers;
+	rpl::event_stream<> _allowlistChanges;
 
 	friend class Session;
 

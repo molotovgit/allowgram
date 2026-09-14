@@ -1403,8 +1403,6 @@ void SetupStickersEmoji(
 		} });
 	}
 
-	const auto session = &controller->session();
-
 	auto wrap = object_ptr<Ui::VerticalLayout>(container);
 	const auto inner = wrap.data();
 	container->add(object_ptr<Ui::OverrideMargins>(
@@ -1432,23 +1430,6 @@ void SetupStickersEmoji(
 			inner->lifetime());
 		return result;
 	};
-	const auto addSliding = [&](
-			const QString &label,
-			bool checked,
-			auto &&handle,
-			rpl::producer<bool> shown) {
-		const auto wrap = inner->add(
-			object_ptr<Ui::SlideWrap<Ui::Checkbox>>(
-				inner,
-				checkbox(label, checked),
-				st::settingsCheckboxPadding));
-		wrap->setDuration(0)->toggleOn(std::move(shown))->entity()->checkedChanges(
-		) | rpl::on_next(
-			std::move(handle),
-			inner->lifetime());
-		return wrap->entity();
-	};
-
 	const auto largeEmoji = addWithReturn(
 		tr::lng_settings_large_emoji(tr::now),
 		Core::App().settings().largeEmoji(),
@@ -1463,71 +1444,6 @@ void SetupStickersEmoji(
 		} });
 	}
 
-	const auto replaceEmoji = addWithReturn(
-		tr::lng_settings_replace_emojis(tr::now),
-		Core::App().settings().replaceEmoji(),
-		[=](bool checked) {
-			Core::App().settings().setReplaceEmoji(checked);
-			Core::App().saveSettingsDelayed();
-		});
-	if (highlights) {
-		highlights->push_back({ u"chat/replace-emoji"_q, {
-			replaceEmoji,
-			{ .radius = st::boxRadius },
-		} });
-	}
-
-	const auto suggestEmoji = inner->lifetime().make_state<
-		rpl::variable<bool>
-	>(Core::App().settings().suggestEmoji());
-	const auto suggestEmojiCheckbox = addWithReturn(
-		tr::lng_settings_suggest_emoji(tr::now),
-		Core::App().settings().suggestEmoji(),
-		[=](bool checked) {
-			*suggestEmoji = checked;
-			Core::App().settings().setSuggestEmoji(checked);
-			Core::App().saveSettingsDelayed();
-		});
-	if (highlights) {
-		highlights->push_back({ u"chat/suggest-emoji"_q, {
-			suggestEmojiCheckbox,
-			{ .radius = st::boxRadius },
-		} });
-	}
-
-	using namespace rpl::mappers;
-	const auto suggestAnimated = addSliding(
-		tr::lng_settings_suggest_animated_emoji(tr::now),
-		Core::App().settings().suggestAnimatedEmoji(),
-		[=](bool checked) {
-			Core::App().settings().setSuggestAnimatedEmoji(checked);
-			Core::App().saveSettingsDelayed();
-		},
-		rpl::combine(
-			Data::AmPremiumValue(session),
-			suggestEmoji->value(),
-			_1 && _2));
-	if (highlights) {
-		highlights->push_back({ u"chat/suggest-animated-emoji"_q, {
-			suggestAnimated,
-			{ .radius = st::boxRadius }
-		} });
-	}
-
-	const auto suggestByEmoji = addWithReturn(
-		tr::lng_settings_suggest_by_emoji(tr::now),
-		Core::App().settings().suggestStickersByEmoji(),
-		[=](bool checked) {
-			Core::App().settings().setSuggestStickersByEmoji(checked);
-			Core::App().saveSettingsDelayed();
-		});
-	if (highlights) {
-		highlights->push_back({ u"chat/suggest-by-emoji"_q, {
-			suggestByEmoji,
-			{ .radius = st::boxRadius },
-		} });
-	}
-
 	const auto loopStickers = addWithReturn(
 		tr::lng_settings_loop_stickers(tr::now),
 		Core::App().settings().loopAnimatedStickers(),
@@ -1539,38 +1455,6 @@ void SetupStickersEmoji(
 		highlights->push_back({ u"chat/loop-stickers"_q, {
 			loopStickers,
 			{ .radius = st::boxRadius },
-		} });
-	}
-
-	const auto stickersButton = AddButtonWithIcon(
-		container,
-		tr::lng_stickers_you_have(),
-		st::settingsButton,
-		{ &st::menuIconStickers });
-	stickersButton->addClickHandler([=] {
-		controller->show(Box<StickersBox>(
-			controller->uiShow(),
-			StickersBox::Section::Installed));
-	});
-	if (highlights) {
-		highlights->push_back({ u"chat/my-stickers"_q, {
-			stickersButton.get(),
-			{ .rippleShape = true },
-		} });
-	}
-
-	const auto emojiSetsButton = AddButtonWithIcon(
-		container,
-		tr::lng_emoji_manage_sets(),
-		st::settingsButton,
-		{ &st::menuIconEmoji });
-	emojiSetsButton->addClickHandler([=] {
-		controller->show(Box<Ui::Emoji::ManageSetsBox>(session));
-	});
-	if (highlights) {
-		highlights->push_back({ u"chat/emoji-sets"_q, {
-			emojiSetsButton.get(),
-			{ .rippleShape = true },
 		} });
 	}
 

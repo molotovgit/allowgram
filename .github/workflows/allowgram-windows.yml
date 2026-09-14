@@ -215,7 +215,7 @@ jobs:
           }
           python @configure
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
-          cmake --build out --config Release --target Telegram Updater Packer --parallel 2
+          cmake --build out --config Release --target Telegram Updater --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Allowgram compilation failed.' }
 
       - name: Smoke test startup with an isolated account directory

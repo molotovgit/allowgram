@@ -88,7 +88,11 @@ def patch_sequence(command: str) -> str:
         rf'\1TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE={args.sequence}',
         command)
     if args.sequence != 8 and '/wd4651' not in patched:
-        patched += ' /wd4651'
+        marker = ' /showIncludes'
+        if marker in patched:
+            patched = patched.replace(marker, ' /wd4651' + marker, 1)
+        else:
+            patched += ' /wd4651'
     return patched
 
 

@@ -83,10 +83,13 @@ def ninja_command(target: str) -> str:
 
 
 def patch_sequence(command: str) -> str:
-    return re.sub(
+    patched = re.sub(
         r'([-/]D)TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE=\d+',
         rf'\1TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE={args.sequence}',
         command)
+    if args.sequence != 8 and '/wd4651' not in patched:
+        patched += ' /wd4651'
+    return patched
 
 
 def replace_existing(text: str, old: str, new: str) -> str:

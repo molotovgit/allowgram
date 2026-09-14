@@ -123,6 +123,15 @@ jobs:
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "TBUILD_DRIVE=$buildDrive"
           Write-Output "Build directory: $buildRoot ($([math]::Round($remaining / 1GB, 1)) GiB free)"
 
+      - name: Test source archiving and preflight the selected checkout
+        working-directory: ${{ env.TBUILD }}/tdesktop
+        run: |
+          python -B Telegram/build/allowgram/test_archive_source.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive regression tests failed.' }
+          $sourceArchive = Join-Path $env:RUNNER_TEMP 'allowgram-source-preflight.zip'
+          python Telegram/build/allowgram/archive_source.py $sourceArchive
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive preflight failed.' }
+
       - name: Compile and run allowlist parser regression tests
         working-directory: ${{ env.TBUILD }}/tdesktop
         run: |

@@ -552,6 +552,25 @@ def sample_stage(work_dir: Path, samples: dict[str, dict[str, object]]) -> None:
                 dt.timezone.utc).isoformat(),
         }
 
+def collect_log_summary(work_dir: Path) -> dict[str, object]:
+    paths: list[Path] = []
+    for path in [work_dir / 'log.txt', *sorted((work_dir / 'DebugLogs').glob('log_*.txt'))]:
+        if path.is_file() and path not in paths:
+            paths.append(path)
+    lines: list[str] = []
+    for path in paths:
+        lines.extend(path.read_text(encoding='utf-8', errors='replace').splitlines())
+    return {
+        'paths': [str(path) for path in paths],
+        'updaterLaunchLines': [
+            line for line in lines
+            if 'Application Info: executing' in line and 'AllowgramUpdater.exe' in line
+        ],
+        'relaunchCommandLines': [
+            line for line in lines
+            if 'Command line:' in line and '-noupdate' in line
+        ],
+    }
 
 def command_run(args: argparse.Namespace) -> int:
     output = require_new_dir(args.output)
@@ -652,6 +671,8 @@ def command_run(args: argparse.Namespace) -> int:
         'tupdatesExists': (work / 'tupdates').exists(),
     }
 
+    log_summary = collect_log_summary(work)
+
     def check(condition: bool, message: str) -> None:
         if not condition:
             failures.append(message)
@@ -672,7 +693,22 @@ def command_run(args: argparse.Namespace) -> int:
         check(str(relaunch.get('buildAllowgramSequence')) in (str(args.new_sequence), f'{args.new_sequence}.0'),
               'relaunched client sequence does not match new fixture')
         arguments = relaunch.get('arguments') or []
-        check('-noupdate' in arguments, 'relaunched client did not receive -noupdate')
+        check(isinstance(arguments, list), 'relaunched client arguments report is malformed')
+    updater_launch_text = '\n'.join(str(line) for line in log_summary['updaterLaunchLines'])
+    relaunch_command_text = '\n'.join(str(line) for line in log_summary['relaunchCommandLines'])
+    normalized_work = str(work).replace('\\', '/').rstrip('/')
+    normalized_relaunch_command = relaunch_command_text.replace('\\', '/').rstrip('/')
+    check('AllowgramUpdater.exe' in updater_launch_text and ' -update' in updater_launch_text,
+          'logged helper launch command is missing')
+    check('-stagehash' in updater_launch_text and '-exename "Allowgram.exe"' in updater_launch_text,
+          'logged helper launch did not include authenticated stage hash and exact exe name')
+    if isinstance(native, dict) and native.get('readyStageHash'):
+        check(str(native.get('readyStageHash')) in updater_launch_text,
+              'logged helper launch stage hash did not match native ready stage hash')
+    check('-noupdate' in relaunch_command_text,
+          'logged relaunched client command did not include -noupdate')
+    check('-workdir' in relaunch_command_text and normalized_work in normalized_relaunch_command,
+          'logged relaunched client command did not preserve the synthetic workdir')
     check(old_process is not None and old_process.returncode == 0,
           f'old client exit code was {None if old_process is None else old_process.returncode}')
     check(after['clientSha256'] == sha256(args.new_client.resolve()),
@@ -728,6 +764,7 @@ def command_run(args: argparse.Namespace) -> int:
         },
         'stageSamples': stage_samples,
         'processes': process_records,
+        'logSummary': log_summary,
         'paths': {
             'output': str(output),
             'install': str(install),

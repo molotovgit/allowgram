@@ -32,7 +32,7 @@ def instrument_picker(root, fixture):
     widget=(root/'Telegram/SourceFiles/window/window_allowlist.cpp').read_text()
     anchor='crl::on_main(this, [=] { load(); });'
     assert widget.count(anchor)==1
-    widget=qt+'#include "main/main_session_settings.h"\n'+widget.replace(anchor,anchor+'\nQTimer::singleShot(800, this, [=] {\n#include "test/allowlist_picker_native.inc"\n});')
+    widget=qt+'#include <QtCore/QPointer>\n#include "main/main_session_settings.h"\n'+widget.replace(anchor,anchor+'\nQTimer::singleShot(800, this, [=] {\n#include "test/allowlist_picker_native.inc"\n});')
     transport=(root/'Telegram/SourceFiles/mtproto/mtp_instance.cpp').read_text()
     anchor='if (_requestFilter && !_requestFilter(request)) {'
     assert transport.count(anchor)==1

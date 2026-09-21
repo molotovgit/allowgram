@@ -59,8 +59,20 @@ setProperty("pickerCaptureReady",true);
 const auto root=this->window()->widget();
 const auto session=_session.get();
 const auto hold=qEnvironmentVariableIsSet("ALLOWGRAM_PICKER_CAPTURE") ? 75000 : 0;
-QTimer::singleShot(hold,this,[=] {
- submit();
+const auto guarded=QPointer<AllowlistLockWidget>(this);
+if (hold) QTimer::singleShot(5000,app,[=] {
+ check(bool(guarded),"capture: picker survives first five seconds");
+});
+QTimer::singleShot(hold,app,[=] {
+ if (hold) check(bool(guarded),"capture: picker survives full hold");
+ if (!guarded) {
+  QFile file(path);
+  if (file.open(QIODevice::WriteOnly)) file.write(QJsonDocument(QJsonObject{
+   {"checks",report->checks},{"failures",report->failures},{"finished",true},
+   {"syntheticOffline",true},{"captureWidgetDestroyed",true}}).toJson());
+  QCoreApplication::exit(1); return;
+ }
+ guarded->submit();
  check(session->allowlistConfigured(),"real verified disk save configures selection");
  check(session->allowlistPeers().size()==3,"saved policy contains exactly the three selected peers");
  check(session->allowlistAllows(peerFromUser(UserId(42)))

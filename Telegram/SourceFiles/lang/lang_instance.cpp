@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "lang/lang_instance.h"
+#include "lang/lang_keys.h"
 
 #include "core/application.h"
 #include "storage/serialize_common.h"
@@ -27,11 +28,36 @@ constexpr auto kCloudLangPackName = "tdesktop"_cs;
 constexpr auto kCustomLanguage = "#custom"_cs;
 constexpr auto kLangValuesLimit = 20000;
 
+// Apply to defaults and downloaded/cached language packs. Telegram mobile,
+// service and API names remain unchanged; this desktop product is Allowgram.
+QString BrandValue(ushort key, QString value) {
+	if (key == tr::lng_intro_about.base) {
+		return u"Welcome to Allowgram.\nYour approved chats, in one place."_q;
+	}
+	if (key == tr::lng_about_text1.base) {
+		return GetOriginalValue(key).replace(
+			u"Official free messaging app"_q, u"Allowgram messaging client"_q);
+	}
+	value.replace(u"Telegram Desktop"_q, u"Allowgram"_q);
+	if (key == tr::lng_open_from_tray.base
+		|| key == tr::lng_quit_from_tray.base
+		|| key == tr::lng_tray_icon_text.base
+		|| key == tr::lng_update_telegram.base
+		|| key == tr::lng_settings_auto_start.base
+		|| key == tr::lng_passcode_unlock_about.base
+		|| key == tr::lng_message_unsupported.base
+		|| key == tr::lng_unsupported_message_text.base
+		|| key == tr::lng_unsupported_block_text.base) {
+		value.replace(u"Telegram"_q, u"Allowgram"_q);
+	}
+	return value;
+}
+
 std::vector<QString> PrepareDefaultValues() {
 	auto result = std::vector<QString>();
 	result.reserve(kKeysCount);
 	for (auto i = 0; i != kKeysCount; ++i) {
-		result.emplace_back(GetOriginalValue(ushort(i)));
+		result.emplace_back(BrandValue(ushort(i), GetOriginalValue(ushort(i))));
 	}
 	return result;
 }
@@ -296,7 +322,7 @@ void Instance::reset(const Language &data) {
 	_version = 0;
 	_nonDefaultValues.clear();
 	for (auto i = 0, count = int(_values.size()); i != count; ++i) {
-		_values[i] = GetOriginalValue(ushort(i));
+		_values[i] = BrandValue(ushort(i), GetOriginalValue(ushort(i)));
 	}
 	ranges::fill(_nonDefaultSet, 0);
 	updateChoosingStickerReplacement();
@@ -731,6 +757,7 @@ QString Instance::getNonDefaultValue(const QByteArray &key) const {
 void Instance::applyValue(const QByteArray &key, const QByteArray &value) {
 	_nonDefaultValues[key] = value;
 	ParseKeyValue(key, value, [&](ushort key, QString &&value) {
+		value = BrandValue(key, std::move(value));
 		_nonDefaultSet[key] = 1;
 		if (!_derived) {
 			_values[key] = std::move(value);
@@ -769,11 +796,11 @@ void Instance::resetValue(const QByteArray &key) {
 			const auto base = _base
 				? _base->getNonDefaultValue(key)
 				: QString();
-			_values[keyIndex] = !base.isEmpty()
+			_values[keyIndex] = BrandValue(keyIndex, !base.isEmpty()
 				? base
-				: GetOriginalValue(keyIndex);
+				: GetOriginalValue(keyIndex));
 		} else if (!_derived->_nonDefaultSet[keyIndex]) {
-			_derived->_values[keyIndex] = GetOriginalValue(keyIndex);
+			_derived->_values[keyIndex] = BrandValue(keyIndex, GetOriginalValue(keyIndex));
 		}
 		if (keyIndex == tr::lng_send_action_choose_sticker.base
 			|| keyIndex == tr::lng_user_action_choose_sticker.base) {

@@ -59,7 +59,6 @@ case mtpc_account_invalidateSignInCodes:
 case mtpc_account_registerDevice:
 case mtpc_account_registerPasskey:
 case mtpc_account_resendPasswordEmail:
-case mtpc_account_resetAuthorization:
 case mtpc_account_resetNotifySettings:
 case mtpc_account_resetPassword:
 case mtpc_account_resetWallPapers:
@@ -77,7 +76,6 @@ case mtpc_account_sendConfirmPhoneCode:
 case mtpc_account_sendVerifyEmailCode:
 case mtpc_account_sendVerifyPhoneCode:
 case mtpc_account_setAccountTTL:
-case mtpc_account_setAuthorizationTTL:
 case mtpc_account_setContactSignUpNotification:
 case mtpc_account_setContentSettings:
 case mtpc_account_setGlobalPrivacySettings:
@@ -124,7 +122,6 @@ case mtpc_auth_reportMissingCode:
 case mtpc_auth_requestFirebaseSms:
 case mtpc_auth_requestPasswordRecovery:
 case mtpc_auth_resendCode:
-case mtpc_auth_resetAuthorizations:
 case mtpc_auth_resetLoginEmail:
 case mtpc_auth_sendCode:
 case mtpc_auth_signIn:

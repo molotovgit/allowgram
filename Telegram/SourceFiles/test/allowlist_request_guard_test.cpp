@@ -260,6 +260,22 @@ int main() {
 	const auto check = [&](const char *name, const Request &request, bool expected) {
 		checkWith(name, request, expected, allows);
 	};
+	for (const auto &request : {
+		Request::Serialize(MTPaccount_ResetAuthorization(MTP_long(123))),
+		Request::Serialize(MTPaccount_ResetAuthorization(MTP_long(0))),
+		Request::Serialize(MTPauth_ResetAuthorizations()),
+		Request::Serialize(MTPaccount_SetAuthorizationTTL(MTP_int(7))),
+		Packet(MTP_int(mtpc_invokeWithoutUpdates), MTPauth_ResetAuthorizations()),
+		Packet(MTP_int(mtpc_invokeWithoutUpdates), MTPaccount_ResetAuthorization(MTP_long(123))),
+		Packet(MTP_int(mtpc_invokeWithoutUpdates), MTPaccount_SetAuthorizationTTL(MTP_int(7))) }) {
+		check("other-device termination denied after setup", request, false);
+		checkWith("other-device termination denied before setup", request, false, allowsNone);
+	}
+	check("own logout remains available", Request::Serialize(MTPauth_LogOut()), true);
+	checkWith("own logout remains available before setup",
+		Request::Serialize(MTPauth_LogOut()), true, allowsNone);
+	check("wrapped own logout remains available",
+		Packet(MTP_int(mtpc_invokeWithoutUpdates), MTPauth_LogOut()), true);
 	check("allowed text", Text(user), true);
 	const auto existingConversation = Fn<bool(PeerId)>([](PeerId peer) {
 		return peer == PeerId(ChatId(42)) || peer == PeerId(ChannelId(42));

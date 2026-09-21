@@ -107,6 +107,12 @@ class RequestPolicySchemaTest(unittest.TestCase):
         self.assertFalse(SAFE & private)
         self.assertFalse({name for name in SAFE if name.startswith("phone_")})
 
+    def test_other_device_termination_is_forbidden_but_self_logout_is_allowed(self):
+        forbidden = {"account_resetAuthorization", "auth_resetAuthorizations",
+                     "account_setAuthorizationTTL"}
+        self.assertFalse(SAFE & forbidden, SAFE & forbidden)
+        self.assertIn("auth_logOut", SAFE)
+
     def test_essential_account_startup_and_reading_remain_available(self):
         for name in (
             "auth_sendCode", "auth_signIn", "auth_checkPassword",

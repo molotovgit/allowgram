@@ -99,6 +99,23 @@ if (firstCreated) {
 		auto profile = Info::Memento(user);
 		check(!profile.createWidget(bodyWidget(), navigation, Window::Column::Third, QRect()), "direct right-column user-info factory denied");
 		check(!profile.createWidget(bodyWidget(), navigation, Window::Column::Second, QRect()), "direct main-column user-info factory denied");
+		Lang::Instance branded;
+		branded.switchToId(Lang::DefaultLanguage());
+		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_open_from_tray"))) == u"Open Allowgram"_q, "default tray name is Allowgram");
+		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_intro_about"))).startsWith(u"Welcome to Allowgram."_q), "welcome identifies Allowgram");
+		const auto oldNames = MTP_langPackDifference(MTP_string("en"), MTP_int(0), MTP_int(1), MTP_vector<MTPLangPackString>({
+			MTP_langPackString(MTP_string("lng_open_from_tray"), MTP_string("Open Telegram")),
+			MTP_langPackString(MTP_string("lng_intro_about"), MTP_string("Welcome to the official Telegram Desktop app.")),
+			MTP_langPackString(MTP_string("lng_intro_qr_step1"), MTP_string("Open Telegram on your phone")),
+		}));
+		branded.applyDifference(Lang::Pack::Current, oldNames.c_langPackDifference());
+		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_open_from_tray"))) == u"Open Allowgram"_q, "downloaded language cannot restore old product name");
+		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_intro_about"))).startsWith(u"Welcome to Allowgram."_q), "downloaded welcome remains Allowgram");
+		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_intro_qr_step1"))) == u"Open Telegram on your phone"_q, "Telegram mobile instructions remain accurate");
+		Lang::Instance restoredBrand;
+		restoredBrand.fillFromSerialized(branded.serialize(), AppVersion);
+		check(restoredBrand.getValue(Lang::GetKeyIndex(QLatin1String("lng_open_from_tray"))) == u"Open Allowgram"_q, "cached language cannot restore old product name");
+
 		const auto oldStatus = session.user()->emojiStatusId();
 		session.data().emojiStatuses().set(EmojiStatusId{ .documentId = 123 });
 		check(session.user()->emojiStatusId() == oldStatus, "hidden emoji-status setter does not mutate account metadata");
@@ -118,6 +135,26 @@ if (firstCreated) {
 		check(!menuNames.contains(u"My Profile"_q), "actual main menu has no My Profile action");
 		check(!menuNames.contains(u"Saved Messages"_q), "actual main menu has no Saved Messages action");
 		check(!menuNames.contains(u"Add Account"_q), "actual main menu has no Add Account action");
+		auto accountToggleFound = false;
+		for (const auto widget : menu->findChildren<QWidget*>()) {
+			accountToggleFound |= QByteArray(typeid(*widget).name()).contains("ToggleAccountsButton");
+		}
+		check(!accountToggleFound, "account dropdown widget is removed, including its hit target");
+		Core::App().settings().setMainMenuAccountsShown(true);
+		menu = std::make_unique<Window::MainMenu>(bodyWidget(), navigation);
+		for (const auto widget : menu->findChildren<QWidget*>()) {
+			accountToggleFound |= QByteArray(typeid(*widget).name()).contains("ToggleAccountsButton");
+		}
+		check(!accountToggleFound, "stored expanded-account preference cannot restore dropdown");
+		Core::App().settings().setMainMenuAccountsShown(false);
+		check(::Settings::SessionsId() == ::Settings::MainId(), "cached Devices link redirects to own account settings");
+		auto deviceSearchEntry = false;
+		for (const auto &entry : ::Settings::Builder::SearchRegistry::Instance().collectAll(&session)) {
+			deviceSearchEntry |= entry.id == u"security/sessions"_q
+				|| entry.id.startsWith(u"sessions/"_q)
+				|| entry.title == u"Devices"_q;
+		}
+		check(!deviceSearchEntry, "Devices and termination controls absent from settings search");
 		menu.reset();
 		const auto creationBoxes = [&] {
 			auto count = 0;
@@ -185,6 +222,19 @@ if (firstCreated) {
 			settingsWidgets += dynamic_cast<Info::Settings::Widget*>(widget) ? 1 : 0;
 		}
 		check(settingsWidgets > 0, "own-account Settings opens its production widget");
+		auto ownLogoutFound = false;
+		for (const auto widget : bodyWidget()->findChildren<QWidget*>()) {
+			if (const auto section = dynamic_cast<::Settings::AbstractSection*>(widget)) {
+				if (section->id() == ::Settings::MainId()) {
+					auto popup = Ui::PopupMenu(bodyWidget());
+					section->fillTopBarMenu(Ui::Menu::CreateAddActionCallback(&popup));
+					for (const auto action : popup.actions()) {
+						ownLogoutFound |= action->property("highlight-control-id").toString() == u"settings/log-out"_q;
+					}
+				}
+			}
+		}
+		check(ownLogoutFound, "actual account Settings menu retains own Log Out action");
 		check(bool(PrepareContactsBox(navigation)), "Contacts production box remains available");
 		Calls::ShowCallsBox(navigation);
 		Calls::ShowCallsBox(navigation, true);
@@ -297,4 +347,15 @@ if (report.open(QIODevice::WriteOnly)) {
 	}).toJson());
 	report.close();
 }
-QTimer::singleShot(1800, this, [] { Core::Quit(); });
+if (qEnvironmentVariableIsSet("ALLOWGRAM_IDENTITY_CAPTURE")) {
+	QTimer::singleShot(2200, this, [=] {
+		if (const auto navigation = controller().sessionController()) {
+			navigation->hideLayer(anim::type::instant);
+			auto menu = Ui::CreateChild<Window::MainMenu>(bodyWidget(), navigation);
+			menu->show();
+			menu->raise();
+		}
+	});
+}
+QTimer::singleShot(qEnvironmentVariableIsSet("ALLOWGRAM_IDENTITY_CAPTURE") ? 120000 : 1800,
+	this, [] { Core::Quit(); });

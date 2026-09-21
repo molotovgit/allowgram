@@ -31,10 +31,12 @@ protected:
 
 private:
 	class IdRow;
+	class ChatPicker;
 
 	void addRow(bool users, bool focus = true);
 	void removeRow(bool users, not_null<IdRow*> row);
 	void refreshRowButtons();
+	void updatePickerHeight();
 	void submit();
 	void showError(const QString &error);
 	void clearError();
@@ -49,6 +51,7 @@ private:
 	Ui::RoundButton *_addUser = nullptr;
 	Ui::RoundButton *_addGroup = nullptr;
 	Ui::FlatLabel *_error = nullptr;
+	ChatPicker *_picker = nullptr;
 
 };
 

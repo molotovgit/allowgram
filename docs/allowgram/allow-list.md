@@ -4,7 +4,23 @@
 
 ## When setup appears
 
-Complete Telegram's normal phone-number, verification-code and, if enabled, two-step-verification flow. When an account has no saved Allowgram list, **Set up your allow-list** covers the client before conversations become available. Setup requires at least one valid user, bot, group or channel ID. It is not a username search box.
+Complete Telegram's normal phone-number, verification-code and, if enabled, two-step-verification flow. When an account has no saved Allowgram list, **Set up your allow-list** covers the client before conversations become available. Select at least one conversation by name and press **Save and continue**. Existing configured accounts keep their saved list and skip this screen.
+
+## Choose existing chats
+
+The searchable list loads your main and archived chats automatically. Check the
+people, bots, groups and channels you want to allow. Saved Messages is not
+listed because it is disabled.
+
+Search filters the names of loaded chats without clearing any selection. Wait
+for loading to finish to search the entire list. If a request fails, choose
+**Retry loading chats**; existing selections remain checked. Nothing is selected
+by default. Chats become accessible only after a successful save, and the list
+is restored on subsequent launches.
+
+For a chat that is not listed, expand **Enter IDs manually (optional)**. Manual
+entries are combined with checked chats and validated together. The screenshots
+and numeric-entry instructions below describe that fallback, not the new picker.
 
 ![Allowgram setup showing Allowed users, Allowed groups and channels, add-row buttons and Save and continue](images/allow-list-overview.png)
 
@@ -44,11 +60,11 @@ The signed channel form is `-(1000000000000 + raw_channel_id)`. Use `channel:` w
 
 ## Validate and save
 
-Select **Save and continue**. The client validates the combined fields, removes duplicate IDs and permits at most 10,000 distinct entries. Empty extra rows are ignored. Comma, whitespace and semicolon separators are also accepted by the parser, although one ID per row is easier to review.
+Select **Save and continue**. The client combines checked chats and manual entries, removes duplicate IDs and permits at most 10,000 distinct entries. Empty extra rows are ignored. Comma, whitespace and semicolon separators are also accepted by the parser, although one ID per row is easier to review.
 
 | Message | What to correct |
 | --- | --- |
-| “Add at least one user or group ID.” | Both sections are empty. Add a valid entry. |
+| “Select at least one chat or enter an ID.” | No chat is checked and both manual sections are empty. Select a chat or add a valid entry. |
 | “Invalid ID: …” | Use a supported numeric form. Usernames, phone-number notation, zero and malformed values are rejected. |
 | “ID … is in the wrong field.” | Move users/bots to Allowed users and groups/channels to the group section. |
 | “The allow-list can contain up to 10,000 IDs.” | Remove entries to stay within the total limit. |

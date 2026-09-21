@@ -3,10 +3,16 @@
 Allowgram modifies Telegram Desktop to require an account-specific messaging
 allow-list after sign-in. The upstream phone-number, verification-code, and
 two-step-verification login flow is retained. Chats become accessible after the
-user saves at least one valid user, group, or channel ID.
+user selects and saves at least one chat.
 
 ## Using the list
 
+Choose existing conversations by name in the searchable setup list. Main and
+archived chats load automatically; Saved Messages is not offered because it is
+disabled. Check the chats to permit, then select **Save and continue**. Search does not clear your
+selections. If loading fails, retry without losing the choices already made.
+
+For a conversation missing from the list, open **Enter IDs manually (optional)**.
 Enter one ID per row. Use **+ Add user** or **+ Add group/channel** to add
 another row, and **Remove** to delete an unwanted row:
 

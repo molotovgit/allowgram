@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser(description="Build a disposable real-widget reg
 parser.add_argument('--repository', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--hardening', action='store_true')
+parser.add_argument('--picker', action='store_true')
 parser.add_argument('--optional-update', action='store_true')
 parser.add_argument('--optional-update-restart', action='store_true')
 parser.add_argument('--optional-update-trust', type=Path)
@@ -53,45 +54,6 @@ main = main.replace(old, old + '''
 	}
 ''')
 widget = (root / 'Telegram/SourceFiles/window/window_allowlist.cpp').read_text(encoding='utf-8')
-if 'void AllowlistLockWidget::showManual()' in widget:
-    widget = widget.replace('crl::on_main(this, [=] { resolve(); });',
-                            'crl::on_main(this, [=] { showManual(); });')
-    widget = widget.replace('if (!_manual || !sameSession()) {',
-                            'if (!_manual || (window()->maybeSession() && !sameSession())) {')
-subset = (build / 'Telegram/gen/lang_subsets/window/window_allowlist.cpp.h').read_text()
-session_subset = (build / 'Telegram/gen/lang_subsets/main/main_session.cpp.h').read_text()
-extra = [line for line in session_subset.splitlines() if 'inline constexpr' in line and 'lng_allowgram_' in line and re.search(r'lng_allowgram_\w+', line).group() not in subset]
-specializations = session_subset.split('namespace tr {', 1)[1].split('inline constexpr', 1)[0]
-(fixture / 'fixture_lang.h').write_text('#pragma once\n#include "lang_auto.h"\nnamespace tr {\n' + specializations + '\n'.join(extra) + '\n}\n')
-widget = widget.replace('#include "lang/lang_keys.h"', '#include "lang/lang_keys.h"\n#include "fixture_lang.h"')
-old = '\taddRow(false, false);\n}'
-assert widget.count(old) == 1
-widget = widget.replace(old, '''	addRow(false, false);
-	// Only neutral fixture entries; production layout and controls are unchanged.
-	const auto scene = qEnvironmentVariable("ALLOWGRAM_DOCS_SCENE");
-	if (scene == "multiple" || scene == "invalid") {
-		_users.front()->field()->setTextWithTags({ u"8558994389"_q, {} });
-		addRow(true, false);
-		_users.back()->field()->setTextWithTags({ u"123456789"_q, {} });
-		_groups.front()->field()->setTextWithTags({ u"chat:123456789"_q, {} });
-		addRow(false, false);
-		_groups.back()->field()->setTextWithTags({ u"channel:1234567890"_q, {} });
-	}
-	if (scene == "invalid") {
-		_users.front()->field()->setTextWithTags({ u"@example_bot"_q, {} });
-		crl::on_main(this, [=] { this->submit(); });
-	}
-}''')
-session_text = (root / 'Telegram/SourceFiles/main/main_session.cpp').read_text(encoding='utf-8')
-start = session_text.index('\tconst auto parsed = Allowlist::Parse(', session_text.index('QString Session::configureAllowlist('))
-end = session_text.index('\tauto peers = base::flat_set<PeerId>();', start)
-validation = session_text[start:end]
-validation = validation.replace('Allowlist::', 'Main::Allowlist::').replace('userIds.toStdString()', 'CollectIds(_users).toStdString()').replace('groupIds.toStdString()', 'CollectIds(_groups).toStdString()')
-# Preserve the production parser and error mapping; no account or save simulation.
-validation = '\t\tconst auto error = [&]() -> QString {\n' + validation + '\t\treturn QString();\n\t\t}();\n\t\tif (!error.isEmpty()) { showError(error); }\n'
-old = '\tif (!session) {\n\t\treturn;\n\t}'
-assert widget.count(old) == 1
-widget = widget.replace(old, '\tif (!session) {\n' + validation + '\t\treturn;\n\t}')
 
 main = main.replace('resize(720, 1000);', 'QTimer::singleShot(800, this, [=] {\n\t\t\tresize(qEnvironmentVariableIntValue("ALLOWGRAM_UI_WIDTH"),\n\t\t\t\tqEnvironmentVariableIntValue("ALLOWGRAM_UI_HEIGHT"));\n\t\t\tupdateControlsGeometry();\n\t\t});')
 main = '#include <QtCore/QTimer>\n' + main
@@ -123,11 +85,6 @@ if args.optional_update_restart:
     anchor = '\t_intro = std::move(created);'
     assert main.count(anchor) == 1
     main = main.replace(anchor, anchor + '\n\tif (qEnvironmentVariableIsSet("ALLOWGRAM_OPTIONAL_RESTART_CASCADE_REPORT")) {\n\t\tQTimer::singleShot(1800, this, [=] {\n#include "test/allowgram_optional_restart_cascade_test.inc"\n\t\t});\n\t}')
-widget = '#include <QtCore/QTimer>\n#include <QtCore/QFile>\n#include <QtCore/QJsonDocument>\n#include <QtCore/QJsonArray>\n#include <QtCore/QJsonObject>\n#include <QtGui/QTextDocument>\n#include <QtWidgets/QTextEdit>\n#include <cmath>\n' + widget
-anchor = '\tconst auto scene = qEnvironmentVariable("ALLOWGRAM_DOCS_SCENE");'
-assert widget.count(anchor) == 1
-widget = widget.replace(anchor, anchor + '\n\tQTimer::singleShot(1200, this, [=] {\n#include "test/allowlist_layout_test.inc"\n\t});')
-widget = widget.replace(anchor, anchor + '\n\tif (qEnvironmentVariableIntValue("ALLOWGRAM_UI_SELECT")) {\n\t\tQTimer::singleShot(950, this, [=] {\n\t\t\t_users.front()->field()->setFocusFast();\n\t\t\t_users.front()->field()->selectAll();\n\t\t});\n\t}')
 application = (root / 'Telegram/SourceFiles/core/application.cpp').read_text(encoding='utf-8')
 assert application.count('style::StartManager(cScale());') == 1
 application = application.replace('style::StartManager(cScale());',
@@ -229,7 +186,7 @@ if args.optional_update:
 (fixture / 'application.cpp').write_text(application, encoding='utf-8')
 
 extra_sources = []
-offline_fixture = args.hardening or args.optional_update_restart
+offline_fixture = args.hardening or args.optional_update_restart or args.picker
 offline_transport_sources = []
 offline_request_sources = []
 if args.optional_update_trust:
@@ -429,6 +386,12 @@ if args.hardening:
                    + 'allowgramCallButtonVisible' + chr(34) + ', !_call->isHidden());\n')
     top_bar = top_bar[:end] + observation + top_bar[end:]
     extra_sources.append(('top_bar', 'history/view/history_view_top_bar_widget.cpp', json_includes + '\n' + top_bar))
+if args.picker:
+    assert not args.hardening and not args.optional_update_restart
+    from picker_fixture import instrument_picker
+    main, widget, picker_sources = instrument_picker(root, fixture)
+    extra_sources.extend(picker_sources)
+    offline_request_sources.append('mtproto/mtp_instance.cpp')
 (fixture / 'mainwindow.cpp').write_text(main, encoding='utf-8')
 for name, relative, source in extra_sources:
     (fixture / (name + '.cpp')).write_text(source, encoding='utf-8')
@@ -437,6 +400,7 @@ for name, relative, source in extra_sources:
 executable = root / 'out/Release/Telegram.exe'
 original_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
 replacements = []
+compile_failures = []
 for name, relative in [('mainwindow', 'mainwindow.cpp'), ('window_allowlist', 'window/window_allowlist.cpp'), ('application', 'core/application.cpp')] + [(name, relative) for name, relative, source in extra_sources]:
     target = 'Telegram/CMakeFiles/Telegram.dir/Release/SourceFiles/' + relative + '.obj'
     command = subprocess.check_output(['ninja', '-f', 'build-Release.ninja', '-t', 'commands', target], cwd=build).decode().splitlines()[-1]
@@ -451,11 +415,29 @@ for name, relative in [('mainwindow', 'mainwindow.cpp'), ('window_allowlist', 'w
     command = command.replace(old_object, new_object)
     command = command.replace('/showIncludes', '')
     replacements.append((old_object, new_object))
+    # Picker-only incremental cache pins command, actual base object, inline tests,
+    # generated source and resulting object; never reuse merely by mtime.
+    cpp = (fixture / (name + '.cpp')).read_bytes()
+    dependencies = b''.join(((fixture / path) if (fixture / path).exists()
+        else (root / 'Telegram/SourceFiles' / path)).read_bytes() for path in
+        re.findall(r'#include "(test/[^"\n]+)"', cpp.decode('utf-8')))
+    stamp = hashlib.sha256(command.encode() + cpp + (build / target).read_bytes()
+                           + dependencies).hexdigest()
+    cache = fixture / (name + '.compile.json')
+    saved = json.loads(cache.read_text()) if args.picker and cache.exists() else {}
+    obj = Path(new_object)
+    if args.picker and saved.get('inputSha256') == stamp and obj.exists() and saved.get('objectSha256') == hashlib.sha256(obj.read_bytes()).hexdigest():
+        print('Verified cached fixture object:', name, flush=True)
+        continue
     print('Compiling isolated production-widget fixture:', name, flush=True)
     result = subprocess.run(command, shell=True, cwd=build, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     print(redact(result.stdout.decode(errors='replace')), flush=True)
     if result.returncode:
-        raise SystemExit(result.returncode)
+        compile_failures.append(name)
+    elif args.picker:
+        cache.write_text(json.dumps({'inputSha256':stamp, 'objectSha256':hashlib.sha256(obj.read_bytes()).hexdigest()}))
+if compile_failures:
+    raise SystemExit('Fixture compilation failed: ' + ', '.join(compile_failures))
 
 contents = (build / 'CMakeFiles/impl-Release.ninja').read_text()
 begin = contents.index('build Release\\Telegram.exe:')
@@ -478,6 +460,7 @@ block = re.sub(r'^  OBJECT_DIR = .*$', '  OBJECT_DIR = ' + str(fixture).replace(
     'testDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=(args.test_repository or root), text=True).splitlines(),
     'productionExecutableSha256': original_hash,
     'hardeningFixture': args.hardening,
+    'pickerFixture': args.picker,
     'optionalFixture': args.optional_update or args.optional_update_restart,
     'optionalRestartFixture': args.optional_update_restart,
     'mtprotoNetworkDisabled': bool(offline_transport_sources and offline_request_sources),
@@ -525,6 +508,11 @@ if args.hardening:
         'synthetic private-call server replies after production request filtering',
         'synthetic key-exchange values; device, ring, panel and controller effects intercepted',
     ]
+elif args.picker:
+    overlay = ['synthetic account and serialized dialog replies after real request filtering',
+               'production picker, parser, selection and verified disk persistence',
+               'synthetic disk-failure fault injection; no real credentials',
+               'MTProto TCP/HTTP connections disabled']
 elif args.optional_update_restart:
     overlay = [
         'synthetic account/model construction for optional updater restart',
@@ -555,6 +543,7 @@ else:
                       for path in fixture.rglob('*') if path.suffix in ('.cpp', '.inc', '.h')},
     'layoutUnmodified': True,
     'hardeningFixture': args.hardening,
+    'pickerFixture': args.picker,
     'optionalFixture': args.optional_update or args.optional_update_restart,
     'optionalRestartFixture': args.optional_update_restart,
     'mtprotoNetworkDisabled': bool(offline_transport_sources and offline_request_sources),

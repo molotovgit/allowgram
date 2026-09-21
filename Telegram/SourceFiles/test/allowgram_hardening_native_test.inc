@@ -99,13 +99,17 @@ if (firstCreated) {
 		auto profile = Info::Memento(user);
 		check(!profile.createWidget(bodyWidget(), navigation, Window::Column::Third, QRect()), "direct right-column user-info factory denied");
 		check(!profile.createWidget(bodyWidget(), navigation, Window::Column::Second, QRect()), "direct main-column user-info factory denied");
+		updateTitle();
+		check(windowHandle() && windowHandle()->title().startsWith(u"Allowgram"_q), "actual default window title identifies Allowgram");
 		Lang::Instance branded;
 		branded.switchToId(Lang::DefaultLanguage());
+		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_sure_save_language"))).startsWith(u"Allowgram will restart"_q), "language restart prompt identifies Allowgram");
 		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_open_from_tray"))) == u"Open Allowgram"_q, "default tray name is Allowgram");
 		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_intro_about"))).startsWith(u"Welcome to Allowgram."_q), "welcome identifies Allowgram");
 		const auto oldNames = MTP_langPackDifference(MTP_string("en"), MTP_int(0), MTP_int(1), MTP_vector<MTPLangPackString>({
 			MTP_langPackString(MTP_string("lng_open_from_tray"), MTP_string("Open Telegram")),
 			MTP_langPackString(MTP_string("lng_intro_about"), MTP_string("Welcome to the official Telegram Desktop app.")),
+			MTP_langPackString(MTP_string("lng_sure_save_language"), MTP_string("Telegram will restart in order to change the language")),
 			MTP_langPackString(MTP_string("lng_intro_qr_step1"), MTP_string("Open Telegram on your phone")),
 		}));
 		branded.applyDifference(Lang::Pack::Current, oldNames.c_langPackDifference());
@@ -114,6 +118,7 @@ if (firstCreated) {
 		check(branded.getValue(Lang::GetKeyIndex(QLatin1String("lng_intro_qr_step1"))) == u"Open Telegram on your phone"_q, "Telegram mobile instructions remain accurate");
 		Lang::Instance restoredBrand;
 		restoredBrand.fillFromSerialized(branded.serialize(), AppVersion);
+		check(restoredBrand.getValue(Lang::GetKeyIndex(QLatin1String("lng_sure_save_language"))).startsWith(u"Allowgram will restart"_q), "downloaded and cached restart prompt keeps Allowgram branding");
 		check(restoredBrand.getValue(Lang::GetKeyIndex(QLatin1String("lng_open_from_tray"))) == u"Open Allowgram"_q, "cached language cannot restore old product name");
 
 		const auto oldStatus = session.user()->emojiStatusId();

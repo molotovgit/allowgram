@@ -44,6 +44,7 @@ QString BrandValue(ushort key, QString value) {
 		|| key == tr::lng_tray_icon_text.base
 		|| key == tr::lng_update_telegram.base
 		|| key == tr::lng_settings_auto_start.base
+		|| key == tr::lng_sure_save_language.base
 		|| key == tr::lng_passcode_unlock_about.base
 		|| key == tr::lng_message_unsupported.base
 		|| key == tr::lng_unsupported_message_text.base

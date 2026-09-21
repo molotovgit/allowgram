@@ -389,7 +389,7 @@ lockSetupEmailUserpicSmall: UserpicButton(defaultUserpicButton) {
 allowlistContentWidth: 560px;
 allowlistContentTop: 32px;
 allowlistChatListHeight: 240px;
-allowlistChatPadding: margins(24px, 8px, 24px, 8px);
+allowlistListPadding: margins(8px, 0px, 8px, 0px);
 allowlistSectionSkip: 20px;
 allowlistLabelSkip: 8px;
 allowlistRowPadding: margins(24px, 0px, 24px, 0px);

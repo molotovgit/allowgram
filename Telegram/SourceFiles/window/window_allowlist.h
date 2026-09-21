@@ -36,6 +36,7 @@ private:
 	void addRow(bool users, bool focus = true);
 	void removeRow(bool users, not_null<IdRow*> row);
 	void refreshRowButtons();
+	void updatePickerHeight();
 	void submit();
 	void showError(const QString &error);
 	void clearError();

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_allowlist.h"
 
+#include "boxes/peer_list_box.h"
 #include "core/application.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
@@ -15,7 +16,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/allowlist_policy.h"
 #include "main/main_session.h"
 #include "mtproto/sender.h"
-#include "ui/widgets/checkbox.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
@@ -44,33 +44,72 @@ void UnlockAllowlistWindows(not_null<Main::Session*> session) {
 	});
 }
 
+class ChatsController final : public PeerListController {
+public:
+	explicit ChatsController(not_null<Main::Session*> session)
+	: _session(session) {
+	}
+
+	Main::Session &session() const override {
+		return *_session;
+	}
+	void prepare() override {
+		delegate()->peerListSetSearchMode(PeerListSearchMode::Enabled);
+	}
+	void rowClicked(not_null<PeerListRow*> row) override {
+		delegate()->peerListSetRowChecked(row, !row->checked());
+		_checkedChanges.fire({});
+	}
+	QString savedMessagesChatStatus() const override {
+		return tr::lng_saved_forward_here(tr::now);
+	}
+
+	[[nodiscard]] rpl::producer<> checkedChanges() const {
+		return _checkedChanges.events();
+	}
+
+private:
+	const not_null<Main::Session*> _session;
+	rpl::event_stream<> _checkedChanges;
+
+};
+
+class ChatsDelegate final : public PeerListContentDelegateSimple {
+public:
+	bool peerListIsRowChecked(not_null<PeerListRow*> row) override {
+		return row->checked();
+	}
+
+};
+
 } // namespace
 
 class AllowlistLockWidget::ChatPicker final : public Ui::VerticalLayout {
 public:
 	ChatPicker(QWidget *parent, not_null<Main::Session*> session);
 	[[nodiscard]] QString selectedIds(bool users) const;
+	[[nodiscard]] rpl::producer<int> selectedCountValue() const;
+	[[nodiscard]] int listHeight() const;
+	void setListHeight(int height);
 	void focusSearch();
 
 private:
-	struct Row {
-		PeerId id;
-		QString name;
-		Ui::SlideWrap<Ui::Checkbox> *widget = nullptr;
-	};
-
 	void loadMore();
 	void addPeer(not_null<PeerData*> peer);
-	void filter();
+	void refreshStatus();
 	void loadFailed();
 
 	not_null<Main::Session*> _session;
 	MTP::Sender _api;
+	const not_null<ChatsController*> _controller;
+	const not_null<ChatsDelegate*> _delegate;
 	Ui::InputField *_search = nullptr;
 	Ui::FlatLabel *_status = nullptr;
-	Ui::VerticalLayout *_rowsLayout = nullptr;
+	Ui::RpWidget *_viewport = nullptr;
+	Ui::ScrollArea *_scroll = nullptr;
+	PeerListContent *_content = nullptr;
 	Ui::RoundButton *_retry = nullptr;
-	std::vector<Row> _rows;
+	rpl::variable<int> _selectedCount;
 	base::flat_set<PeerId> _seen;
 	int _folder = 0;
 	TimeId _offsetDate = 0;
@@ -86,32 +125,52 @@ AllowlistLockWidget::ChatPicker::ChatPicker(
 	not_null<Main::Session*> session)
 : VerticalLayout(parent)
 , _session(session)
-, _api(&session->mtp()) {
+, _api(&session->mtp())
+, _controller(lifetime().make_state<ChatsController>(session))
+, _delegate(lifetime().make_state<ChatsDelegate>()) {
 	_search = add(object_ptr<Ui::InputField>(
 		this,
 		st::allowlistInput,
 		Ui::InputField::Mode::SingleLine,
 		tr::lng_allowgram_search_chats()), st::allowlistRowPadding);
 	_search->setDocumentMargin(st::allowlistInput.border);
-	_search->changes() | rpl::on_next([=] {
-		filter();
-	}, lifetime());
 	_status = add(object_ptr<Ui::FlatLabel>(
 		this,
 		tr::lng_allowgram_loading_chats(),
 		st::allowlistHint), st::allowlistHintPadding);
-	const auto viewport = add(object_ptr<Ui::RpWidget>(this));
-	viewport->resize(0, st::allowlistChatListHeight);
-	const auto scroll = Ui::CreateChild<Ui::ScrollArea>(
-		viewport,
-		st::defaultSolidScroll);
-	_rowsLayout = scroll->setOwnedWidget(
-		object_ptr<Ui::VerticalLayout>(scroll)).data();
-	viewport->sizeValue() | rpl::on_next([=](QSize size) {
-		scroll->setGeometry(QRect(QPoint(), size));
-		_rowsLayout->resizeToWidth(size.width());
-	}, viewport->lifetime());
-	scroll->show();
+	_viewport = add(
+		object_ptr<Ui::RpWidget>(this),
+		st::allowlistListPadding);
+	_viewport->resize(0, st::allowlistChatListHeight);
+	_scroll = Ui::CreateChild<Ui::ScrollArea>(
+		_viewport,
+		st::defaultScrollArea);
+	_content = _scroll->setOwnedWidget(
+		object_ptr<PeerListContent>(_scroll, _controller)).data();
+	_delegate->setContent(_content);
+	_controller->setDelegate(_delegate);
+	_delegate->peerListSetSearchNoResults(object_ptr<Ui::FlatLabel>(
+		nullptr,
+		tr::lng_bot_chats_not_found(),
+		st::membersAbout));
+	_viewport->sizeValue() | rpl::on_next([=](QSize size) {
+		_scroll->setGeometry(QRect(QPoint(), size));
+		_content->resizeToWidth(size.width());
+	}, _viewport->lifetime());
+	rpl::combine(
+		_scroll->scrollTopValue(),
+		_scroll->heightValue()
+	) | rpl::on_next([=](int top, int height) {
+		_content->setVisibleTopBottom(top, top + height);
+	}, _scroll->lifetime());
+	_scroll->show();
+	_search->changes() | rpl::on_next([=] {
+		_content->searchQueryChanged(_search->getLastText());
+		_scroll->scrollToY(0);
+	}, lifetime());
+	_controller->checkedChanges() | rpl::on_next([=] {
+		refreshStatus();
+	}, lifetime());
 	_retry = add(object_ptr<Ui::RoundButton>(
 		this,
 		tr::lng_allowgram_retry_chats(),
@@ -119,6 +178,7 @@ AllowlistLockWidget::ChatPicker::ChatPicker(
 	_retry->hide();
 	_retry->setClickedCallback([=] { loadMore(); });
 	addPeer(session->user());
+	_delegate->peerListRefreshRows();
 	crl::on_main(this, [=] { loadMore(); });
 }
 
@@ -126,18 +186,34 @@ void AllowlistLockWidget::ChatPicker::focusSearch() {
 	_search->setFocus();
 }
 
+rpl::producer<int> AllowlistLockWidget::ChatPicker::selectedCountValue() const {
+	return _selectedCount.value();
+}
+
+int AllowlistLockWidget::ChatPicker::listHeight() const {
+	return _viewport->height();
+}
+
+void AllowlistLockWidget::ChatPicker::setListHeight(int height) {
+	if (_viewport->height() != height) {
+		_viewport->resize(_viewport->width(), height);
+	}
+}
+
 QString AllowlistLockWidget::ChatPicker::selectedIds(bool users) const {
 	auto result = QString();
-	for (const auto &row : _rows) {
-		if (!row.widget->entity()->checked()
-			|| row.id.is<UserId>() != users) {
+	const auto count = _delegate->peerListFullRowsCount();
+	for (auto i = 0; i != count; ++i) {
+		const auto row = _delegate->peerListRowAt(i);
+		const auto id = row->peer()->id;
+		if (!row->checked() || id.is<UserId>() != users) {
 			continue;
 		}
-		result += row.id.is<UserId>()
-			? u"user:%1\n"_q.arg(peerToUser(row.id).bare)
-			: row.id.is<ChatId>()
-			? u"chat:%1\n"_q.arg(peerToChat(row.id).bare)
-			: u"channel:%1\n"_q.arg(peerToChannel(row.id).bare);
+		result += id.is<UserId>()
+			? u"user:%1\n"_q.arg(peerToUser(id).bare)
+			: id.is<ChatId>()
+			? u"chat:%1\n"_q.arg(peerToChat(id).bare)
+			: u"channel:%1\n"_q.arg(peerToChannel(id).bare);
 	}
 	return result;
 }
@@ -150,35 +226,21 @@ void AllowlistLockWidget::ChatPicker::addPeer(not_null<PeerData*> peer) {
 		return;
 	}
 	_seen.emplace(peer->id);
-	const auto name = (peer->id == _session->userId())
-		? tr::lng_saved_messages(tr::now)
-		: peer->name();
-	const auto row = _rowsLayout->add(
-		object_ptr<Ui::SlideWrap<Ui::Checkbox>>(
-			_rowsLayout,
-			object_ptr<Ui::Checkbox>(_rowsLayout, name, false),
-			st::allowlistChatPadding));
-	_rows.push_back({ peer->id, name, row });
-	row->entity()->checkedChanges() | rpl::on_next([=] {
-		filter();
-	}, row->lifetime());
+	_delegate->peerListAppendRow(std::make_unique<PeerListRow>(peer));
 }
 
-void AllowlistLockWidget::ChatPicker::filter() {
-	const auto query = _search->getLastText().trimmed();
-	auto visible = 0;
+void AllowlistLockWidget::ChatPicker::refreshStatus() {
+	const auto count = _delegate->peerListFullRowsCount();
 	auto selected = 0;
-	for (const auto &row : _rows) {
-		const auto matches = row.name.contains(query, Qt::CaseInsensitive);
-		row.widget->toggle(matches, anim::type::instant);
-		visible += matches ? 1 : 0;
-		selected += row.widget->entity()->checked() ? 1 : 0;
+	for (auto i = 0; i != count; ++i) {
+		selected += _delegate->peerListRowAt(i)->checked() ? 1 : 0;
 	}
+	_selectedCount = selected;
 	if (_complete) {
 		_status->setText(tr::lng_allowgram_chats_ready(
 			tr::now,
 			lt_ready,
-			QString::number(visible),
+			QString::number(count),
 			lt_total,
 			QString::number(selected)));
 	}
@@ -243,6 +305,7 @@ void AllowlistLockWidget::ChatPicker::loadMore() {
 					}
 				}, [](const auto &) {});
 			}
+			_delegate->peerListRefreshRows();
 			const auto finished = (result.type() == mtpc_messages_dialogs)
 				|| !lastPeer;
 			if (!finished) {
@@ -250,7 +313,7 @@ void AllowlistLockWidget::ChatPicker::loadMore() {
 					&& lastId == _offsetId
 					&& lastDate == _offsetDate) {
 					loadFailed();
-					filter();
+					refreshStatus();
 					return;
 				}
 				_offsetPeer = lastPeer;
@@ -264,7 +327,7 @@ void AllowlistLockWidget::ChatPicker::loadMore() {
 			} else {
 				_complete = true;
 			}
-			filter();
+			refreshStatus();
 			crl::on_main(this, [=] { loadMore(); });
 		});
 	}).fail([=] {
@@ -442,10 +505,18 @@ AllowlistLockWidget::AllowlistLockWidget(
 		st::allowlistRowPadding);
 	_error->setTextColorOverride(st::boxTextFgError->c);
 	_error->hide();
+	auto submitText = _picker
+		? rpl::producer<QString>(_picker->selectedCountValue(
+		) | rpl::map([](int count) {
+			return count
+				? tr::lng_allowgram_save_count(tr::now, lt_count, count)
+				: tr::lng_allowgram_save_continue(tr::now);
+		}))
+		: tr::lng_allowgram_save_continue();
 	const auto submit = _layout->add(
 		object_ptr<Ui::RoundButton>(
 			_layout,
-			tr::lng_allowgram_save_continue(),
+			std::move(submitText),
 			st::allowlistSubmit),
 		st::allowlistButtonPadding);
 	submit->setClickedCallback([=] { this->submit(); });
@@ -461,6 +532,18 @@ AllowlistLockWidget::AllowlistLockWidget(
 	Ui::AddSkip(_layout, st::allowlistSectionSkip);
 	addRow(true, false);
 	addRow(false, false);
+	_layout->heightValue() | rpl::on_next([=] {
+		updatePickerHeight();
+	}, lifetime());
+}
+
+void AllowlistLockWidget::updatePickerHeight() {
+	if (!_picker) {
+		return;
+	}
+	const auto other = _layout->height() - _picker->listHeight();
+	const auto available = height() - st::allowlistContentTop - other;
+	_picker->setListHeight(std::max(available, st::allowlistChatListHeight));
 }
 
 void AllowlistLockWidget::addRow(bool users, bool focus) {
@@ -551,6 +634,7 @@ void AllowlistLockWidget::resizeEvent(QResizeEvent *e) {
 		layoutWidth,
 		std::max(height() - top, 0));
 	_layout->resizeToWidth(layoutWidth);
+	updatePickerHeight();
 }
 
 void AllowlistLockWidget::keyPressEvent(QKeyEvent *e) {

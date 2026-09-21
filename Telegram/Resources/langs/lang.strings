@@ -8787,6 +8787,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_add_group" = "+ Add group/channel";
 "lng_allowgram_remove_id" = "Remove";
 "lng_allowgram_save_continue" = "Save and continue";
+"lng_allowgram_save_count#one" = "Save {count} chat and continue";
+"lng_allowgram_save_count#other" = "Save {count} chats and continue";
 "lng_allowgram_already_configured" = "This account already has an allow-list. Log out to set up a different list.";
 "lng_allowgram_empty" = "Select at least one chat or enter an ID.";
 "lng_allowgram_invalid_id" = "Invalid ID: {name}. Use positive user IDs, negative group IDs, or user:, chat:, channel: prefixes.";
@@ -8803,5 +8805,5 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_loading_chats" = "Loading your chats, including archived chats...";
 "lng_allowgram_retry_chats" = "Retry loading chats";
 "lng_allowgram_chats_failed" = "Some chats could not be loaded. Check your connection and retry. Your selections are kept.";
-"lng_allowgram_chats_ready" = "Chats shown: {ready}. Selected: {total}.";
+"lng_allowgram_chats_ready" = "Chats: {ready}. Selected: {total}.";
 "lng_allowgram_manual_ids" = "Enter IDs manually (optional)";

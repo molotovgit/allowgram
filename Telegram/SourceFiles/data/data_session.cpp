@@ -5706,6 +5706,10 @@ void Session::refreshAllowlist() {
 	for (const auto peerId : session().allowlistPeers()) {
 		if (const auto peer = peerLoaded(peerId)) {
 			const auto history = this->history(peer);
+			// Before setup every message was filtered out, so dialogs
+			// applied then marked this history as empty and fully loaded.
+			// Unload it so opening the chat requests its history again.
+			history->clear(History::ClearType::Unload);
 			if (const auto user = peer->asUser(); user && user->isContact()) {
 				_contactsList.addByName(history);
 				if (!history->inChatList()) {

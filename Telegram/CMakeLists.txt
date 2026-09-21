@@ -1456,6 +1456,7 @@ PRIVATE
     layout/layout_item_base.h
     main/allowlist_policy.cpp
     main/allowlist_policy.h
+    main/allowlist_picker.h
     main/allowlist_sheet.cpp
     main/allowlist_sheet.h
     main/allowlist_sheet_resolver.cpp

@@ -1,79 +1,52 @@
-/*
-This file is part of Telegram Desktop,
-the official desktop application for the Telegram messaging service.
-
-For license and copyright information please follow this link:
-https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
-*/
+/* Allowgram: first-login chat selection. Upstream license: see LEGAL. */
 #pragma once
-
 #include "window/window_lock_widgets.h"
-
 #include "base/weak_ptr.h"
-
+#include "main/allowlist_picker.h"
 #include <memory>
 
-namespace Main {
-class Session;
-namespace Allowlist::Sheet {
-class Resolver;
-struct Result;
-} // namespace Allowlist::Sheet
-} // namespace Main
-
+namespace Main { class Session; }
+namespace MTP { class Sender; }
 namespace Ui {
 class FlatLabel;
 class InputField;
 class RoundButton;
 class ScrollArea;
 class VerticalLayout;
+class Checkbox;
 } // namespace Ui
 
 namespace Window {
-
 class AllowlistLockWidget final : public LockWidget {
 public:
-	AllowlistLockWidget(QWidget *parent, not_null<Controller*> window);
-
-	~AllowlistLockWidget();
-
-	void setInnerFocus() override;
-
+ AllowlistLockWidget(QWidget *parent, not_null<Controller*> window);
+ ~AllowlistLockWidget();
+ void setInnerFocus() override;
 protected:
-	void resizeEvent(QResizeEvent *e) override;
-	void keyPressEvent(QKeyEvent *e) override;
-
+ void resizeEvent(QResizeEvent *e) override;
+ void keyPressEvent(QKeyEvent *e) override;
 private:
-	class IdRow;
-
-	void resolve();
-	void resolved(Main::Allowlist::Sheet::Result result);
-	void showManual();
-	void addLogout();
-	[[nodiscard]] bool sameSession() const;
-	void addRow(bool users, bool focus = true);
-	void removeRow(bool users, not_null<IdRow*> row);
-	void refreshRowButtons();
-	void submit();
-	void showError(const QString &error);
-	void clearError();
-	static QString CollectIds(const std::vector<IdRow*> &rows);
-
-	object_ptr<Ui::ScrollArea> _scroll;
-	Ui::VerticalLayout *_layout = nullptr;
-	Ui::VerticalLayout *_usersLayout = nullptr;
-	Ui::VerticalLayout *_groupsLayout = nullptr;
-	std::vector<IdRow*> _users;
-	std::vector<IdRow*> _groups;
-	Ui::RoundButton *_addUser = nullptr;
-	Ui::RoundButton *_addGroup = nullptr;
-	Ui::FlatLabel *_error = nullptr;
-	Ui::RoundButton *_retry = nullptr;
-	std::unique_ptr<Main::Allowlist::Sheet::Resolver> _resolver;
-	base::weak_ptr<Main::Session> _session;
-	QString _phone;
-	bool _manual = false;
-
+ void load();
+ void requestNext();
+ void receivePage(std::uint64_t generation, Main::Allowlist::Picker::Page page);
+ void failed(std::uint64_t generation);
+ void rebuildRows();
+ void updateStatus();
+ void submit();
+ void showError(const QString &error);
+ [[nodiscard]] bool sameSession() const;
+ object_ptr<Ui::ScrollArea> _scroll;
+ Ui::VerticalLayout *_layout = nullptr;
+ Ui::VerticalLayout *_rowsLayout = nullptr;
+ Ui::InputField *_search = nullptr;
+ Ui::FlatLabel *_status = nullptr;
+ Ui::RoundButton *_submit = nullptr;
+ Ui::RoundButton *_retry = nullptr;
+ Ui::RoundButton *_logout = nullptr;
+ std::vector<Ui::Checkbox*> _rows;
+ Main::Allowlist::Picker::Model _model;
+ std::unique_ptr<MTP::Sender> _api;
+ base::weak_ptr<Main::Session> _session;
+ std::uint64_t _generation = 0;
 };
-
 } // namespace Window

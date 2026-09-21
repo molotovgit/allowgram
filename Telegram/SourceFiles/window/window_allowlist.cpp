@@ -8,14 +8,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_allowlist.h"
 
 #include "core/application.h"
+#include "data/data_peer.h"
+#include "data/data_session.h"
+#include "data/data_user.h"
 #include "lang/lang_keys.h"
 #include "main/allowlist_policy.h"
 #include "main/main_session.h"
+#include "mtproto/sender.h"
+#include "ui/widgets/checkbox.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/wrap/vertical_layout.h"
+#include "ui/wrap/slide_wrap.h"
 #include "ui/qt_object_factory.h"
 #include "ui/vertical_list.h"
 #include "window/window_controller.h"
@@ -39,6 +45,232 @@ void UnlockAllowlistWindows(not_null<Main::Session*> session) {
 }
 
 } // namespace
+
+class AllowlistLockWidget::ChatPicker final : public Ui::VerticalLayout {
+public:
+	ChatPicker(QWidget *parent, not_null<Main::Session*> session);
+	[[nodiscard]] QString selectedIds(bool users) const;
+	void focusSearch();
+
+private:
+	struct Row {
+		PeerId id;
+		QString name;
+		Ui::SlideWrap<Ui::Checkbox> *widget = nullptr;
+	};
+
+	void loadMore();
+	void addPeer(not_null<PeerData*> peer);
+	void filter();
+	void loadFailed();
+
+	not_null<Main::Session*> _session;
+	MTP::Sender _api;
+	Ui::InputField *_search = nullptr;
+	Ui::FlatLabel *_status = nullptr;
+	Ui::VerticalLayout *_rowsLayout = nullptr;
+	Ui::RoundButton *_retry = nullptr;
+	std::vector<Row> _rows;
+	base::flat_set<PeerId> _seen;
+	int _folder = 0;
+	TimeId _offsetDate = 0;
+	MsgId _offsetId = 0;
+	PeerId _offsetPeer;
+	bool _loading = false;
+	bool _complete = false;
+
+};
+
+AllowlistLockWidget::ChatPicker::ChatPicker(
+	QWidget *parent,
+	not_null<Main::Session*> session)
+: VerticalLayout(parent)
+, _session(session)
+, _api(&session->mtp()) {
+	_search = add(object_ptr<Ui::InputField>(
+		this,
+		st::allowlistInput,
+		Ui::InputField::Mode::SingleLine,
+		tr::lng_allowgram_search_chats()), st::allowlistRowPadding);
+	_search->setDocumentMargin(st::allowlistInput.border);
+	_search->changes() | rpl::on_next([=] {
+		filter();
+	}, lifetime());
+	_status = add(object_ptr<Ui::FlatLabel>(
+		this,
+		tr::lng_allowgram_loading_chats(),
+		st::allowlistHint), st::allowlistHintPadding);
+	const auto viewport = add(object_ptr<Ui::RpWidget>(this));
+	viewport->resize(0, st::allowlistChatListHeight);
+	const auto scroll = Ui::CreateChild<Ui::ScrollArea>(
+		viewport,
+		st::defaultSolidScroll);
+	_rowsLayout = scroll->setOwnedWidget(
+		object_ptr<Ui::VerticalLayout>(scroll)).data();
+	viewport->sizeValue() | rpl::on_next([=](QSize size) {
+		scroll->setGeometry(QRect(QPoint(), size));
+		_rowsLayout->resizeToWidth(size.width());
+	}, viewport->lifetime());
+	scroll->show();
+	_retry = add(object_ptr<Ui::RoundButton>(
+		this,
+		tr::lng_allowgram_retry_chats(),
+		st::allowlistAddButton), st::allowlistAddPadding);
+	_retry->hide();
+	_retry->setClickedCallback([=] { loadMore(); });
+	addPeer(session->user());
+	crl::on_main(this, [=] { loadMore(); });
+}
+
+void AllowlistLockWidget::ChatPicker::focusSearch() {
+	_search->setFocus();
+}
+
+QString AllowlistLockWidget::ChatPicker::selectedIds(bool users) const {
+	auto result = QString();
+	for (const auto &row : _rows) {
+		if (!row.widget->entity()->checked()
+			|| row.id.is<UserId>() != users) {
+			continue;
+		}
+		result += row.id.is<UserId>()
+			? u"user:%1\n"_q.arg(peerToUser(row.id).bare)
+			: row.id.is<ChatId>()
+			? u"chat:%1\n"_q.arg(peerToChat(row.id).bare)
+			: u"channel:%1\n"_q.arg(peerToChannel(row.id).bare);
+	}
+	return result;
+}
+
+void AllowlistLockWidget::ChatPicker::addPeer(not_null<PeerData*> peer) {
+	if (_seen.contains(peer->id)
+		|| (!peer->id.is<UserId>()
+			&& !peer->id.is<ChatId>()
+			&& !peer->id.is<ChannelId>())) {
+		return;
+	}
+	_seen.emplace(peer->id);
+	const auto name = (peer->id == _session->userId())
+		? tr::lng_saved_messages(tr::now)
+		: peer->name();
+	const auto row = _rowsLayout->add(
+		object_ptr<Ui::SlideWrap<Ui::Checkbox>>(
+			_rowsLayout,
+			object_ptr<Ui::Checkbox>(_rowsLayout, name, false),
+			st::allowlistChatPadding));
+	_rows.push_back({ peer->id, name, row });
+	row->entity()->checkedChanges() | rpl::on_next([=] {
+		filter();
+	}, row->lifetime());
+}
+
+void AllowlistLockWidget::ChatPicker::filter() {
+	const auto query = _search->getLastText().trimmed();
+	auto visible = 0;
+	auto selected = 0;
+	for (const auto &row : _rows) {
+		const auto matches = row.name.contains(query, Qt::CaseInsensitive);
+		row.widget->toggle(matches, anim::type::instant);
+		visible += matches ? 1 : 0;
+		selected += row.widget->entity()->checked() ? 1 : 0;
+	}
+	if (_complete) {
+		_status->setText(tr::lng_allowgram_chats_ready(
+			tr::now,
+			lt_ready,
+			QString::number(visible),
+			lt_total,
+			QString::number(selected)));
+	}
+}
+
+void AllowlistLockWidget::ChatPicker::loadFailed() {
+	_loading = false;
+	_status->setText(tr::lng_allowgram_chats_failed(tr::now));
+	_retry->show();
+}
+
+void AllowlistLockWidget::ChatPicker::loadMore() {
+	if (_loading || _complete || _session->allowlistConfigured()) {
+		return;
+	}
+	_loading = true;
+	_retry->hide();
+	_status->setText(tr::lng_allowgram_loading_chats(tr::now));
+	auto flags = MTPmessages_GetDialogs::Flags(
+		MTPmessages_GetDialogs::Flag::f_folder_id);
+	if (_offsetPeer) {
+		flags |= MTPmessages_GetDialogs::Flag::f_exclude_pinned;
+	}
+	_api.request(MTPmessages_GetDialogs(
+		MTP_flags(flags),
+		MTP_int(_folder),
+		MTP_int(_offsetDate),
+		MTP_int(_offsetId),
+		_offsetPeer
+			? _session->data().peer(_offsetPeer)->input()
+			: MTP_inputPeerEmpty(),
+		MTP_int(100),
+		MTP_long(0)
+	)).done([=](const MTPmessages_Dialogs &result) {
+		_loading = false;
+		result.match([&](const MTPDmessages_dialogsNotModified &) {
+			loadFailed();
+		}, [&](const auto &data) {
+			_session->data().processUsers(data.vusers());
+			_session->data().processChats(data.vchats());
+			auto lastPeer = PeerId();
+			auto lastId = MsgId(0);
+			auto lastDate = TimeId(0);
+			for (const auto &dialog : data.vdialogs().v) {
+				dialog.match([&](const MTPDdialog &entry) {
+					const auto id = peerFromMTP(entry.vpeer());
+					if (const auto peer = _session->data().peerLoaded(id)) {
+						addPeer(peer);
+					}
+					if (entry.is_pinned()) {
+						return;
+					}
+					for (const auto &message : data.vmessages().v) {
+						if (PeerFromMessage(message) == id
+							&& IdFromMessage(message) == entry.vtop_message().v
+							&& DateFromMessage(message)) {
+							lastPeer = id;
+							lastId = IdFromMessage(message);
+							lastDate = DateFromMessage(message);
+							break;
+						}
+					}
+				}, [](const auto &) {});
+			}
+			const auto finished = (result.type() == mtpc_messages_dialogs)
+				|| !lastPeer;
+			if (!finished) {
+				if (lastPeer == _offsetPeer
+					&& lastId == _offsetId
+					&& lastDate == _offsetDate) {
+					loadFailed();
+					filter();
+					return;
+				}
+				_offsetPeer = lastPeer;
+				_offsetId = lastId;
+				_offsetDate = lastDate;
+			} else if (_folder == 0) {
+				_folder = 1;
+				_offsetPeer = PeerId();
+				_offsetId = 0;
+				_offsetDate = 0;
+			} else {
+				_complete = true;
+			}
+			filter();
+			crl::on_main(this, [=] { loadMore(); });
+		});
+	}).fail([=] {
+		loadFailed();
+	}).send();
+}
 
 class AllowlistLockWidget::IdRow final : public Ui::RpWidget {
 public:
@@ -135,54 +367,73 @@ AllowlistLockWidget::AllowlistLockWidget(
 			st::allowlistDescription),
 		st::allowlistRowPadding);
 	Ui::AddSkip(_layout, st::allowlistSectionSkip);
-	_layout->add(
-		object_ptr<Ui::FlatLabel>(
+	if (const auto session = window->maybeSession()) {
+		_picker = _layout->add(object_ptr<ChatPicker>(_layout, session));
+		Ui::AddSkip(_layout, st::allowlistSectionSkip);
+	}
+	const auto manual = _layout->add(
+		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 			_layout,
+			object_ptr<Ui::VerticalLayout>(_layout)));
+	const auto form = manual->entity();
+	if (_picker) {
+		const auto toggle = _layout->add(object_ptr<Ui::RoundButton>(
+			_layout,
+			tr::lng_allowgram_manual_ids(),
+			st::allowlistAddButton), st::allowlistAddPadding);
+		manual->toggle(false, anim::type::instant);
+		toggle->setClickedCallback([=] {
+			manual->toggle(!manual->toggled(), anim::type::normal);
+		});
+	}
+	form->add(
+		object_ptr<Ui::FlatLabel>(
+			form,
 			tr::lng_allowgram_users(),
 			st::allowlistDescription),
 		st::allowlistRowPadding);
-	Ui::AddSkip(_layout, st::allowlistLabelSkip);
-	_usersLayout = _layout->add(
-		object_ptr<Ui::VerticalLayout>(_layout),
+	Ui::AddSkip(form, st::allowlistLabelSkip);
+	_usersLayout = form->add(
+		object_ptr<Ui::VerticalLayout>(form),
 		st::allowlistRowPadding);
-	_addUser = _layout->add(
+	_addUser = form->add(
 		object_ptr<Ui::RoundButton>(
-			_layout,
+			form,
 			tr::lng_allowgram_add_user(),
 			st::allowlistAddButton),
 		st::allowlistAddPadding);
 	_addUser->setClickedCallback([=] { addRow(true); });
-	_layout->add(
+	form->add(
 		object_ptr<Ui::FlatLabel>(
-			_layout,
+			form,
 			tr::lng_allowgram_users_hint(),
 			st::allowlistHint),
 		st::allowlistHintPadding);
-	Ui::AddSkip(_layout, st::allowlistSectionSkip);
-	_layout->add(
+	Ui::AddSkip(form, st::allowlistSectionSkip);
+	form->add(
 		object_ptr<Ui::FlatLabel>(
-			_layout,
+			form,
 			tr::lng_allowgram_groups(),
 			st::allowlistDescription),
 		st::allowlistRowPadding);
-	Ui::AddSkip(_layout, st::allowlistLabelSkip);
-	_groupsLayout = _layout->add(
-		object_ptr<Ui::VerticalLayout>(_layout),
+	Ui::AddSkip(form, st::allowlistLabelSkip);
+	_groupsLayout = form->add(
+		object_ptr<Ui::VerticalLayout>(form),
 		st::allowlistRowPadding);
-	_addGroup = _layout->add(
+	_addGroup = form->add(
 		object_ptr<Ui::RoundButton>(
-			_layout,
+			form,
 			tr::lng_allowgram_add_group(),
 			st::allowlistAddButton),
 		st::allowlistAddPadding);
 	_addGroup->setClickedCallback([=] { addRow(false); });
-	_layout->add(
+	form->add(
 		object_ptr<Ui::FlatLabel>(
-			_layout,
+			form,
 			tr::lng_allowgram_groups_hint(),
 			st::allowlistHint),
 		st::allowlistHintPadding);
-	Ui::AddSkip(_layout, st::allowlistSectionSkip);
+	Ui::AddSkip(form, st::allowlistSectionSkip);
 	_error = _layout->add(
 		object_ptr<Ui::FlatLabel>(
 			_layout,
@@ -284,7 +535,11 @@ QString AllowlistLockWidget::CollectIds(const std::vector<IdRow*> &rows) {
 }
 
 void AllowlistLockWidget::setInnerFocus() {
-	_users.front()->field()->setFocus();
+	if (_picker) {
+		_picker->focusSearch();
+	} else {
+		_users.front()->field()->setFocus();
+	}
 }
 
 void AllowlistLockWidget::resizeEvent(QResizeEvent *e) {
@@ -316,8 +571,8 @@ void AllowlistLockWidget::submit() {
 		return;
 	}
 	const auto error = session->configureAllowlist(
-		CollectIds(_users),
-		CollectIds(_groups));
+		(_picker ? _picker->selectedIds(true) : QString()) + CollectIds(_users),
+		(_picker ? _picker->selectedIds(false) : QString()) + CollectIds(_groups));
 	if (!error.isEmpty()) {
 		showError(error);
 		return;

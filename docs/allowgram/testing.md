@@ -2,6 +2,36 @@
 
 [Back to Allowgram](../../README.md)
 
+## Chat picker change: verification scope
+
+The first-login chat picker is a source change after the recorded 7.2.8.4 tests
+below. The existing six request-schema audits pass. The current workspace has
+no configured build output, MSVC, CMake or Qt installation; the picker has not
+been compiled or exercised with a signed-in account. Historical form checks do
+not validate the new picker.
+
+Before release, build Debug and verify with an authorized test account:
+
+1. A fresh login shows unchecked existing DMs, bots, groups, channels and Saved
+   Messages. Include more than 100 main chats and archived chats to check paging,
+   and verify pinned chats appear once.
+2. Select several chats, search for another name and clear the search. Previous
+   choices remain checked. Check the list and Save button at compact sizes and
+   100%, 125%, 150% and 200% interface scales.
+3. Interrupt loading after a page, retry, and verify that choices survive and
+   remaining main/archive chats load without duplicates.
+4. Save with no selection: setup stays locked. Select chats and save: only those
+   chats become accessible. Restart: the picker is skipped and the same policy
+   remains. A pre-existing configured account must keep its policy.
+5. Add a duplicate manual ID and a separate manual ID. Saving deduplicates the
+   former and includes the latter; malformed input and more than 10,000 distinct
+   entries keep setup locked. Simulate local save failure and retry.
+6. Close the setup window or log out during loading and verify pending callbacks
+   do not access destroyed widgets or a different account.
+7. Verify excluded chat previews, notifications, incoming messages and outgoing
+   requests remain blocked before and after setup, using the existing native
+   guard suite and agreed live acceptance procedure below.
+
 ## Repeat the native form regression
 
 After building the Windows client, use the same x64 MSVC environment to build

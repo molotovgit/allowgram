@@ -31,6 +31,7 @@ protected:
 
 private:
 	class IdRow;
+	class ChatPicker;
 
 	void addRow(bool users, bool focus = true);
 	void removeRow(bool users, not_null<IdRow*> row);
@@ -49,6 +50,7 @@ private:
 	Ui::RoundButton *_addUser = nullptr;
 	Ui::RoundButton *_addGroup = nullptr;
 	Ui::FlatLabel *_error = nullptr;
+	ChatPicker *_picker = nullptr;
 
 };
 

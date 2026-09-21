@@ -8778,7 +8778,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_intro_about" = "A Telegram client with a messaging allowlist.";
 
 "lng_allowgram_setup_title" = "Set up your allow-list";
-"lng_allowgram_setup_about" = "Choose the chats you can see and message in Allowgram. Enter an ID in each row and press + to add more users or groups, up to 10,000 IDs total. Other chats and their notifications are hidden. This list stays fixed until you log out.";
+"lng_allowgram_setup_about" = "Select the existing chats you want to allow, then save and continue. Archived chats are included. Only selected chats and their notifications will be available. Your selection is saved for this account and stays fixed until you log out.";
 "lng_allowgram_users" = "Allowed users";
 "lng_allowgram_users_hint" = "Enter a numeric Telegram user ID in each row, such as 123456789. Use + Add user for another person. Phone numbers and usernames are not accepted.";
 "lng_allowgram_groups" = "Allowed groups and channels";
@@ -8788,7 +8788,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_remove_id" = "Remove";
 "lng_allowgram_save_continue" = "Save and continue";
 "lng_allowgram_already_configured" = "This account already has an allow-list. Log out to set up a different list.";
-"lng_allowgram_empty" = "Add at least one user or group ID.";
+"lng_allowgram_empty" = "Select at least one chat or enter an ID.";
 "lng_allowgram_invalid_id" = "Invalid ID: {name}. Use positive user IDs, negative group IDs, or user:, chat:, channel: prefixes.";
 "lng_allowgram_too_many" = "The allow-list can contain up to 10,000 IDs.";
 "lng_allowgram_wrong_type" = "ID {name} is in the wrong field. Put people in Users and groups or channels in Groups.";
@@ -8798,3 +8798,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowlist_write_restricted" = "This chat is not on your allow-list. Access is disabled.";
 
 // Keys finished
+
+"lng_allowgram_search_chats" = "Search existing chats";
+"lng_allowgram_loading_chats" = "Loading your chats, including archived chats...";
+"lng_allowgram_retry_chats" = "Retry loading chats";
+"lng_allowgram_chats_failed" = "Some chats could not be loaded. Check your connection and retry. Your selections are kept.";
+"lng_allowgram_chats_ready" = "Chats shown: {ready}. Selected: {total}.";
+"lng_allowgram_manual_ids" = "Enter IDs manually (optional)";

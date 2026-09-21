@@ -4,7 +4,7 @@
 
 **A Telegram Desktop-derived Windows client that shows only the conversations you allow.**
 
-Sign in through Telegram's normal phone-number and verification flow, then set up an explicit list of user, bot, group and channel IDs. Allowgram hides excluded conversations and their notifications and blocks client requests to excluded destinations. Mini Apps can open only for bots explicitly included in the list.
+Sign in through Telegram's normal phone-number and verification flow, then select the existing chats you want to allow. The setup picker includes archived chats and Saved Messages, with optional manual ID entry. Allowgram hides excluded conversations and their notifications and blocks client requests to excluded destinations. Mini Apps can open only for bots explicitly included in the list.
 
 Allowgram is an unofficial, independent modification maintained by [molotovgit](https://github.com/molotovgit). It is not affiliated with or endorsed by Telegram. Telegram Desktop and its contributors remain the authors of the upstream client.
 
@@ -20,13 +20,13 @@ This repository publishes source. **No public installer or GitHub Release is pro
 
 [![Allowgram allow-list setup with add-row and save controls](docs/allowgram/images/allow-list-overview.png)](docs/allowgram/allow-list.md)
 
-*Actual Allowgram controls in an isolated documentation fixture. [Follow the illustrated setup guide](docs/allowgram/allow-list.md).*
+*Legacy manual-ID controls in an isolated documentation fixture; this image does not show the new chat picker. [Follow the illustrated setup guide](docs/allowgram/allow-list.md).*
 
 ## What the client enforces
 
 | Capability | Behavior in 7.2.8.4 |
 | --- | --- |
-| Repeatable setup rows | **+ Add user** and **+ Add group/channel** add rows; **Remove** deletes extra rows. Up to 10,000 distinct IDs total. |
+| Choose existing chats | Search and check existing conversations after sign-in, then **Save and continue**. Manual IDs remain optional. Up to 10,000 distinct chats total. |
 | Conversation visibility | Excluded chat rows, search results, archive entries, message previews, unread badges and notifications are suppressed. |
 | Outgoing operations | Destination checks cover supported text, media, forwarding, edits, reactions and other supported requests. Unknown request types fail closed. |
 | Allowed groups | Messages from participants are visible inside an allowed group. This does not allow those participants' DMs or authorize their bots' Mini Apps. |

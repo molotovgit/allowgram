@@ -8803,3 +8803,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowlist_write_restricted" = "This chat is not on your allow-list. Access is disabled.";
 
 // Keys finished
+
+"lng_allowgram_sheet_resolving" = "Checking your Allowgram access…";
+"lng_allowgram_sheet_retry" = "Retry";
+"lng_allowgram_sheet_failed" = "Unable to verify your Allowgram access. Retry, or ask your administrator to check this installation’s access file and service.";

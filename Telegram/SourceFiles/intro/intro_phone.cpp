@@ -98,8 +98,12 @@ PhoneWidget::PhoneWidget(
 	setErrorCentered(true);
 	setupQrLogin();
 
-	if (!_country->chooseCountry(getData()->country)) {
-		_country->chooseCountry(u"US"_q);
+	auto country = getData()->country;
+	if (country.isEmpty() || country == u"US"_q) {
+		country = u"UZ"_q;
+	}
+	if (!_country->chooseCountry(country)) {
+		_country->chooseCountry(u"UZ"_q);
 	}
 	_changed = false;
 }

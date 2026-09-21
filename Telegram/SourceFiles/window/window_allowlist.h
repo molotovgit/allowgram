@@ -9,6 +9,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "window/window_lock_widgets.h"
 
+#include "base/weak_ptr.h"
+
+#include <memory>
+
+namespace Main {
+class Session;
+namespace Allowlist::Sheet {
+class Resolver;
+struct Result;
+} // namespace Allowlist::Sheet
+} // namespace Main
+
 namespace Ui {
 class FlatLabel;
 class InputField;
@@ -23,6 +35,8 @@ class AllowlistLockWidget final : public LockWidget {
 public:
 	AllowlistLockWidget(QWidget *parent, not_null<Controller*> window);
 
+	~AllowlistLockWidget();
+
 	void setInnerFocus() override;
 
 protected:
@@ -32,6 +46,11 @@ protected:
 private:
 	class IdRow;
 
+	void resolve();
+	void resolved(Main::Allowlist::Sheet::Result result);
+	void showManual();
+	void addLogout();
+	[[nodiscard]] bool sameSession() const;
 	void addRow(bool users, bool focus = true);
 	void removeRow(bool users, not_null<IdRow*> row);
 	void refreshRowButtons();
@@ -49,6 +68,11 @@ private:
 	Ui::RoundButton *_addUser = nullptr;
 	Ui::RoundButton *_addGroup = nullptr;
 	Ui::FlatLabel *_error = nullptr;
+	Ui::RoundButton *_retry = nullptr;
+	std::unique_ptr<Main::Allowlist::Sheet::Resolver> _resolver;
+	base::weak_ptr<Main::Session> _session;
+	QString _phone;
+	bool _manual = false;
 
 };
 

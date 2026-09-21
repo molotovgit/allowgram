@@ -53,6 +53,11 @@ main = main.replace(old, old + '''
 	}
 ''')
 widget = (root / 'Telegram/SourceFiles/window/window_allowlist.cpp').read_text(encoding='utf-8')
+if 'void AllowlistLockWidget::showManual()' in widget:
+    widget = widget.replace('crl::on_main(this, [=] { resolve(); });',
+                            'crl::on_main(this, [=] { showManual(); });')
+    widget = widget.replace('if (!_manual || !sameSession()) {',
+                            'if (!_manual || (window()->maybeSession() && !sameSession())) {')
 subset = (build / 'Telegram/gen/lang_subsets/window/window_allowlist.cpp.h').read_text()
 session_subset = (build / 'Telegram/gen/lang_subsets/main/main_session.cpp.h').read_text()
 extra = [line for line in session_subset.splitlines() if 'inline constexpr' in line and 'lng_allowgram_' in line and re.search(r'lng_allowgram_\w+', line).group() not in subset]

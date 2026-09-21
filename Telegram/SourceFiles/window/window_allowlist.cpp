@@ -8,8 +8,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_allowlist.h"
 
 #include "core/application.h"
+#include "data/data_user.h"
 #include "lang/lang_keys.h"
 #include "main/allowlist_policy.h"
+#include "main/allowlist_sheet_resolver.h"
+#include "main/main_account.h"
 #include "main/main_session.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/buttons.h"
@@ -20,6 +23,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/vertical_list.h"
 #include "window/window_controller.h"
 #include "mainwindow.h"
+
+#include <QtCore/QDir>
 
 #include "styles/style_boxes.h"
 #include "styles/style_layers.h"
@@ -121,6 +126,96 @@ AllowlistLockWidget::AllowlistLockWidget(
 , _scroll(this, st::defaultSolidScroll)
 , _layout(_scroll->setOwnedWidget(
 	object_ptr<Ui::VerticalLayout>(_scroll.data())).data()) {
+	_resolver = std::make_unique<Main::Allowlist::Sheet::Resolver>(this);
+	_error = _layout->add(
+		object_ptr<Ui::FlatLabel>(
+			_layout,
+			tr::lng_allowgram_sheet_resolving(),
+			st::allowlistDescription),
+		st::allowlistRowPadding);
+	_retry = _layout->add(
+		object_ptr<Ui::RoundButton>(
+			_layout,
+			tr::lng_allowgram_sheet_retry(),
+			st::allowlistSubmit),
+		st::allowlistButtonPadding);
+	_retry->setClickedCallback([=] { resolve(); });
+	_retry->setDisabled(true);
+	addLogout();
+	window->account().sessionChanges() | rpl::on_next([=] {
+		_resolver->cancel();
+		_manual = false;
+	}, lifetime());
+	crl::on_main(this, [=] { resolve(); });
+}
+
+AllowlistLockWidget::~AllowlistLockWidget() = default;
+
+bool AllowlistLockWidget::sameSession() const {
+	const auto session = _session.get();
+	return session && window()->maybeSession() == session
+		&& Main::Allowlist::Sheet::AuthenticatedPhone(session->user()->phone()) == _phone;
+}
+
+void AllowlistLockWidget::resolve() {
+	if (_manual) {
+		return;
+	}
+	const auto session = window()->maybeSession();
+	if (!session) {
+		showError(tr::lng_allowgram_sheet_failed(tr::now));
+		_retry->setDisabled(false);
+		return;
+	}
+	_session = base::make_weak(session);
+	_phone = Main::Allowlist::Sheet::AuthenticatedPhone(session->user()->phone());
+	_retry->setDisabled(true);
+	showError(tr::lng_allowgram_sheet_resolving(tr::now));
+	_resolver->start(
+		QDir(cWorkingDir()).filePath(u"allowgram-sheet-access.json"_q),
+		_phone,
+		[=](Main::Allowlist::Sheet::Result result) {
+			resolved(std::move(result));
+		});
+}
+
+void AllowlistLockWidget::resolved(Main::Allowlist::Sheet::Result result) {
+	if (!sameSession()) {
+		_retry->setDisabled(false);
+		showError(tr::lng_allowgram_sheet_failed(tr::now));
+		return;
+	}
+	using Status = Main::Allowlist::Sheet::Status;
+	if (result.status == Status::NotFound) {
+		showManual();
+		_layout->resizeToWidth(std::min(width(), st::allowlistContentWidth));
+		setInnerFocus();
+		return;
+	} else if (result.status == Status::Matched) {
+		const auto session = _session.get();
+		if (session->allowlistConfigured()) {
+			UnlockAllowlistWindows(session);
+			return;
+		}
+		const auto error = session->configureAllowlist(
+			result.users.join('\n'),
+			result.groups.join('\n'));
+		if (error.isEmpty()) {
+			UnlockAllowlistWindows(session);
+			return;
+		}
+		showError(error);
+	} else {
+		showError(tr::lng_allowgram_sheet_failed(tr::now));
+	}
+	_retry->setDisabled(false);
+}
+
+void AllowlistLockWidget::showManual() {
+	_manual = true;
+	_retry = nullptr;
+	_layout = _scroll->setOwnedWidget(
+		object_ptr<Ui::VerticalLayout>(_scroll.data())).data();
 	_layout->add(
 		object_ptr<Ui::FlatLabel>(
 			_layout,
@@ -198,6 +293,13 @@ AllowlistLockWidget::AllowlistLockWidget(
 			st::allowlistSubmit),
 		st::allowlistButtonPadding);
 	submit->setClickedCallback([=] { this->submit(); });
+	addLogout();
+	Ui::AddSkip(_layout, st::allowlistSectionSkip);
+	addRow(true, false);
+	addRow(false, false);
+}
+
+void AllowlistLockWidget::addLogout() {
 	const auto logout = _layout->add(
 		object_ptr<Ui::RoundButton>(
 			_layout,
@@ -205,11 +307,8 @@ AllowlistLockWidget::AllowlistLockWidget(
 			st::defaultBoxButton),
 		st::allowlistRowPadding);
 	logout->setClickedCallback([=] {
-		window->showLogoutConfirmation();
+		window()->showLogoutConfirmation();
 	});
-	Ui::AddSkip(_layout, st::allowlistSectionSkip);
-	addRow(true, false);
-	addRow(false, false);
 }
 
 void AllowlistLockWidget::addRow(bool users, bool focus) {
@@ -284,7 +383,11 @@ QString AllowlistLockWidget::CollectIds(const std::vector<IdRow*> &rows) {
 }
 
 void AllowlistLockWidget::setInnerFocus() {
-	_users.front()->field()->setFocus();
+	if (_manual && !_users.empty()) {
+		_users.front()->field()->setFocus();
+	} else {
+		setFocus();
+	}
 }
 
 void AllowlistLockWidget::resizeEvent(QResizeEvent *e) {
@@ -307,6 +410,9 @@ void AllowlistLockWidget::keyPressEvent(QKeyEvent *e) {
 }
 
 void AllowlistLockWidget::submit() {
+	if (!_manual || !sameSession()) {
+		return;
+	}
 	const auto session = window()->maybeSession();
 	if (!session) {
 		return;

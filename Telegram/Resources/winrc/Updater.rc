@@ -35,8 +35,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 7,2,8,8
- PRODUCTVERSION 7,2,8,8
+ FILEVERSION 7,2,8,9
+ PRODUCTVERSION 7,2,8,9
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -53,10 +53,10 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Allowgram contributors"
             VALUE "FileDescription", "Allowgram Updater"
-            VALUE "FileVersion", "7.2.8.8"
+            VALUE "FileVersion", "7.2.8.9"
             VALUE "LegalCopyright", "Copyright (C) 2014-2026"
             VALUE "ProductName", "Allowgram"
-            VALUE "ProductVersion", "7.2.8.8"
+            VALUE "ProductVersion", "7.2.8.9"
         END
     END
     BLOCK "VarFileInfo"

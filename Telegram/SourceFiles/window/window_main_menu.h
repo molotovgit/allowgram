@@ -55,7 +55,6 @@ public:
 	void showFinished() override;
 
 private:
-	class ToggleAccountsButton;
 	class ResetScaleButton;
 
 	bool eventHook(QEvent *event) override;
@@ -69,8 +68,6 @@ private:
 
 	void moveBadge();
 	void setupUserpicButton();
-	void setupAccounts();
-	void setupAccountsToggle();
 	void setupSetEmojiStatus();
 	void setupEmojiStatusDismiss();
 	void setupArchive();
@@ -78,7 +75,6 @@ private:
 	void updateControlsGeometry();
 	void updateInnerControlsGeometry();
 	void initResetScaleButton();
-	void toggleAccounts();
 	void chooseEmojiStatus();
 	void setupSwipe();
 
@@ -91,7 +87,6 @@ private:
 	object_ptr<Ui::UserpicButton> _userpicButton;
 	Ui::Text::String _name;
 	int _nameVersion = 0;
-	object_ptr<ToggleAccountsButton> _toggleAccounts;
 	object_ptr<Ui::FlatLabel> _setEmojiStatus;
 	std::unique_ptr<Info::Profile::EmojiStatusPanel> _emojiStatusPanel;
 	std::unique_ptr<Info::Profile::Badge> _badge;
@@ -99,8 +94,6 @@ private:
 	object_ptr<Ui::ScrollArea> _scroll;
 	not_null<Ui::VerticalLayout*> _inner;
 	not_null<Ui::RpWidget*> _topShadowSkip;
-	not_null<Ui::SlideWrap<Ui::VerticalLayout>*> _accounts;
-	not_null<Ui::SlideWrap<Ui::PlainShadow>*> _shadow;
 	not_null<Ui::VerticalLayout*> _menu;
 	not_null<Ui::RpWidget*> _footer;
 	not_null<Ui::FlatLabel*> _telegram;

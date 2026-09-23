@@ -1,673 +1,336 @@
-/*
-This file is part of Telegram Desktop,
-the official desktop application for the Telegram messaging service.
-
-For license and copyright information please follow this link:
-https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
-*/
+/* Allowgram: first-login chat selection. Upstream license: see LEGAL. */
 #include "window/window_allowlist.h"
-
-#include "boxes/peer_list_box.h"
+#include <algorithm>
+#include <vector>
 #include "core/application.h"
-#include "data/data_peer.h"
-#include "data/data_session.h"
 #include "data/data_user.h"
+#include "data/data_chat.h"
+#include "data/data_channel.h"
+#include "data/data_session.h"
+#include "data/data_types.h"
 #include "lang/lang_keys.h"
-#include "main/allowlist_policy.h"
+#include "main/main_account.h"
 #include "main/main_session.h"
 #include "mtproto/sender.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/buttons.h"
+#include "boxes/peer_list_box.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/wrap/vertical_layout.h"
-#include "ui/wrap/slide_wrap.h"
 #include "ui/qt_object_factory.h"
 #include "ui/vertical_list.h"
 #include "window/window_controller.h"
 #include "mainwindow.h"
-
 #include "styles/style_boxes.h"
 #include "styles/style_layers.h"
 #include "styles/style_window.h"
 
 namespace Window {
 namespace {
+using Entry = Main::Allowlist::Entry;
+using Kind = Main::Allowlist::Kind;
+using Page = Main::Allowlist::Picker::Page;
 
-void UnlockAllowlistWindows(not_null<Main::Session*> session) {
-	Core::App().enumerateWindows([=](not_null<Controller*> window) {
-		if (window->maybeSession() == session) {
-			crl::on_main(window, [=] {
-				window->widget()->clearAllowlistLock();
-			});
-		}
-	});
+PeerId ToPeer(Entry entry) {
+ switch (entry.kind) {
+ case Kind::User: return peerFromUser(UserId(entry.id));
+ case Kind::Chat: return peerFromChat(ChatId(entry.id));
+ case Kind::Channel: return peerFromChannel(ChannelId(entry.id));
+ }
+ return PeerId();
 }
-
+Entry ToEntry(PeerId peer) {
+ if (peerIsUser(peer)) return { Kind::User, peerToUser(peer).bare };
+ if (peerIsChat(peer)) return { Kind::Chat, peerToChat(peer).bare };
+ return { Kind::Channel, peerToChannel(peer).bare };
+}
+QString TypedId(Entry entry) {
+ const auto prefix = (entry.kind == Kind::User) ? u"user:"_q
+  : (entry.kind == Kind::Chat) ? u"chat:"_q : u"channel:"_q;
+ return prefix + QString::number(qulonglong(entry.id));
+}
+bool Selectable(not_null<Main::Session*> session, not_null<PeerData*> peer) {
+ if (peer->id == session->userPeerId() || peer->name().isEmpty()) return false;
+ if (const auto user = peer->asUser()) return !user->isInaccessible();
+ if (const auto chat = peer->asChat()) return chat->amIn() && !chat->isMigrated();
+ if (const auto channel = peer->asChannel()) return channel->amIn();
+ return false;
+}
+template <typename Data>
+Page ReadPage(not_null<Main::Session*> session, const Data &data, bool complete) {
+ session->data().processUsers(data.vusers());
+ session->data().processChats(data.vchats());
+ auto page = Page{ {}, complete };
+ for (const auto &dialog : data.vdialogs().v) {
+  dialog.match([&](const MTPDdialog &value) {
+   const auto id = peerFromMTP(value.vpeer());
+   if (!id) return;
+   const auto peer = session->data().peer(id);
+   auto date = 0;
+   for (const auto &message : data.vmessages().v) {
+    if (IdFromMessage(message) == value.vtop_message().v
+      && PeerFromMessage(message) == id) {
+     date = DateFromMessage(message);
+     break;
+    }
+   }
+   page.dialogs.push_back({ ToEntry(id), value.vtop_message().v, date,
+    peer->name().toStdString(), Selectable(session, peer) });
+  }, [](const auto &) {}); // Folder/community pseudo-rows are not chats.
+ }
+ return page;
+}
+void UnlockAllowlistWindows(not_null<Main::Session*> session) {
+ Core::App().enumerateWindows([=](not_null<Controller*> window) {
+  if (window->maybeSession() == session) {
+   crl::on_main(window, [=] { window->widget()->clearAllowlistLock(); });
+  }
+ });
+}
 class ChatsController final : public PeerListController {
 public:
-	explicit ChatsController(not_null<Main::Session*> session)
-	: _session(session) {
-	}
-
-	Main::Session &session() const override {
-		return *_session;
-	}
-	void prepare() override {
-		delegate()->peerListSetSearchMode(PeerListSearchMode::Enabled);
-	}
-	void rowClicked(not_null<PeerListRow*> row) override {
-		delegate()->peerListSetRowChecked(row, !row->checked());
-		_checkedChanges.fire({});
-	}
-
-	[[nodiscard]] rpl::producer<> checkedChanges() const {
-		return _checkedChanges.events();
-	}
-
+ ChatsController(not_null<Main::Session*> session,
+   Fn<void(not_null<PeerListRow*>)> clicked)
+ : _session(session), _clicked(std::move(clicked)) {
+ }
+ Main::Session &session() const override { return *_session; }
+ void prepare() override { }
+ void rowClicked(not_null<PeerListRow*> row) override { _clicked(row); }
 private:
-	const not_null<Main::Session*> _session;
-	rpl::event_stream<> _checkedChanges;
-
+ const not_null<Main::Session*> _session;
+ Fn<void(not_null<PeerListRow*>)> _clicked;
 };
-
 class ChatsDelegate final : public PeerListContentDelegateSimple {
 public:
-	bool peerListIsRowChecked(not_null<PeerListRow*> row) override {
-		return row->checked();
-	}
-
+ bool peerListIsRowChecked(not_null<PeerListRow*> row) override {
+  return row->checked();
+ }
 };
-
 } // namespace
 
-class AllowlistLockWidget::ChatPicker final : public Ui::VerticalLayout {
-public:
-	ChatPicker(QWidget *parent, not_null<Main::Session*> session);
-	[[nodiscard]] QString selectedIds(bool users) const;
-	[[nodiscard]] rpl::producer<int> selectedCountValue() const;
-	[[nodiscard]] int listHeight() const;
-	void setListHeight(int height);
-	void focusSearch();
-
-private:
-	void loadMore();
-	void addPeer(not_null<PeerData*> peer);
-	void refreshStatus();
-	void loadFailed();
-
-	not_null<Main::Session*> _session;
-	MTP::Sender _api;
-	const not_null<ChatsController*> _controller;
-	const not_null<ChatsDelegate*> _delegate;
-	Ui::InputField *_search = nullptr;
-	Ui::FlatLabel *_status = nullptr;
-	Ui::RpWidget *_viewport = nullptr;
-	Ui::ScrollArea *_scroll = nullptr;
-	PeerListContent *_content = nullptr;
-	Ui::RoundButton *_retry = nullptr;
-	rpl::variable<int> _selectedCount;
-	base::flat_set<PeerId> _seen;
-	int _folder = 0;
-	TimeId _offsetDate = 0;
-	MsgId _offsetId = 0;
-	PeerId _offsetPeer;
-	bool _loading = false;
-	bool _complete = false;
-
-};
-
-AllowlistLockWidget::ChatPicker::ChatPicker(
-	QWidget *parent,
-	not_null<Main::Session*> session)
-: VerticalLayout(parent)
-, _session(session)
-, _api(&session->mtp())
-, _controller(lifetime().make_state<ChatsController>(session))
-, _delegate(lifetime().make_state<ChatsDelegate>()) {
-	_search = add(object_ptr<Ui::InputField>(
-		this,
-		st::allowlistInput,
-		Ui::InputField::Mode::SingleLine,
-		tr::lng_allowgram_search_chats()), st::allowlistRowPadding);
-	_search->setDocumentMargin(st::allowlistInput.border);
-	_status = add(object_ptr<Ui::FlatLabel>(
-		this,
-		tr::lng_allowgram_loading_chats(),
-		st::allowlistHint), st::allowlistHintPadding);
-	_viewport = add(
-		object_ptr<Ui::RpWidget>(this),
-		st::allowlistListPadding);
-	_viewport->resize(0, st::allowlistChatListHeight);
-	_scroll = Ui::CreateChild<Ui::ScrollArea>(
-		_viewport,
-		st::defaultScrollArea);
-	_content = _scroll->setOwnedWidget(
-		object_ptr<PeerListContent>(_scroll, _controller)).data();
-	_delegate->setContent(_content);
-	_controller->setDelegate(_delegate);
-	_delegate->peerListSetSearchNoResults(object_ptr<Ui::FlatLabel>(
-		nullptr,
-		tr::lng_bot_chats_not_found(),
-		st::membersAbout));
-	_viewport->sizeValue() | rpl::on_next([=](QSize size) {
-		_scroll->setGeometry(QRect(QPoint(), size));
-		_content->resizeToWidth(size.width());
-	}, _viewport->lifetime());
-	rpl::combine(
-		_scroll->scrollTopValue(),
-		_scroll->heightValue()
-	) | rpl::on_next([=](int top, int height) {
-		_content->setVisibleTopBottom(top, top + height);
-	}, _scroll->lifetime());
-	_scroll->show();
-	_search->changes() | rpl::on_next([=] {
-		_content->searchQueryChanged(_search->getLastText());
-		_scroll->scrollToY(0);
-	}, lifetime());
-	_controller->checkedChanges() | rpl::on_next([=] {
-		refreshStatus();
-	}, lifetime());
-	_retry = add(object_ptr<Ui::RoundButton>(
-		this,
-		tr::lng_allowgram_retry_chats(),
-		st::allowlistAddButton), st::allowlistAddPadding);
-	_retry->hide();
-	_retry->setClickedCallback([=] { loadMore(); });
-	crl::on_main(this, [=] { loadMore(); });
-}
-
-void AllowlistLockWidget::ChatPicker::focusSearch() {
-	_search->setFocus();
-}
-
-rpl::producer<int> AllowlistLockWidget::ChatPicker::selectedCountValue() const {
-	return _selectedCount.value();
-}
-
-int AllowlistLockWidget::ChatPicker::listHeight() const {
-	return _viewport->height();
-}
-
-void AllowlistLockWidget::ChatPicker::setListHeight(int height) {
-	if (_viewport->height() != height) {
-		_viewport->resize(_viewport->width(), height);
-	}
-}
-
-QString AllowlistLockWidget::ChatPicker::selectedIds(bool users) const {
-	auto result = QString();
-	const auto count = _delegate->peerListFullRowsCount();
-	for (auto i = 0; i != count; ++i) {
-		const auto row = _delegate->peerListRowAt(i);
-		const auto id = row->peer()->id;
-		if (!row->checked() || id.is<UserId>() != users) {
-			continue;
-		}
-		result += id.is<UserId>()
-			? u"user:%1\n"_q.arg(peerToUser(id).bare)
-			: id.is<ChatId>()
-			? u"chat:%1\n"_q.arg(peerToChat(id).bare)
-			: u"channel:%1\n"_q.arg(peerToChannel(id).bare);
-	}
-	return result;
-}
-
-void AllowlistLockWidget::ChatPicker::addPeer(not_null<PeerData*> peer) {
-	if (_seen.contains(peer->id)
-		|| peer->isSelf()
-		|| (!peer->id.is<UserId>()
-			&& !peer->id.is<ChatId>()
-			&& !peer->id.is<ChannelId>())) {
-		return;
-	}
-	_seen.emplace(peer->id);
-	_delegate->peerListAppendRow(std::make_unique<PeerListRow>(peer));
-}
-
-void AllowlistLockWidget::ChatPicker::refreshStatus() {
-	const auto count = _delegate->peerListFullRowsCount();
-	auto selected = 0;
-	for (auto i = 0; i != count; ++i) {
-		selected += _delegate->peerListRowAt(i)->checked() ? 1 : 0;
-	}
-	_selectedCount = selected;
-	if (_complete) {
-		_status->setText(tr::lng_allowgram_chats_ready(
-			tr::now,
-			lt_ready,
-			QString::number(count),
-			lt_total,
-			QString::number(selected)));
-	}
-}
-
-void AllowlistLockWidget::ChatPicker::loadFailed() {
-	_loading = false;
-	_status->setText(tr::lng_allowgram_chats_failed(tr::now));
-	_retry->show();
-}
-
-void AllowlistLockWidget::ChatPicker::loadMore() {
-	if (_loading || _complete || _session->allowlistConfigured()) {
-		return;
-	}
-	_loading = true;
-	_retry->hide();
-	_status->setText(tr::lng_allowgram_loading_chats(tr::now));
-	auto flags = MTPmessages_GetDialogs::Flags(
-		MTPmessages_GetDialogs::Flag::f_folder_id);
-	if (_offsetPeer) {
-		flags |= MTPmessages_GetDialogs::Flag::f_exclude_pinned;
-	}
-	_api.request(MTPmessages_GetDialogs(
-		MTP_flags(flags),
-		MTP_int(_folder),
-		MTP_int(_offsetDate),
-		MTP_int(_offsetId),
-		_offsetPeer
-			? _session->data().peer(_offsetPeer)->input()
-			: MTP_inputPeerEmpty(),
-		MTP_int(100),
-		MTP_long(0)
-	)).done([=](const MTPmessages_Dialogs &result) {
-		_loading = false;
-		result.match([&](const MTPDmessages_dialogsNotModified &) {
-			loadFailed();
-		}, [&](const auto &data) {
-			_session->data().processUsers(data.vusers());
-			_session->data().processChats(data.vchats());
-			auto lastPeer = PeerId();
-			auto lastId = MsgId(0);
-			auto lastDate = TimeId(0);
-			for (const auto &dialog : data.vdialogs().v) {
-				dialog.match([&](const MTPDdialog &entry) {
-					const auto id = peerFromMTP(entry.vpeer());
-					if (const auto peer = _session->data().peerLoaded(id)) {
-						addPeer(peer);
-					}
-					if (entry.is_pinned()) {
-						return;
-					}
-					for (const auto &message : data.vmessages().v) {
-						if (PeerFromMessage(message) == id
-							&& IdFromMessage(message) == entry.vtop_message().v
-							&& DateFromMessage(message)) {
-							lastPeer = id;
-							lastId = IdFromMessage(message);
-							lastDate = DateFromMessage(message);
-							break;
-						}
-					}
-				}, [](const auto &) {});
-			}
-			_delegate->peerListRefreshRows();
-			const auto finished = (result.type() == mtpc_messages_dialogs)
-				|| !lastPeer;
-			if (!finished) {
-				if (lastPeer == _offsetPeer
-					&& lastId == _offsetId
-					&& lastDate == _offsetDate) {
-					loadFailed();
-					refreshStatus();
-					return;
-				}
-				_offsetPeer = lastPeer;
-				_offsetId = lastId;
-				_offsetDate = lastDate;
-			} else if (_folder == 0) {
-				_folder = 1;
-				_offsetPeer = PeerId();
-				_offsetId = 0;
-				_offsetDate = 0;
-			} else {
-				_complete = true;
-			}
-			refreshStatus();
-			crl::on_main(this, [=] { loadMore(); });
-		});
-	}).fail([=] {
-		loadFailed();
-	}).send();
-}
-
-class AllowlistLockWidget::IdRow final : public Ui::RpWidget {
-public:
-	IdRow(
-		QWidget *parent,
-		bool users,
-		Fn<void()> add,
-		Fn<void(not_null<IdRow*>)> remove);
-
-	[[nodiscard]] not_null<Ui::InputField*> field() const;
-	void setRemoveEnabled(bool enabled);
-
-protected:
-	int resizeGetHeight(int newWidth) override;
-
-private:
-	Ui::InputField *_field = nullptr;
-	Ui::LinkButton *_remove = nullptr;
-
-};
-
-AllowlistLockWidget::IdRow::IdRow(
-	QWidget *parent,
-	bool users,
-	Fn<void()> add,
-	Fn<void(not_null<IdRow*>)> remove)
-: RpWidget(parent)
-, _field(Ui::CreateChild<Ui::InputField>(
-	this,
-	st::allowlistInput,
-	Ui::InputField::Mode::SingleLine,
-	users ? tr::lng_allowgram_users() : tr::lng_allowgram_groups()))
-, _remove(Ui::CreateChild<Ui::LinkButton>(this, QString())) {
-	_field->setDocumentMargin(st::allowlistInput.border);
-	_field->setInputMethodHints(Qt::ImhNoAutoUppercase
-		| Qt::ImhNoPredictiveText);
-	_field->submits() | rpl::on_next([=] {
-		add();
-	}, lifetime());
-	_remove->setClickedCallback([=] {
-		crl::on_main(this, [=] { remove(this); });
-	});
-	tr::lng_allowgram_remove_id() | rpl::on_next([=](const QString &text) {
-		_remove->setText(text);
-		resizeToWidth(width());
-	}, lifetime());
-	_field->show();
-	_remove->show();
-}
-
-not_null<Ui::InputField*> AllowlistLockWidget::IdRow::field() const {
-	return _field;
-}
-
-void AllowlistLockWidget::IdRow::setRemoveEnabled(bool enabled) {
-	_remove->setDisabled(!enabled);
-}
-
-int AllowlistLockWidget::IdRow::resizeGetHeight(int newWidth) {
-	const auto removeWidth = std::min(_remove->naturalWidth(), newWidth / 3);
-	_remove->resizeToWidth(removeWidth);
-	_field->resizeToWidth(std::max(
-		newWidth - removeWidth - st::allowlistLabelSkip,
-		1));
-	_field->moveToLeft(0, 0, newWidth);
-	const auto textRect = _field->rect().marginsRemoved(
-		_field->fullTextMargins());
-	_remove->moveToRight(
-		0,
-		std::max(textRect.y()
-			+ (textRect.height() - _remove->height()) / 2, 0),
-		newWidth);
-	return _field->height();
-}
-
 AllowlistLockWidget::AllowlistLockWidget(
-	QWidget *parent,
-	not_null<Controller*> window)
+ QWidget *parent, not_null<Controller*> window)
 : LockWidget(parent, window)
 , _scroll(this, st::defaultSolidScroll)
 , _layout(_scroll->setOwnedWidget(
-	object_ptr<Ui::VerticalLayout>(_scroll.data())).data()) {
-	_layout->add(
-		object_ptr<Ui::FlatLabel>(
-			_layout,
-			tr::lng_allowgram_setup_title(),
-			st::allowlistTitle),
-		st::allowlistRowPadding);
-	Ui::AddSkip(_layout, st::allowlistSectionSkip);
-	_layout->add(
-		object_ptr<Ui::FlatLabel>(
-			_layout,
-			tr::lng_allowgram_setup_about(),
-			st::allowlistDescription),
-		st::allowlistRowPadding);
-	Ui::AddSkip(_layout, st::allowlistSectionSkip);
-	if (const auto session = window->maybeSession()) {
-		_picker = _layout->add(object_ptr<ChatPicker>(_layout, session));
-		Ui::AddSkip(_layout, st::allowlistSectionSkip);
-	}
-	const auto manual = _layout->add(
-		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
-			_layout,
-			object_ptr<Ui::VerticalLayout>(_layout)));
-	const auto form = manual->entity();
-	if (_picker) {
-		const auto toggle = _layout->add(object_ptr<Ui::RoundButton>(
-			_layout,
-			tr::lng_allowgram_manual_ids(),
-			st::allowlistAddButton), st::allowlistAddPadding);
-		manual->toggle(false, anim::type::instant);
-		toggle->setClickedCallback([=] {
-			manual->toggle(!manual->toggled(), anim::type::normal);
-		});
-	}
-	form->add(
-		object_ptr<Ui::FlatLabel>(
-			form,
-			tr::lng_allowgram_users(),
-			st::allowlistDescription),
-		st::allowlistRowPadding);
-	Ui::AddSkip(form, st::allowlistLabelSkip);
-	_usersLayout = form->add(
-		object_ptr<Ui::VerticalLayout>(form),
-		st::allowlistRowPadding);
-	_addUser = form->add(
-		object_ptr<Ui::RoundButton>(
-			form,
-			tr::lng_allowgram_add_user(),
-			st::allowlistAddButton),
-		st::allowlistAddPadding);
-	_addUser->setClickedCallback([=] { addRow(true); });
-	form->add(
-		object_ptr<Ui::FlatLabel>(
-			form,
-			tr::lng_allowgram_users_hint(),
-			st::allowlistHint),
-		st::allowlistHintPadding);
-	Ui::AddSkip(form, st::allowlistSectionSkip);
-	form->add(
-		object_ptr<Ui::FlatLabel>(
-			form,
-			tr::lng_allowgram_groups(),
-			st::allowlistDescription),
-		st::allowlistRowPadding);
-	Ui::AddSkip(form, st::allowlistLabelSkip);
-	_groupsLayout = form->add(
-		object_ptr<Ui::VerticalLayout>(form),
-		st::allowlistRowPadding);
-	_addGroup = form->add(
-		object_ptr<Ui::RoundButton>(
-			form,
-			tr::lng_allowgram_add_group(),
-			st::allowlistAddButton),
-		st::allowlistAddPadding);
-	_addGroup->setClickedCallback([=] { addRow(false); });
-	form->add(
-		object_ptr<Ui::FlatLabel>(
-			form,
-			tr::lng_allowgram_groups_hint(),
-			st::allowlistHint),
-		st::allowlistHintPadding);
-	Ui::AddSkip(form, st::allowlistSectionSkip);
-	_error = _layout->add(
-		object_ptr<Ui::FlatLabel>(
-			_layout,
-			QString(),
-			st::allowlistDescription),
-		st::allowlistRowPadding);
-	_error->setTextColorOverride(st::boxTextFgError->c);
-	_error->hide();
-	auto submitText = _picker
-		? rpl::producer<QString>(_picker->selectedCountValue(
-		) | rpl::map([](int count) {
-			return count
-				? tr::lng_allowgram_save_count(tr::now, lt_count, count)
-				: tr::lng_allowgram_save_continue(tr::now);
-		}))
-		: tr::lng_allowgram_save_continue();
-	const auto submit = _layout->add(
-		object_ptr<Ui::RoundButton>(
-			_layout,
-			std::move(submitText),
-			st::allowlistSubmit),
-		st::allowlistButtonPadding);
-	submit->setClickedCallback([=] { this->submit(); });
-	const auto logout = _layout->add(
-		object_ptr<Ui::RoundButton>(
-			_layout,
-			tr::lng_settings_logout(),
-			st::defaultBoxButton),
-		st::allowlistRowPadding);
-	logout->setClickedCallback([=] {
-		window->showLogoutConfirmation();
-	});
-	Ui::AddSkip(_layout, st::allowlistSectionSkip);
-	addRow(true, false);
-	addRow(false, false);
-	_layout->heightValue() | rpl::on_next([=] {
-		updatePickerHeight();
-	}, lifetime());
+ object_ptr<Ui::VerticalLayout>(_scroll.data())).data()) {
+ _layout->add(object_ptr<Ui::FlatLabel>(_layout,
+  tr::lng_allowgram_setup_title(), st::allowlistTitle), st::allowlistRowPadding);
+ _layout->add(object_ptr<Ui::FlatLabel>(_layout,
+  tr::lng_allowgram_setup_about(),
+  st::allowlistDescription), st::allowlistRowPadding);
+ _search = _layout->add(object_ptr<Ui::InputField>(_layout, st::allowlistInput,
+  Ui::InputField::Mode::SingleLine, tr::lng_allowgram_search_chats()),
+  st::allowlistRowPadding);
+ _search->setObjectName(u"allowgramPickerSearch"_q);
+ _search->setDocumentMargin(st::allowlistInput.border);
+ _search->changes() | rpl::on_next([=] { rebuildRows(); }, lifetime());
+ _status = _layout->add(object_ptr<Ui::FlatLabel>(_layout, QString(),
+  st::allowlistDescription), st::allowlistRowPadding);
+ _rowsLayout = _layout->add(object_ptr<Ui::VerticalLayout>(_layout),
+  st::allowlistRowPadding);
+ _submit = Ui::CreateChild<Ui::RoundButton>(this,
+  _selectedCount.value() | rpl::map([](int count) {
+   return count ? tr::lng_allowgram_save_count(tr::now, lt_count, count)
+    : tr::lng_allowgram_save_continue(tr::now);
+  }), st::allowlistSubmit);
+ _submit->setObjectName(u"allowgramPickerSave"_q);
+ _submit->setClickedCallback([=] { submit(); });
+ _retry = Ui::CreateChild<Ui::RoundButton>(this,
+  tr::lng_allowgram_retry_chats(), st::defaultBoxButton);
+ _retry->setObjectName(u"allowgramPickerReload"_q);
+ _retry->setClickedCallback([=] { load(); });
+ _logout = Ui::CreateChild<Ui::RoundButton>(this,
+  tr::lng_settings_logout(), st::defaultBoxButton);
+ _logout->setClickedCallback([=] { window->showLogoutConfirmation(); });
+ _submit->show(); _retry->show(); _logout->show();
+ _submit->setDisabled(true);
+ window->account().sessionChanges() | rpl::on_next([=] {
+  // Account emits this before destroying its Session and peer data.
+  clearRows();
+  _api.reset(); _session = {}; _model.cancel();
+  rebuildRows(); _submit->setDisabled(true);
+  showError(u"Account changed. Please log in again."_q);
+ }, lifetime());
+ rpl::combine(_scroll->scrollTopValue(), _scroll->heightValue())
+  | rpl::on_next([=] { updateRowsVisibleRange(); }, lifetime());
+ crl::on_main(this, [=] { load(); });
+}
+AllowlistLockWidget::~AllowlistLockWidget() { clearRows(); }
+bool AllowlistLockWidget::sameSession() const {
+ const auto session = _session.get();
+ return session && window()->maybeSession() == session
+  && !session->allowlistConfigured();
+}
+void AllowlistLockWidget::load() {
+ clearRows();
+ _api.reset();
+ _generation = _model.start();
+ const auto session = window()->maybeSession();
+ _session = session ? base::make_weak(session) : base::weak_ptr<Main::Session>();
+ rebuildRows(); updateStatus();
+ if (!sameSession()) { failed(_generation); return; }
+ _api = std::make_unique<MTP::Sender>(&_session->mtp());
+ requestNext();
+}
+void AllowlistLockWidget::requestNext() {
+ if (!sameSession() || !_api || _model.ready() || _model.failed()) return;
+ const auto generation = _generation;
+ const auto cursor = _model.cursor();
+ const auto fail = [=] { failed(generation); };
+ if (cursor.pinned) {
+  _api->request(MTPmessages_GetPinnedDialogs(MTP_int(cursor.folder)))
+   .done([=](const MTPmessages_PeerDialogs &result) {
+    if (!sameSession() || generation != _generation) return;
+    result.match([&](const MTPDmessages_peerDialogs &data) {
+     receivePage(generation, ReadPage(_session.get(), data, true));
+    });
+   }).fail(fail).handleAllErrors().send();
+ } else {
+  const auto offset = cursor.peer.id
+   ? _session->data().peer(ToPeer(cursor.peer))->input()
+   : MTP_inputPeerEmpty();
+  _api->request(MTPmessages_GetDialogs(
+   MTP_flags(MTPmessages_GetDialogs::Flag::f_exclude_pinned
+    | MTPmessages_GetDialogs::Flag::f_folder_id),
+   MTP_int(cursor.folder), MTP_int(cursor.date), MTP_int(cursor.message),
+   offset, MTP_int(100), MTP_long(0)))
+   .done([=](const MTPmessages_Dialogs &result) {
+    if (!sameSession() || generation != _generation) return;
+    result.match([&](const MTPDmessages_dialogsNotModified &) {
+     failed(generation);
+    }, [&](const MTPDmessages_dialogs &data) {
+     receivePage(generation, ReadPage(_session.get(), data, true));
+    }, [&](const MTPDmessages_dialogsSlice &data) {
+     receivePage(generation, ReadPage(_session.get(), data, false));
+    });
+   }).fail(fail).handleAllErrors().send();
+ }
+}
+void AllowlistLockWidget::receivePage(std::uint64_t generation, Page page) {
+ if (!sameSession() || generation != _generation) return;
+ if (!_model.accept(generation, page)) { failed(generation); return; }
+ updateStatus();
+ if (_model.ready()) rebuildRows();
+ else crl::on_main(this, [=] { requestNext(); });
+}
+void AllowlistLockWidget::failed(std::uint64_t generation) {
+ if (generation != _generation) return;
+ _model.fail(generation);
+ updateStatus();
+}
+void AllowlistLockWidget::clearRows() {
+ // Content owns peer subscriptions and must die before its controller/session.
+ delete std::exchange(_rowsContent, nullptr);
+ _rows.clear();
+ _rowsDelegate.reset();
+ _rowsController.reset();
+}
+void AllowlistLockWidget::updateRowsVisibleRange() {
+ if (!_rowsContent) return;
+ const auto top = _scroll->scrollTop() - _rowsLayout->y();
+ _rowsContent->setVisibleTopBottom(std::max(top, 0),
+  std::max(top + _scroll->height(), 0));
+}
+void AllowlistLockWidget::rebuildRows() {
+ clearRows();
+ if (!_model.ready() || !sameSession()) return;
+ _rowsController = std::make_unique<ChatsController>(_session.get(),
+  [=](not_null<PeerListRow*> row) {
+   if (!sameSession() || !_model.ready()) return;
+   const auto checked = !row->checked();
+   if (!_model.choose(ToEntry(row->peer()->id), checked)) {
+    showError(tr::lng_allowgram_too_many(tr::now));
+    return;
+   }
+   _rowsDelegate->peerListSetRowChecked(row, checked);
+   updateStatus();
+  });
+ _rowsDelegate = std::make_unique<ChatsDelegate>();
+ _rowsContent = _rowsLayout->add(object_ptr<PeerListContent>(
+  _rowsLayout, _rowsController.get()));
+ _rowsDelegate->setContent(_rowsContent);
+ _rowsController->setDelegate(_rowsDelegate.get());
+ const auto query = _search->getLastText().trimmed();
+ auto choices = std::vector<std::pair<QString, Entry>>();
+ for (const auto &[id, title] : _model.candidates()) {
+  const auto name = QString::fromStdString(title);
+  if (query.isEmpty() || name.contains(query, Qt::CaseInsensitive)) {
+   choices.emplace_back(name, id);
+  }
+ }
+ std::sort(choices.begin(), choices.end(), [](const auto &a, const auto &b) {
+  return QString::localeAwareCompare(a.first, b.first) < 0;
+ });
+ for (const auto &[name, id] : choices) {
+  const auto peer = _session->data().peer(ToPeer(id));
+  auto owned = std::make_unique<PeerListRow>(peer);
+  const auto row = owned.get();
+  _rowsDelegate->peerListAppendRow(std::move(owned));
+  _rowsDelegate->peerListSetRowChecked(row, _model.selected().contains(id));
+  _rows.push_back(row);
+ }
+ _rowsDelegate->peerListRefreshRows();
+ _layout->resizeToWidth(std::min(width(), st::allowlistContentWidth));
+ updateRowsVisibleRange();
 }
 
-void AllowlistLockWidget::updatePickerHeight() {
-	if (!_picker) {
-		return;
-	}
-	const auto other = _layout->height() - _picker->listHeight();
-	const auto available = height() - st::allowlistContentTop - other;
-	_picker->setListHeight(std::max(available, st::allowlistChatListHeight));
+void AllowlistLockWidget::updateStatus() {
+ _selectedCount = int(_model.selected().size());
+ _submit->setDisabled(!_model.canSave() || !sameSession());
+ _retry->setDisabled(!_model.ready() && !_model.failed());
+ if (_model.failed()) {
+  showError(tr::lng_allowgram_chats_failed(tr::now));
+ } else if (!_model.ready()) {
+  _status->setText(tr::lng_allowgram_loading_chats(tr::now));
+ } else if (_model.candidates().empty()) {
+  _status->setText(u"No available chats yet. Open or join a chat in Telegram, then reload here."_q);
+ } else {
+  _status->setText(tr::lng_allowgram_chats_ready(tr::now,
+   lt_ready, QString::number(_model.candidates().size()),
+   lt_total, QString::number(_model.selected().size())));
+ }
 }
-
-void AllowlistLockWidget::addRow(bool users, bool focus) {
-	if (_users.size() + _groups.size() >= Main::Allowlist::kMaximumEntries + 1) {
-		showError(tr::lng_allowgram_too_many(tr::now));
-		return;
-	}
-	const auto layout = users ? _usersLayout : _groupsLayout;
-	auto &rows = users ? _users : _groups;
-	const auto row = layout->add(
-		object_ptr<IdRow>(
-			layout,
-			users,
-			[=] { addRow(users); },
-			[=](not_null<IdRow*> row) { removeRow(users, row); }),
-		st::allowlistIdPadding);
-	rows.push_back(row);
-	row->field()->changes() | rpl::on_next([=] {
-		clearError();
-	}, row->lifetime());
-	row->field()->focusedChanges() | rpl::filter(
-		rpl::mappers::_1
-	) | rpl::on_next([=] {
-		_scroll->scrollToWidget(row);
-	}, row->lifetime());
-	refreshRowButtons();
-	if (focus) {
-		clearError();
-		row->field()->setFocus();
-		_scroll->scrollToWidget(row);
-	}
-}
-
-void AllowlistLockWidget::removeRow(bool users, not_null<IdRow*> row) {
-	auto &rows = users ? _users : _groups;
-	const auto i = ranges::find(rows, row.get());
-	if (i == rows.end() || rows.size() == 1) {
-		return;
-	}
-	const auto index = int(i - rows.begin());
-	rows.erase(i);
-	delete row.get();
-	refreshRowButtons();
-	clearError();
-	const auto next = rows[std::min(index, int(rows.size()) - 1)];
-	next->field()->setFocus();
-	_scroll->scrollToWidget(next);
-}
-
-void AllowlistLockWidget::refreshRowButtons() {
-	for (const auto row : _users) {
-		row->setRemoveEnabled(_users.size() > 1);
-	}
-	for (const auto row : _groups) {
-		row->setRemoveEnabled(_groups.size() > 1);
-	}
-	const auto full = (_users.size() + _groups.size()
-		>= Main::Allowlist::kMaximumEntries + 1);
-	_addUser->setDisabled(full);
-	_addGroup->setDisabled(full);
-}
-
-QString AllowlistLockWidget::CollectIds(const std::vector<IdRow*> &rows) {
-	auto result = QString();
-	for (const auto row : rows) {
-		if (!result.isEmpty()) {
-			result += '\n';
-		}
-		result += row->field()->getLastText();
-	}
-	return result;
-}
-
-void AllowlistLockWidget::setInnerFocus() {
-	if (_picker) {
-		_picker->focusSearch();
-	} else {
-		_users.front()->field()->setFocus();
-	}
-}
-
-void AllowlistLockWidget::resizeEvent(QResizeEvent *e) {
-	const auto layoutWidth = std::min(width(), st::allowlistContentWidth);
-	const auto top = st::allowlistContentTop;
-	_scroll->setGeometry(
-		(width() - layoutWidth) / 2,
-		top,
-		layoutWidth,
-		std::max(height() - top, 0));
-	_layout->resizeToWidth(layoutWidth);
-	updatePickerHeight();
-}
-
-void AllowlistLockWidget::keyPressEvent(QKeyEvent *e) {
-	if (e->key() == Qt::Key_Escape || e->key() == Qt::Key_Back) {
-		e->accept();
-		return;
-	}
-	LockWidget::keyPressEvent(e);
-}
-
 void AllowlistLockWidget::submit() {
-	const auto session = window()->maybeSession();
-	if (!session) {
-		return;
-	}
-	if (session->allowlistConfigured()) {
-		UnlockAllowlistWindows(session);
-		return;
-	}
-	const auto error = session->configureAllowlist(
-		(_picker ? _picker->selectedIds(true) : QString()) + CollectIds(_users),
-		(_picker ? _picker->selectedIds(false) : QString()) + CollectIds(_groups));
-	if (!error.isEmpty()) {
-		showError(error);
-		return;
-	}
-	UnlockAllowlistWindows(session);
+ if (!sameSession() || !_model.canSave()) return;
+ auto users = QStringList();
+ auto groups = QStringList();
+ for (const auto id : _model.selected()) {
+  const auto peer = _session->data().peer(ToPeer(id));
+  if (!Selectable(_session.get(), peer)) {
+   showError(u"A selected chat is no longer available. Reload chats and select again."_q);
+   return;
+  }
+  (id.kind == Kind::User ? users : groups).push_back(TypedId(id));
+ }
+ const auto error = _session->configureAllowlist(users.join('\n'), groups.join('\n'));
+ if (!error.isEmpty()) { showError(error); return; }
+ UnlockAllowlistWindows(_session.get());
 }
-
 void AllowlistLockWidget::showError(const QString &error) {
-	_error->setText(error);
-	_error->show();
-	_scroll->scrollToWidget(_error);
+ _status->setText(error);
 }
-
-void AllowlistLockWidget::clearError() {
-	_error->hide();
+void AllowlistLockWidget::setInnerFocus() { _search->setFocus(); }
+void AllowlistLockWidget::resizeEvent(QResizeEvent *e) {
+ const auto w = std::max(1, std::min(width(), st::allowlistContentWidth));
+ const auto left = (width() - w) / 2;
+ const auto top = std::min(st::allowlistContentTop, 60);
+ _submit->resizeToWidth(w);
+ _retry->resizeToWidth(w / 2);
+ _logout->resizeToWidth(w / 2);
+ const auto footer = _submit->height() + std::max(_retry->height(), _logout->height()) + 32;
+ const auto y = std::max(top, height() - footer);
+ _submit->moveToLeft(left, y);
+ _retry->moveToLeft(left, y + _submit->height() + 8);
+ _logout->moveToLeft(left + w / 2, y + _submit->height() + 8);
+ _scroll->setGeometry(left, top, w, std::max(y - top - 12, 0));
+ _layout->resizeToWidth(w);
 }
-
+void AllowlistLockWidget::keyPressEvent(QKeyEvent *e) {
+ if (e->key() == Qt::Key_Escape || e->key() == Qt::Key_Back) {
+  e->accept(); return;
+ }
+ LockWidget::keyPressEvent(e);
+}
 } // namespace Window

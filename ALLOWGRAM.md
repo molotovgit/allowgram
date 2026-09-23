@@ -7,26 +7,14 @@ user selects and saves at least one chat.
 
 ## Using the list
 
-Choose existing conversations by name in the searchable setup list. Main and
-archived chats load automatically; Saved Messages is not offered because it is
-disabled. Check the chats to permit, then select **Save and continue**. Search does not clear your
-selections. If loading fails, retry without losing the choices already made.
-
-For a conversation missing from the list, open **Enter IDs manually (optional)**.
-Enter one ID per row. Use **+ Add user** or **+ Add group/channel** to add
-another row, and **Remove** to delete an unwanted row:
-
-| Field | Examples | Meaning |
-| --- | --- | --- |
-| Users | `123456789` or `user:123456789` | A Telegram user or bot |
-| Groups and channels | `-123456789` or `chat:123456789` | A basic group |
-| Groups and channels | `-1001234567890` or `channel:1234567890` | A supergroup or channel |
-
-The signed channel format is `-(1000000000000 + channel_id)`. Use the `channel:`
-prefix if you have a raw channel ID. Putting a user ID into the groups field is
-rejected. Duplicate entries are removed, and up to 10,000 distinct peers can be
-configured. An ID does not grant access to a private group or override Telegram's
-own membership and posting permissions.
+Choose existing conversations by name in the searchable setup list, with native
+chat photos and type/status lines. Pinned, main and archived chats load before
+saving is enabled. Saved Messages is not offered because it is disabled.
+Select up to 10,000 distinct chats, then choose **Save and continue**. Search does
+not clear selections. **Retry loading chats** starts a fresh snapshot and clears
+old choices, so removed or inaccessible chats cannot be carried into a new list.
+There is no manual-ID override or Sheets access file. To include a missing chat,
+open or join it through Telegram, then reload the picker before saving.
 
 The list is saved with the account's encrypted local settings and restored on
 restart. There is no in-session editor. Logging out clears Telegram's local
@@ -41,10 +29,6 @@ alerts and notification previews are suppressed. Cached navigation and media
 playback also require an allowed conversation. Allowed groups still show
 messages from their participants, even when those people are not individually
 allowed for direct messages.
-
-Each setup section has a + button that adds another ID row. Enter an ID per
-row, and use Remove to delete an unwanted row. The maximum is 10,000 distinct
-IDs in total. Comma, space and semicolon separators are also accepted.
 
 The message composer and outgoing request layer both enforce the list. The
 request filter checks the destination for text,

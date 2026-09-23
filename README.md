@@ -4,7 +4,7 @@
 
 **A Telegram Desktop-derived Windows client that shows only the conversations you allow.**
 
-Sign in through Telegram's normal phone-number and verification flow, then select the existing chats you want to allow. The setup picker includes archived chats, with optional manual ID entry. Allowgram hides excluded conversations and their notifications and blocks client requests to excluded destinations. Mini Apps can open only for bots explicitly included in the list.
+Sign in through Telegram's normal phone-number and verification flow, then select the existing chats you want to allow. The setup picker includes pinned and archived chats, with native photos and no manual-ID or Sheets setup. Allowgram hides excluded conversations and their notifications and blocks client requests to excluded destinations. Mini Apps can open only for bots explicitly included in the list.
 
 Allowgram is an unofficial, independent modification maintained by [molotovgit](https://github.com/molotovgit). It is not affiliated with or endorsed by Telegram. Telegram Desktop and its contributors remain the authors of the upstream client.
 
@@ -26,7 +26,7 @@ This repository publishes source. **No public installer or GitHub Release is pro
 
 | Capability | Behavior in 7.2.8.7 |
 | --- | --- |
-| Choose existing chats | Search and check existing conversations after sign-in, then **Save and continue**. Manual IDs remain optional. Up to 10,000 distinct chats total. |
+| Choose existing chats | Search and check existing conversations after sign-in, then **Save and continue**. Saving waits for the complete list. Up to 10,000 distinct chats total. |
 | Conversation visibility | Excluded chat rows, search results, archive entries, message previews, unread badges and notifications are suppressed. |
 | Outgoing operations | Supported ordinary text/media require destination and content checks. Emoji, stickers, GIFs, reactions and message effects are disabled. Unknown request types fail closed. |
 | Private calls | Incoming and outgoing voice/video calls require an explicitly allowed, known nonbot user. Group membership is not permission. Use the eligible private-chat call button. |

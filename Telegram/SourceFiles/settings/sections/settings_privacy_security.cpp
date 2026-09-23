@@ -793,31 +793,8 @@ void BuildSecuritySection(
 		return SectionBuilder::WidgetToAdd{};
 	});
 
-	auto sessionsCount = session->api().authorizations().totalValue(
-	) | rpl::map([](int count) {
-		return count ? QString::number(count) : QString();
-	});
+	// Other-device management is deliberately unavailable in Allowgram.
 
-	builder.addButton({
-		.id = u"security/sessions"_q,
-		.title = tr::lng_settings_show_sessions(),
-		.icon = { &st::menuIconDevices },
-		.label = std::move(sessionsCount),
-		.onClick = [=] {
-			showOther(SessionsId());
-		},
-		.keywords = { u"sessions"_q, u"devices"_q, u"active"_q },
-	});
-
-	builder.add([session, updateTrigger = std::move(updateTrigger)](const WidgetContext &ctx) mutable {
-		std::move(updateTrigger) | rpl::on_next([=] {
-			session->api().authorizations().reload();
-		}, ctx.container->lifetime());
-		return SectionBuilder::WidgetToAdd{};
-	});
-
-	builder.addSkip();
-	builder.addDividerText(tr::lng_settings_sessions_about());
 }
 
 void BuildPrivacySection(SectionBuilder &builder) {

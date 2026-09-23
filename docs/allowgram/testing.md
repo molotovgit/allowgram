@@ -75,14 +75,14 @@ Before release, build Debug and verify with an authorized test account:
 2. Select several chats, search for another name and clear the search. Previous
    choices remain checked. Check the list and Save button at compact sizes and
    100%, 125%, 150% and 200% interface scales.
-3. Interrupt loading after a page, retry, and verify that choices survive and
-   remaining main/archive chats load without duplicates.
+3. Interrupt loading after a page, retry, and verify a new complete snapshot
+   clears old choices and loads main/archive chats without duplicates.
 4. Save with no selection: setup stays locked. Select chats and save: only those
    chats become accessible. Restart: the picker is skipped and the same policy
    remains. A pre-existing configured account must keep its policy.
-5. Add a duplicate manual ID and a separate manual ID. Saving deduplicates the
-   former and includes the latter; malformed input and more than 10,000 distinct
-   entries keep setup locked. Simulate local save failure and retry.
+5. Verify there is no manual-ID or Sheets override. Duplicate dialog peers
+   appear once; more than 10,000 selections remain blocked. Simulate local save
+   failure and retry.
 6. Close the setup window or log out during loading and verify pending callbacks
    do not access destroyed widgets or a different account.
 7. Verify excluded chat previews, notifications, incoming messages and outgoing

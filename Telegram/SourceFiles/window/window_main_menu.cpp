@@ -119,34 +119,6 @@ constexpr auto kPlayStatusLimit = 2;
 
 } // namespace
 
-class MainMenu::ToggleAccountsButton final : public Ui::AbstractButton {
-public:
-	ToggleAccountsButton(QWidget *parent, not_null<Main::Account*> current);
-
-	[[nodiscard]] int rightSkip() const {
-		return _rightSkip.current();
-	}
-	[[nodiscard]] rpl::producer<int> rightSkipValue() const {
-		return _rightSkip.value();
-	}
-
-private:
-	void paintEvent(QPaintEvent *e) override;
-	void paintUnreadBadge(Painter &p);
-
-	void validateUnreadBadge();
-	[[nodiscard]] QString computeUnreadBadge() const;
-
-	const not_null<Main::Account*> _current;
-	rpl::variable<int> _rightSkip = 0;
-	Ui::Animations::Simple _toggledAnimation;
-	bool _toggled = false;
-
-	QString _unreadBadge;
-	bool _unreadBadgeStale = false;
-
-};
-
 class MainMenu::ResetScaleButton final : public Ui::AbstractButton {
 public:
 	ResetScaleButton(QWidget *parent);
@@ -157,107 +129,6 @@ protected:
 	static constexpr auto kText = "100%";
 
 };
-
-MainMenu::ToggleAccountsButton::ToggleAccountsButton(
-	QWidget *parent,
-	not_null<Main::Account*> current)
-: AbstractButton(parent)
-, _current(current) {
-	rpl::single(rpl::empty) | rpl::then(
-		Core::App().unreadBadgeChanges()
-	) | rpl::on_next([=] {
-		_unreadBadgeStale = true;
-		if (!_toggled) {
-			validateUnreadBadge();
-			update();
-		}
-	}, lifetime());
-
-	auto &settings = Core::App().settings();
-	if (Core::App().domain().accounts().size() < 2
-		&& settings.mainMenuAccountsShown()) {
-		settings.setMainMenuAccountsShown(false);
-	}
-	settings.mainMenuAccountsShownValue(
-	) | rpl::filter([=](bool value) {
-		return (_toggled != value);
-	}) | rpl::on_next([=](bool value) {
-		_toggled = value;
-		_toggledAnimation.start(
-			[=] { update(); },
-			_toggled ? 0. : 1.,
-			_toggled ? 1. : 0.,
-			st::slideWrapDuration);
-		validateUnreadBadge();
-	}, lifetime());
-	_toggledAnimation.stop();
-}
-
-void MainMenu::ToggleAccountsButton::paintEvent(QPaintEvent *e) {
-	auto p = Painter(this);
-
-	const auto path = Ui::ToggleUpDownArrowPath(
-		0. + width() - st::mainMenuTogglePosition.x(),
-		0. + height() - st::mainMenuTogglePosition.y(),
-		st::mainMenuToggleSize,
-		st::mainMenuToggleFourStrokes,
-		_toggledAnimation.value(_toggled ? 1. : 0.));
-
-	auto hq = PainterHighQualityEnabler(p);
-	p.fillPath(path, st::windowSubTextFg);
-
-	paintUnreadBadge(p);
-}
-
-void MainMenu::ToggleAccountsButton::paintUnreadBadge(Painter &p) {
-	const auto progress = 1. - _toggledAnimation.value(_toggled ? 1. : 0.);
-	if (!progress) {
-		return;
-	}
-	validateUnreadBadge();
-	if (_unreadBadge.isEmpty()) {
-		return;
-	}
-
-	auto st = Settings::Badge::Style();
-	const auto right = width()
-		- st::mainMenuTogglePosition.x()
-		- st::mainMenuToggleSize * 3;
-	const auto top = height()
-		- st::mainMenuTogglePosition.y()
-		- st::mainMenuBadgeSize / 2;
-	p.setOpacity(progress);
-	Ui::PaintUnreadBadge(p, _unreadBadge, right, top, st);
-}
-
-void MainMenu::ToggleAccountsButton::validateUnreadBadge() {
-	const auto base = st::mainMenuTogglePosition.x()
-		+ 2 * st::mainMenuToggleSize;
-	if (_toggled) {
-		_rightSkip = base;
-		return;
-	} else if (!_unreadBadgeStale) {
-		return;
-	}
-	_unreadBadge = computeUnreadBadge();
-
-	auto skip = base;
-	if (!_unreadBadge.isEmpty()) {
-		const auto st = Settings::Badge::Style();
-		skip += 2 * st::mainMenuToggleSize
-			+ Ui::CountUnreadBadgeSize(_unreadBadge, st).width();
-	}
-	_rightSkip = skip;
-}
-
-QString MainMenu::ToggleAccountsButton::computeUnreadBadge() const {
-	const auto state = OtherAccountsUnreadStateCurrent(_current);
-	return state.allMuted
-		? QString()
-		: (state.count > 0)
-		? Lang::FormatCountToShort(state.count).string
-		: QString();
-}
 
 MainMenu::ResetScaleButton::ResetScaleButton(QWidget *parent)
 : AbstractButton(parent) {
@@ -312,7 +183,6 @@ MainMenu::MainMenu(
 	this,
 	_controller->session().user(),
 	st::mainMenuUserpic)
-, _toggleAccounts(this, &controller->session().account())
 , _setEmojiStatus(this, SetStatusLabel(&controller->session()))
 , _emojiStatusPanel(std::make_unique<Info::Profile::EmojiStatusPanel>())
 , _badge(std::make_unique<Info::Profile::Badge>(
@@ -329,12 +199,6 @@ MainMenu::MainMenu(
 	object_ptr<Ui::VerticalLayout>(_scroll.data())))
 , _topShadowSkip(_inner->add(
 	object_ptr<Ui::FixedHeightWidget>(_inner.get(), st::lineWidth)))
-, _accounts(_inner->add(object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
-	_inner.get(),
-	object_ptr<Ui::VerticalLayout>(_inner.get()))))
-, _shadow(_inner->add(object_ptr<Ui::SlideWrap<Ui::PlainShadow>>(
-	_inner.get(),
-	object_ptr<Ui::PlainShadow>(_inner.get()))))
 , _menu(_inner->add(
 	object_ptr<Ui::VerticalLayout>(_inner.get()),
 	{ 0, st::mainMenuSkip, 0, 0 }))
@@ -345,9 +209,7 @@ MainMenu::MainMenu(
 	setAttribute(Qt::WA_OpaquePaintEvent);
 
 	setupUserpicButton();
-	setupAccountsToggle();
 	setupSetEmojiStatus();
-	setupAccounts();
 	setupArchive();
 	setupMenu();
 
@@ -383,10 +245,7 @@ MainMenu::MainMenu(
 
 	parentResized();
 
-	_telegram->setMarkedText(tr::link(
-		u"Telegram Desktop"_q,
-		u"https://desktop.telegram.org"_q));
-	_telegram->setLinksTrusted();
+	_telegram->setText(u"Allowgram"_q);
 	// The canary version is too long for the "Version {version}" form.
 	_version->setMarkedText(
 		tr::link(
@@ -410,9 +269,8 @@ MainMenu::MainMenu(
 			controller->show(Box(AboutBox));
 		}));
 
-	rpl::combine(
-		_toggleAccounts->rightSkipValue(),
-		rpl::single(rpl::empty) | rpl::then(_badge->updated())
+	rpl::single(rpl::empty) | rpl::then(
+		_badge->updated()
 	) | rpl::on_next([=] {
 		moveBadge();
 	}, lifetime());
@@ -474,7 +332,6 @@ void MainMenu::moveBadge() {
 	}
 	const auto available = width()
 		- st::mainMenuCoverNameLeft
-		- _toggleAccounts->rightSkip()
 		- _badge->widget()->width();
 	const auto left = st::mainMenuCoverNameLeft
 		+ std::min(_name.maxWidth() + st::semiboldFont->spacew, available);
@@ -587,44 +444,10 @@ void MainMenu::setupArchive() {
 }
 
 void MainMenu::setupUserpicButton() {
-	_userpicButton->setClickedCallback([=] { toggleAccounts(); });
+	// Single-account client: avatar is decoration, not a hidden switcher.
+	_userpicButton->setAttribute(Qt::WA_TransparentForMouseEvents);
+	_userpicButton->setCursor(Qt::ArrowCursor);
 	_userpicButton->show();
-}
-
-void MainMenu::toggleAccounts() {
-	auto &settings = Core::App().settings();
-	const auto shown = !settings.mainMenuAccountsShown();
-	settings.setMainMenuAccountsShown(shown);
-	Core::App().saveSettingsDelayed();
-}
-
-void MainMenu::setupAccounts() {
-	const auto inner = _accounts->entity();
-
-	inner->add(object_ptr<Ui::FixedHeightWidget>(inner, st::mainMenuSkip));
-	auto events = Settings::SetupAccounts(inner, _controller);
-	inner->add(object_ptr<Ui::FixedHeightWidget>(inner, st::mainMenuSkip));
-
-	std::move(
-		events.closeRequests
-	) | rpl::on_next([=] {
-		closeLayer();
-	}, inner->lifetime());
-
-	_accounts->toggleOn(Core::App().settings().mainMenuAccountsShownValue());
-	_accounts->finishAnimating();
-
-	_shadow->setDuration(0)->toggleOn(_accounts->shownValue());
-}
-
-void MainMenu::setupAccountsToggle() {
-	_toggleAccounts->show();
-	_toggleAccounts->setAcceptBoth();
-	_toggleAccounts->addClickHandler([=](Qt::MouseButton button) {
-		if (button == Qt::LeftButton) {
-			toggleAccounts();
-		}
-	});
 }
 
 void MainMenu::setupSetEmojiStatus() {
@@ -760,11 +583,6 @@ void MainMenu::updateControlsGeometry() {
 		st::mainMenuCoverStatusLeft,
 		st::mainMenuCoverStatusTop,
 		width());
-	_toggleAccounts->setGeometry(
-		0,
-		st::mainMenuCoverNameTop,
-		width(),
-		st::mainMenuCoverHeight - st::mainMenuCoverNameTop);
 	// Allow cover shadow over the scrolled content.
 	const auto top = st::mainMenuCoverHeight - st::lineWidth;
 	_scroll->setGeometry(0, top, width(), height() - top);
@@ -772,9 +590,7 @@ void MainMenu::updateControlsGeometry() {
 }
 
 void MainMenu::updateInnerControlsGeometry() {
-	const auto contentHeight = _accounts->height()
-		+ _shadow->height()
-		+ st::mainMenuSkip
+	const auto contentHeight = st::mainMenuSkip
 		+ _menu->height();
 	const auto available = height() - st::mainMenuCoverHeight - contentHeight;
 	const auto footerHeight = std::max(
@@ -833,8 +649,7 @@ void MainMenu::paintEvent(QPaintEvent *e) {
 
 void MainMenu::drawName(Painter &p) {
 	const auto widthText = width()
-		- st::mainMenuCoverNameLeft
-		- _toggleAccounts->rightSkip();
+		- st::mainMenuCoverNameLeft;
 
 	const auto user = _controller->session().user();
 	if (_nameVersion < user->nameVersion()) {

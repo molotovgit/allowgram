@@ -8790,7 +8790,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_allowgram_save_count#one" = "Save {count} chat and continue";
 "lng_allowgram_save_count#other" = "Save {count} chats and continue";
 "lng_allowgram_already_configured" = "This account already has an allow-list. Log out to set up a different list.";
-"lng_allowgram_empty" = "Select at least one chat or enter an ID.";
+"lng_allowgram_empty" = "Select at least one chat.";
 "lng_allowgram_invalid_id" = "Invalid ID: {name}. Use positive user IDs, negative group IDs, or user:, chat:, channel: prefixes.";
 "lng_allowgram_too_many" = "The allow-list can contain up to 10,000 IDs.";
 "lng_allowgram_wrong_type" = "ID {name} is in the wrong field. Put people in Users and groups or channels in Groups.";
@@ -8807,8 +8807,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // Keys finished
 
 "lng_allowgram_search_chats" = "Search existing chats";
-"lng_allowgram_loading_chats" = "Loading your chats, including archived chats...";
+"lng_allowgram_loading_chats" = "Loading your chats, including pinned and archived chats...";
 "lng_allowgram_retry_chats" = "Retry loading chats";
-"lng_allowgram_chats_failed" = "Some chats could not be loaded. Check your connection and retry. Your selections are kept.";
+"lng_allowgram_chats_failed" = "Some chats could not be loaded. Check your connection and reload chats.";
 "lng_allowgram_chats_ready" = "Chats: {ready}. Selected: {total}.";
 "lng_allowgram_manual_ids" = "Enter IDs manually (optional)";
+
+"lng_allowgram_sheet_resolving" = "Checking your Allowgram access…";
+"lng_allowgram_sheet_retry" = "Retry";
+"lng_allowgram_sheet_failed" = "Unable to verify your Allowgram access. Retry, or ask your administrator to check this installation’s access file and service.";

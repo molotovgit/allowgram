@@ -58,6 +58,39 @@ Consult the private revision-specific report for actual commands, RED/GREEN
 receipts, native UI/build/startup/package results and untested routes. Historical
 7.2.8.4 counts below are not evidence for the new restrictions.
 
+## Chat picker change: verification scope
+
+The first-login chat picker is a source change after the recorded 7.2.8.4 tests
+below. Before merging with the signed-updater branch it compiled with MSVC 14.44
+in Debug and Release. One signed-in Debug session loaded every main and archived
+chat page, then saved a selection. Historical form checks do not validate the
+new picker, and the checks below have not been completed.
+
+Before release, build Debug and verify with an authorized test account:
+
+1. A fresh login shows unchecked existing DMs, bots, groups and channels with
+   photos and type lines. Saved Messages is not offered because it is disabled.
+   Include more than 100 main chats and archived chats to check paging, and
+   verify pinned chats appear once.
+2. Select several chats, search for another name and clear the search. Previous
+   choices remain checked. Check the list and Save button at compact sizes and
+   100%, 125%, 150% and 200% interface scales.
+3. Interrupt loading after a page, retry, and verify a new complete snapshot
+   clears old choices and loads main/archive chats without duplicates.
+4. Save with no selection: setup stays locked. Select chats and save: only those
+   chats become accessible. Restart: the picker is skipped and the same policy
+   remains. A pre-existing configured account must keep its policy.
+5. Verify there is no manual-ID or Sheets override. Duplicate dialog peers
+   appear once; more than 10,000 selections remain blocked. Simulate local save
+   failure and retry.
+6. Close the setup window or log out during loading and verify pending callbacks
+   do not access destroyed widgets or a different account.
+7. Verify excluded chat previews, notifications, incoming messages and outgoing
+   requests remain blocked before and after setup, using the existing native
+   guard suite and agreed live acceptance procedure below.
+8. Save without restarting, open an allowed chat and scroll up: older messages
+   load instead of only the latest one.
+
 ## Repeat the native form regression
 
 For the synthetic hardening fixture, build with `--hardening` and run

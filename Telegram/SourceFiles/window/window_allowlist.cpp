@@ -14,7 +14,7 @@
 #include "mtproto/sender.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/buttons.h"
-#include "ui/widgets/checkbox.h"
+#include "boxes/peer_list_box.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/wrap/vertical_layout.h"
@@ -88,6 +88,25 @@ void UnlockAllowlistWindows(not_null<Main::Session*> session) {
   }
  });
 }
+class ChatsController final : public PeerListController {
+public:
+ ChatsController(not_null<Main::Session*> session,
+   Fn<void(not_null<PeerListRow*>)> clicked)
+ : _session(session), _clicked(std::move(clicked)) {
+ }
+ Main::Session &session() const override { return *_session; }
+ void prepare() override { }
+ void rowClicked(not_null<PeerListRow*> row) override { _clicked(row); }
+private:
+ const not_null<Main::Session*> _session;
+ Fn<void(not_null<PeerListRow*>)> _clicked;
+};
+class ChatsDelegate final : public PeerListContentDelegateSimple {
+public:
+ bool peerListIsRowChecked(not_null<PeerListRow*> row) override {
+  return row->checked();
+ }
+};
 } // namespace
 
 AllowlistLockWidget::AllowlistLockWidget(
@@ -97,25 +116,29 @@ AllowlistLockWidget::AllowlistLockWidget(
 , _layout(_scroll->setOwnedWidget(
  object_ptr<Ui::VerticalLayout>(_scroll.data())).data()) {
  _layout->add(object_ptr<Ui::FlatLabel>(_layout,
-  u"Choose your chats"_q, st::allowlistTitle), st::allowlistRowPadding);
+  tr::lng_allowgram_setup_title(), st::allowlistTitle), st::allowlistRowPadding);
  _layout->add(object_ptr<Ui::FlatLabel>(_layout,
-  u"Select the chats you want to use in Allowgram. Only selected chats will be shown. Your selection is saved on this device."_q,
+  tr::lng_allowgram_setup_about(),
   st::allowlistDescription), st::allowlistRowPadding);
  _search = _layout->add(object_ptr<Ui::InputField>(_layout, st::allowlistInput,
-  Ui::InputField::Mode::SingleLine, rpl::single(u"Search your chats"_q)),
+  Ui::InputField::Mode::SingleLine, tr::lng_allowgram_search_chats()),
   st::allowlistRowPadding);
  _search->setObjectName(u"allowgramPickerSearch"_q);
+ _search->setDocumentMargin(st::allowlistInput.border);
  _search->changes() | rpl::on_next([=] { rebuildRows(); }, lifetime());
  _status = _layout->add(object_ptr<Ui::FlatLabel>(_layout, QString(),
   st::allowlistDescription), st::allowlistRowPadding);
  _rowsLayout = _layout->add(object_ptr<Ui::VerticalLayout>(_layout),
   st::allowlistRowPadding);
  _submit = Ui::CreateChild<Ui::RoundButton>(this,
-  tr::lng_allowgram_save_continue(), st::allowlistSubmit);
+  _selectedCount.value() | rpl::map([](int count) {
+   return count ? tr::lng_allowgram_save_count(tr::now, lt_count, count)
+    : tr::lng_allowgram_save_continue(tr::now);
+  }), st::allowlistSubmit);
  _submit->setObjectName(u"allowgramPickerSave"_q);
  _submit->setClickedCallback([=] { submit(); });
  _retry = Ui::CreateChild<Ui::RoundButton>(this,
-  rpl::single(u"Reload chats"_q), st::defaultBoxButton);
+  tr::lng_allowgram_retry_chats(), st::defaultBoxButton);
  _retry->setObjectName(u"allowgramPickerReload"_q);
  _retry->setClickedCallback([=] { load(); });
  _logout = Ui::CreateChild<Ui::RoundButton>(this,
@@ -124,19 +147,24 @@ AllowlistLockWidget::AllowlistLockWidget(
  _submit->show(); _retry->show(); _logout->show();
  _submit->setDisabled(true);
  window->account().sessionChanges() | rpl::on_next([=] {
+  // Account emits this before destroying its Session and peer data.
+  clearRows();
   _api.reset(); _session = {}; _model.cancel();
   rebuildRows(); _submit->setDisabled(true);
   showError(u"Account changed. Please log in again."_q);
  }, lifetime());
+ rpl::combine(_scroll->scrollTopValue(), _scroll->heightValue())
+  | rpl::on_next([=] { updateRowsVisibleRange(); }, lifetime());
  crl::on_main(this, [=] { load(); });
 }
-AllowlistLockWidget::~AllowlistLockWidget() = default;
+AllowlistLockWidget::~AllowlistLockWidget() { clearRows(); }
 bool AllowlistLockWidget::sameSession() const {
  const auto session = _session.get();
  return session && window()->maybeSession() == session
   && !session->allowlistConfigured();
 }
 void AllowlistLockWidget::load() {
+ clearRows();
  _api.reset();
  _generation = _model.start();
  const auto session = window()->maybeSession();
@@ -192,10 +220,38 @@ void AllowlistLockWidget::failed(std::uint64_t generation) {
  _model.fail(generation);
  updateStatus();
 }
-void AllowlistLockWidget::rebuildRows() {
- for (const auto row : _rows) delete row;
+void AllowlistLockWidget::clearRows() {
+ // Content owns peer subscriptions and must die before its controller/session.
+ delete std::exchange(_rowsContent, nullptr);
  _rows.clear();
- if (!_model.ready()) return;
+ _rowsDelegate.reset();
+ _rowsController.reset();
+}
+void AllowlistLockWidget::updateRowsVisibleRange() {
+ if (!_rowsContent) return;
+ const auto top = _scroll->scrollTop() - _rowsLayout->y();
+ _rowsContent->setVisibleTopBottom(std::max(top, 0),
+  std::max(top + _scroll->height(), 0));
+}
+void AllowlistLockWidget::rebuildRows() {
+ clearRows();
+ if (!_model.ready() || !sameSession()) return;
+ _rowsController = std::make_unique<ChatsController>(_session.get(),
+  [=](not_null<PeerListRow*> row) {
+   if (!sameSession() || !_model.ready()) return;
+   const auto checked = !row->checked();
+   if (!_model.choose(ToEntry(row->peer()->id), checked)) {
+    showError(tr::lng_allowgram_too_many(tr::now));
+    return;
+   }
+   _rowsDelegate->peerListSetRowChecked(row, checked);
+   updateStatus();
+  });
+ _rowsDelegate = std::make_unique<ChatsDelegate>();
+ _rowsContent = _rowsLayout->add(object_ptr<PeerListContent>(
+  _rowsLayout, _rowsController.get()));
+ _rowsDelegate->setContent(_rowsContent);
+ _rowsController->setDelegate(_rowsDelegate.get());
  const auto query = _search->getLastText().trimmed();
  auto choices = std::vector<std::pair<QString, Entry>>();
  for (const auto &[id, title] : _model.candidates()) {
@@ -208,36 +264,32 @@ void AllowlistLockWidget::rebuildRows() {
   return QString::localeAwareCompare(a.first, b.first) < 0;
  });
  for (const auto &[name, id] : choices) {
-  const auto kind = (id.kind == Kind::User) ? u"Chat"_q
-   : (id.kind == Kind::Chat) ? u"Group"_q : u"Group / channel"_q;
-  const auto row = _rowsLayout->add(object_ptr<Ui::Checkbox>(_rowsLayout,
-   name + u"  ·  "_q + kind, _model.selected().contains(id)),
-   st::allowlistRowPadding);
-  row->setObjectName(u"allowgramPicker_"_q + TypedId(id));
-  row->setAllowTextLines(2);
-  row->setTextBreakEverywhere(true);
-  row->checkedChanges() | rpl::on_next([=](bool checked) {
-   if (!_model.choose(id, checked)) {
-    row->setChecked(!checked, Ui::Checkbox::NotifyAboutChange::DontNotify);
-    showError(u"Too many selected chats. Deselect a chat first."_q);
-   } else updateStatus();
-  }, row->lifetime());
+  const auto peer = _session->data().peer(ToPeer(id));
+  auto owned = std::make_unique<PeerListRow>(peer);
+  const auto row = owned.get();
+  _rowsDelegate->peerListAppendRow(std::move(owned));
+  _rowsDelegate->peerListSetRowChecked(row, _model.selected().contains(id));
   _rows.push_back(row);
  }
+ _rowsDelegate->peerListRefreshRows();
  _layout->resizeToWidth(std::min(width(), st::allowlistContentWidth));
+ updateRowsVisibleRange();
 }
+
 void AllowlistLockWidget::updateStatus() {
+ _selectedCount = int(_model.selected().size());
  _submit->setDisabled(!_model.canSave() || !sameSession());
  _retry->setDisabled(!_model.ready() && !_model.failed());
  if (_model.failed()) {
-  showError(u"Couldn't load all chats. Check your connection, then reload chats."_q);
+  showError(tr::lng_allowgram_chats_failed(tr::now));
  } else if (!_model.ready()) {
-  _status->setText(u"Loading your chats, including pinned and archived chats…"_q);
+  _status->setText(tr::lng_allowgram_loading_chats(tr::now));
  } else if (_model.candidates().empty()) {
   _status->setText(u"No available chats yet. Open or join a chat in Telegram, then reload here."_q);
  } else {
-  _status->setText(u"%1 selected · %2 available chats"_q
-   .arg(qlonglong(_model.selected().size())).arg(qlonglong(_model.candidates().size())));
+  _status->setText(tr::lng_allowgram_chats_ready(tr::now,
+   lt_ready, QString::number(_model.candidates().size()),
+   lt_total, QString::number(_model.selected().size())));
  }
 }
 void AllowlistLockWidget::submit() {

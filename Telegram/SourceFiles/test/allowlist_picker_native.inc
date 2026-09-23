@@ -35,11 +35,15 @@ check(!_model.candidates().contains({Kind::User,99}),"Saved Messages is excluded
 check(!_model.candidates().contains({Kind::Chat,66}),"forbidden chat is excluded");
 check(_model.candidates().contains({Kind::Channel,81}) && _model.candidates().contains({Kind::Chat,7}),"archive and archived pinned chats are included");
 check(_model.selected().empty(),"no chats are preselected");
+check(_rowsContent && _rowsContent->fullRowsCount()==7,"native photo/type peer-list renderer contains every available chat");
 const auto oldSize=_model.candidates().size();
 receivePage(stale,Page{{{Entry{Kind::User,888},1,1,"stale",true}},true});
 check(_model.candidates().size()==oldSize,"old generation cannot inject stale chats");
 const auto select=[&](const QString &name) {
- for (const auto row:_rows) if(row->objectName()==name) {row->setChecked(true); return true;}
+ for (const auto row:_rows) if(u"allowgramPicker_"_q + TypedId(ToEntry(row->peer()->id)) == name) {
+  if (!row->checked()) _rowsController->rowClicked(row);
+  return row->checked();
+ }
  return false;
 };
 check(select(u"allowgramPicker_user:42"_q),"real user checkbox can be selected");

@@ -4,7 +4,13 @@
 #include "base/weak_ptr.h"
 #include "main/allowlist_picker.h"
 #include <memory>
+#include <vector>
+#include "rpl/variable.h"
 
+class PeerListRow;
+class PeerListController;
+class PeerListContent;
+class PeerListContentDelegateSimple;
 namespace Main { class Session; }
 namespace MTP { class Sender; }
 namespace Ui {
@@ -13,7 +19,6 @@ class InputField;
 class RoundButton;
 class ScrollArea;
 class VerticalLayout;
-class Checkbox;
 } // namespace Ui
 
 namespace Window {
@@ -30,7 +35,9 @@ private:
  void requestNext();
  void receivePage(std::uint64_t generation, Main::Allowlist::Picker::Page page);
  void failed(std::uint64_t generation);
+ void clearRows();
  void rebuildRows();
+ void updateRowsVisibleRange();
  void updateStatus();
  void submit();
  void showError(const QString &error);
@@ -43,10 +50,14 @@ private:
  Ui::RoundButton *_submit = nullptr;
  Ui::RoundButton *_retry = nullptr;
  Ui::RoundButton *_logout = nullptr;
- std::vector<Ui::Checkbox*> _rows;
+ std::vector<PeerListRow*> _rows;
+ std::unique_ptr<PeerListController> _rowsController;
+ std::unique_ptr<PeerListContentDelegateSimple> _rowsDelegate;
+ PeerListContent *_rowsContent = nullptr;
  Main::Allowlist::Picker::Model _model;
  std::unique_ptr<MTP::Sender> _api;
  base::weak_ptr<Main::Session> _session;
  std::uint64_t _generation = 0;
+ rpl::variable<int> _selectedCount;
 };
 } // namespace Window

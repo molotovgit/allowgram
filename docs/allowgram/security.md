@@ -56,7 +56,9 @@ Mini App requests require both an allowed typed user ID and a loaded server-reso
 ## Intentional limitations
 
 - An allowed group includes its participants' messages. A participant need not be individually allowed for their message to appear inside that group; their DM and bot-app permission are separate.
-- Calls to users outside the explicit user list, group/conference calls, aggregate stories/discovery, broad story publishing, automated business messaging and unscoped communication features are disabled.
+- Existing calls in explicitly allowed groups can be joined as the signed-in user. The session must map the exact call ID and access hash to that allowed group's current server-provided call. Group permission never authorizes private calls to members. Group-call creation, invitations/moderation, scheduled-call start, conference calls, and arbitrary call links remain disabled.
+- Group join/media requests require ownership created by the checked join flow; participant updates are self-only. Removed groups lose authorization immediately; only bound leave/cleanup is retained. Media is stopped and an in-flight join is cancelled and cleaned up on revocation.
+- Calls to users outside the explicit user list, aggregate stories/discovery, broad story publishing, automated business messaging and unscoped communication features are disabled.
 - Raw exports, takeout sessions and arbitrary URL previews/instant views are disabled.
 - Some Mini App bridge functions are disabled; see [Mini Apps](mini-apps.md).
 - Third-party web content and its backend roles remain governed by that service. Opening a bot app is not an administrator grant.

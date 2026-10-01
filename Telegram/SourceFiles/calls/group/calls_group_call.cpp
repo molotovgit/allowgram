@@ -634,7 +634,7 @@ GroupCall::GroupCall(
 , _singleSourceVolume(Group::kDefaultVolume) {
 	applyInputCall(inputCall);
 	if (!_peer->session().canJoinGroupCall(_peer->id)
-		|| _joinAs != _peer->session().user()
+		|| _joinAs.current() != _peer->session().user()
 		|| !_peer->session().allowlistGroupCalls().requestAllowed(
 			_peer->session().userId(), mtpc_phone_joinGroupCall, _id, _accessHash)) {
 		_state = State::Failed;
@@ -2184,7 +2184,7 @@ void GroupCall::applyParticipantLocally(
 }
 
 bool GroupCall::revalidateAuthorization() {
-	if (_joinAs == _peer->session().user()
+	if (_joinAs.current() == _peer->session().user()
 		&& _peer->session().canJoinGroupCall(_peer->id)
 		&& _peer->session().allowlistGroupCalls().requestAllowed(
 			_peer->session().userId(), mtpc_phone_checkGroupCall, _id, _accessHash)) {
@@ -2200,7 +2200,6 @@ bool GroupCall::revalidateAuthorization() {
 	// remotely even when its response has not arrived yet.
 	const auto ssrc = _joinState.ssrc
 		? _joinState.ssrc : _joinState.payload.ssrc;
-	_api.request(base::take(_joinState.requestId)).cancel();
 	_joinState.finish();
 	if (ssrc) {
 		session.api().request(MTPphone_LeaveGroupCall(

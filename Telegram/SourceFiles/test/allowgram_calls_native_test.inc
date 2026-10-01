@@ -98,6 +98,8 @@ check(application->property("allowgramGroupStart").toInt() == 0, "group without 
 	check(menu.actions().size() == 1, "actual allowed group menu exposes Join, not call creation");
 	const auto start = application->property("allowgramGroupStart").toInt();
 	if (!menu.actions().empty()) menu.actions().front()->trigger();
+	// Ui::Menu connects action handlers with Qt::QueuedConnection.
+	drainCalls();
 	check(application->property("allowgramGroupStart").toInt() == start + 1,
 		"actual Join menu callback crosses the production group eligibility gate");
 	auto &proof = session.allowlistGroupCalls();
@@ -113,6 +115,8 @@ check(application->property("allowgramGroupStart").toInt() == 0, "group without 
 		&& !proof.requestAllowed(session.userId(), mtpc_phone_joinGroupCall, 710, 1710),
 		"real Session revocation denies owned group join immediately");
 	if (!menu.actions().empty()) menu.actions().front()->trigger();
+	// Ui::Menu connects action handlers with Qt::QueuedConnection.
+	drainCalls();
 	check(application->property("allowgramGroupStart").toInt() == start + 1,
 		"retained Join menu callback cannot bypass group removal");
 	check(proof.requestAllowed(session.userId(), mtpc_phone_leaveGroupCall, 710, 1710),

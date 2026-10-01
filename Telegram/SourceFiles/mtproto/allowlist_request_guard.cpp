@@ -1254,6 +1254,10 @@ bool AllowlistGroupCallContext::begin(uint64 id, uint64 hash) {
 	if (!_self || !id || !hash || !_eligible(id, hash)) {
 		return false;
 	}
+	// Bound stale teardown entries in long-lived sessions.
+	if (_owned.size() >= 64) {
+		_owned.erase(_owned.begin());
+	}
 	_owned[{ id, hash }] = false;
 	return true;
 }

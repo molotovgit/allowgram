@@ -1379,10 +1379,10 @@ void GroupCall::initialJoinRequested() {
 	}
 	_peer->session().updates().addActiveChat(
 		_peerStream.events_starting_with_copy(_peer));
-	_canManage = Data::CanManageGroupCallValue(_peer);
+	_canManage = false;
 	SubscribeToMigration(_peer, _lifetime, [=](not_null<ChannelData*> peer) {
 		_peer = peer;
-		_canManage = Data::CanManageGroupCallValue(_peer);
+		_canManage = false;
 		_peerStream.fire_copy(peer);
 	});
 }
@@ -1795,6 +1795,9 @@ void GroupCall::joinDone(
 		bool wasVideoStopped,
 		bool justCreated) {
 	Expects(!justCreated || _startConferenceInfo != nullptr);
+	if (!revalidateAuthorization()) {
+		return;
+	}
 
 	_serverTimeMs = serverTimeMs;
 	_serverTimeMsGotAt = crl::now();
@@ -2187,9 +2190,22 @@ bool GroupCall::revalidateAuthorization() {
 			_peer->session().userId(), mtpc_phone_checkGroupCall, _id, _accessHash)) {
 		return true;
 	}
-	_peer->session().allowlistGroupCalls().close(_id, _accessHash);
+	auto &session = _peer->session();
+	session.allowlistGroupCalls().close(_id, _accessHash);
 	destroyScreencast();
 	destroyController();
+	_cameraCapture.reset();
+	_screenCapture.reset();
+	// The known payload SSRC can clean up an in-flight join already processed
+	// remotely even when its response has not arrived yet.
+	const auto ssrc = _joinState.ssrc
+		? _joinState.ssrc : _joinState.payload.ssrc;
+	_api.request(base::take(_joinState.requestId)).cancel();
+	_joinState.finish();
+	if (ssrc) {
+		session.api().request(MTPphone_LeaveGroupCall(
+			inputCall(), MTP_int(ssrc))).send();
+	}
 	hangup();
 	return false;
 }

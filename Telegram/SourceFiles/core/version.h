@@ -24,6 +24,6 @@ constexpr auto AppName = "Allowgram"_cs;
 constexpr auto AppFile = "Allowgram"_cs;
 constexpr auto AppVersion = 7002008;
 constexpr auto AppVersionStr = "7.2.8.10";
-constexpr auto AllowgramUpdateSequence = 9;
+constexpr auto AllowgramUpdateSequence = 10;
 constexpr auto AppBetaVersion = false;
 constexpr auto AppAlphaVersion = TDESKTOP_ALPHA_VERSION;

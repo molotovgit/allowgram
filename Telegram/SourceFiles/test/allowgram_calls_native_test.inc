@@ -83,7 +83,52 @@ for (const auto &invalid : { requested(101, 201, 42, 100, base::unixtime::now())
 }
 application->setProperty("allowgramGroupStart", 0);
 Core::App().calls().startOrJoinGroupCall(navigation->uiShow(), group, {});
-check(application->property("allowgramGroupStart").toInt() == 0, "hidden group call initiation stops before join UI");
+check(application->property("allowgramGroupStart").toInt() == 0, "group without an existing call cannot initiate one");
+{
+	const auto realGroup = group->asChat();
+	check(realGroup != nullptr, "synthetic group is a real production ChatData");
+	const auto input = MTP_inputGroupCall(MTP_long(710), MTP_long(1710));
+	realGroup->setGroupCall(input);
+	check(session.canJoinGroupCall(group->id), "existing allowlisted group call is joinable");
+	check(!session.canJoinGroupCall(user->id), "allowlisted private user cannot borrow group call capability");
+	check(!session.canJoinGroupCall(peerFromChat(ChatId(43))), "unresolved group cannot borrow group call capability");
+	auto menu = Ui::PopupMenu(bodyWidget());
+	Window::FillVideoChatMenu(navigation, { .key = session.data().history(group) },
+		Ui::Menu::CreateAddActionCallback(&menu));
+	check(menu.actions().size() == 1, "actual allowed group menu exposes Join, not call creation");
+	const auto start = application->property("allowgramGroupStart").toInt();
+	if (!menu.actions().empty()) menu.actions().front()->trigger();
+	check(application->property("allowgramGroupStart").toInt() == start + 1,
+		"actual Join menu callback crosses the production group eligibility gate");
+	auto &proof = session.allowlistGroupCalls();
+	check(!proof.begin(710, 9999) && !proof.begin(711, 1710),
+		"real Session resolver denies unrelated id and forged access hash");
+	check(proof.begin(710, 1710), "real Session resolver binds server-mapped allowed group id/hash");
+	check(proof.requestAllowed(710, 1710, mtpc_phone_joinGroupCall), "real Session admits owned group join");
+	const auto beforeRevoke = session.settings().serialize();
+	auto &peers = const_cast<base::flat_set<PeerId>&>(session.settings().allowlistPeers());
+	peers.erase(group->id);
+	session.settings().addFromSerialized(session.settings().serialize());
+	check(!session.canJoinGroupCall(group->id)
+		&& !proof.requestAllowed(710, 1710, mtpc_phone_joinGroupCall),
+		"real Session revocation denies owned group join immediately");
+	if (!menu.actions().empty()) menu.actions().front()->trigger();
+	check(application->property("allowgramGroupStart").toInt() == start + 1,
+		"retained Join menu callback cannot bypass group removal");
+	check(proof.requestAllowed(710, 1710, mtpc_phone_leaveGroupCall),
+		"real Session keeps only owned teardown after group removal");
+	session.settings().addFromSerialized(beforeRevoke);
+	check(!proof.requestAllowed(710, 1710, mtpc_phone_joinGroupCall),
+		"restoring group does not resurrect revoked call ownership");
+	realGroup->clearGroupCall();
+	check(!session.canJoinGroupCall(group->id) && !proof.begin(710, 1710),
+		"ended call loses server-mapped join authorization");
+	proof.forget(710, 1710);
+	realGroup->setGroupCall(input, base::unixtime::now() + 3600);
+	check(!session.canJoinGroupCall(group->id), "scheduled call cannot be started through Join");
+	realGroup->clearGroupCall();
+}
+
 application->setProperty("allowgramConferenceStart", 0);
 Core::App().calls().startOrJoinConferenceCall({ .show = navigation->uiShow() });
 check(application->property("allowgramConferenceStart").toInt() == 0, "hidden conference initiation stops before model allocation");

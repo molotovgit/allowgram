@@ -104,21 +104,21 @@ check(application->property("allowgramGroupStart").toInt() == 0, "group without 
 	check(!proof.begin(710, 9999) && !proof.begin(711, 1710),
 		"real Session resolver denies unrelated id and forged access hash");
 	check(proof.begin(710, 1710), "real Session resolver binds server-mapped allowed group id/hash");
-	check(proof.requestAllowed(710, 1710, mtpc_phone_joinGroupCall), "real Session admits owned group join");
+	check(proof.requestAllowed(session.userId(), mtpc_phone_joinGroupCall, 710, 1710), "real Session admits owned group join");
 	const auto beforeRevoke = session.settings().serialize();
 	auto &peers = const_cast<base::flat_set<PeerId>&>(session.settings().allowlistPeers());
 	peers.erase(group->id);
 	session.settings().addFromSerialized(session.settings().serialize());
 	check(!session.canJoinGroupCall(group->id)
-		&& !proof.requestAllowed(710, 1710, mtpc_phone_joinGroupCall),
+		&& !proof.requestAllowed(session.userId(), mtpc_phone_joinGroupCall, 710, 1710),
 		"real Session revocation denies owned group join immediately");
 	if (!menu.actions().empty()) menu.actions().front()->trigger();
 	check(application->property("allowgramGroupStart").toInt() == start + 1,
 		"retained Join menu callback cannot bypass group removal");
-	check(proof.requestAllowed(710, 1710, mtpc_phone_leaveGroupCall),
+	check(proof.requestAllowed(session.userId(), mtpc_phone_leaveGroupCall, 710, 1710),
 		"real Session keeps only owned teardown after group removal");
 	session.settings().addFromSerialized(beforeRevoke);
-	check(!proof.requestAllowed(710, 1710, mtpc_phone_joinGroupCall),
+	check(!proof.requestAllowed(session.userId(), mtpc_phone_joinGroupCall, 710, 1710),
 		"restoring group does not resurrect revoked call ownership");
 	realGroup->clearGroupCall();
 	check(!session.canJoinGroupCall(group->id) && !proof.begin(710, 1710),

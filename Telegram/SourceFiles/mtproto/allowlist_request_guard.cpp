@@ -634,6 +634,75 @@ template <typename Request>
 	}
 }
 
+template <typename Request>
+[[nodiscard]] bool ReadGroupCallAllowed(
+		const mtpPrime *from,
+		const mtpPrime *end,
+		UserId selfId,
+		AllowlistGroupCallContext *calls) {
+	if (!calls || !ValidateRequest<Request>(from, end)) {
+		return false;
+	}
+	const auto type = mtpTypeId(*from++);
+	if constexpr (std::is_same_v<Request, MTPphone_JoinGroupCall>
+		|| std::is_same_v<Request, MTPphone_EditGroupCallParticipant>) {
+		auto flags = MTPint();
+		constexpr auto allowedFlags = std::is_same_v<Request, MTPphone_JoinGroupCall>
+			? 7U // muted, invite_hash, video_stopped; not conference key/block.
+			: 61U; // self mute/hand/video state; not participant volume moderation.
+		if (!flags.read(from, end) || (flags.v & ~allowedFlags)) {
+			return false;
+		}
+	}
+	auto call = MTPInputGroupCall();
+	if (!call.read(from, end) || call.type() != mtpc_inputGroupCall) {
+		return false;
+	}
+	if constexpr (std::is_same_v<Request, MTPphone_JoinGroupCall>
+		|| std::is_same_v<Request, MTPphone_EditGroupCallParticipant>) {
+		auto peer = MTPInputPeer();
+		if (!peer.read(from, end)
+			|| (peer.type() != mtpc_inputPeerSelf && peer.type() != mtpc_inputPeerUser)
+			|| Destination(peer, selfId) != peerFromUser(selfId)) {
+			return false;
+		}
+	}
+	const auto &data = call.c_inputGroupCall();
+	return calls->requestAllowed(selfId, type, data.vid().v, data.vaccess_hash().v);
+}
+
+template <typename Request>
+[[nodiscard]] bool ReadGroupStreamAllowed(
+		const mtpPrime *from,
+		const mtpPrime *end,
+		UserId selfId,
+		AllowlistGroupCallContext *calls) {
+	if (!ValidateRequest<Request>(from, end)) {
+		return false;
+	}
+	++from;
+	if constexpr (std::is_same_v<Request, MTPupload_GetFile>) {
+		auto flags = MTPint();
+		if (!flags.read(from, end) || (flags.v & ~3U)) {
+			return false;
+		}
+	}
+	auto location = MTPInputFileLocation();
+	if (!location.read(from, end)) {
+		return false;
+	}
+	if (location.type() != mtpc_inputGroupCallStream) {
+		return true; // Preserve existing non-call download policy.
+	}
+	const auto &call = location.c_inputGroupCallStream().vcall();
+	if (!calls || call.type() != mtpc_inputGroupCall) {
+		return false;
+	}
+	const auto &data = call.c_inputGroupCall();
+	return calls->requestAllowed(
+		selfId, mtpc_phone_getGroupCallStreamChannels, data.vid().v, data.vaccess_hash().v);
+}
+
 [[nodiscard]] bool BodyAllowed(
 		const mtpPrime *from,
 		const mtpPrime *end,
@@ -642,6 +711,7 @@ template <typename Request>
 		const Fn<bool(UserId)> &knownBot,
 		AllowlistContentContext *content,
 		AllowlistCallContext *calls,
+		AllowlistGroupCallContext *groupCalls,
 		int depth) {
 	if (from == end || depth > 8) {
 		return false;
@@ -665,16 +735,47 @@ template <typename Request>
 	case mtpc_msg_resend_req:
 		return true;
 	case mtpc_invokeWithoutUpdates:
-		return BodyAllowed(from + 1, end, selfId, allows, knownBot, content, calls, depth + 1);
+		return BodyAllowed(from + 1, end, selfId, allows, knownBot, content, calls, groupCalls, depth + 1);
 	case mtpc_account_initTakeoutSession:
 	case mtpc_invokeWithTakeout:
 		return false;
 	case mtpc_invokeAfterMsg:
 		return (end - from > 3)
-			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, content, calls, depth + 1);
+			&& BodyAllowed(from + 3, end, selfId, allows, knownBot, content, calls, groupCalls, depth + 1);
 	case mtpc_invokeWithLayer:
 		return (end - from > 2)
-			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, content, calls, depth + 1);
+			&& BodyAllowed(from + 2, end, selfId, allows, knownBot, content, calls, groupCalls, depth + 1);
+	case mtpc_phone_getGroupCall:
+		return ReadGroupCallAllowed<MTPphone_GetGroupCall>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_getGroupParticipants:
+		return ReadGroupCallAllowed<MTPphone_GetGroupParticipants>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_joinGroupCall:
+		return ReadGroupCallAllowed<MTPphone_JoinGroupCall>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_leaveGroupCall:
+		return ReadGroupCallAllowed<MTPphone_LeaveGroupCall>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_checkGroupCall:
+		return ReadGroupCallAllowed<MTPphone_CheckGroupCall>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_editGroupCallParticipant:
+		return ReadGroupCallAllowed<MTPphone_EditGroupCallParticipant>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_joinGroupCallPresentation:
+		return ReadGroupCallAllowed<MTPphone_JoinGroupCallPresentation>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_leaveGroupCallPresentation:
+		return ReadGroupCallAllowed<MTPphone_LeaveGroupCallPresentation>(
+			from, end, selfId, groupCalls);
+	case mtpc_phone_getGroupCallStreamChannels:
+		return ReadGroupCallAllowed<MTPphone_GetGroupCallStreamChannels>(
+			from, end, selfId, groupCalls);
+	case mtpc_upload_getFile:
+		return ReadGroupStreamAllowed<MTPupload_GetFile>(from, end, selfId, groupCalls);
+	case mtpc_upload_getFileHashes:
+		return ReadGroupStreamAllowed<MTPupload_GetFileHashes>(from, end, selfId, groupCalls);
 	case mtpc_phone_getCallConfig:
 		return ReadPrivateCallAllowed<MTPphone_GetCallConfig>(
 			from, end, selfId, allows, calls);
@@ -1143,13 +1244,70 @@ bool AllowlistCallContext::requestAllowed(
 	return false;
 }
 
+AllowlistGroupCallContext::AllowlistGroupCallContext(
+		UserId self, Fn<bool(uint64, uint64)> eligible)
+: _self(self)
+, _eligible(std::move(eligible)) {
+}
+
+bool AllowlistGroupCallContext::begin(uint64 id, uint64 hash) {
+	if (!_self || !id || !hash || !_eligible(id, hash)) {
+		return false;
+	}
+	_owned[{ id, hash }] = false;
+	return true;
+}
+
+void AllowlistGroupCallContext::close(uint64 id, uint64 hash) {
+	if (const auto i = _owned.find({ id, hash }); i != end(_owned)) {
+		i->second = true;
+	}
+}
+
+void AllowlistGroupCallContext::forget(uint64 id, uint64 hash) {
+	_owned.erase({ id, hash });
+}
+
+bool AllowlistGroupCallContext::requestAllowed(
+		UserId self, mtpTypeId type, uint64 id, uint64 hash) {
+	if (!self || self != _self || !id || !hash) {
+		return false;
+	}
+	const auto i = _owned.find({ id, hash });
+	const auto eligible = _eligible(id, hash);
+	if (!eligible && i != end(_owned)) {
+		i->second = true; // Revocation is sticky until a fresh authorized begin.
+	}
+	if (type == mtpc_phone_leaveGroupCall
+		|| type == mtpc_phone_leaveGroupCallPresentation) {
+		return i != end(_owned); // Only our exact bound call may be cleaned up.
+	}
+	if (!eligible || (i != end(_owned) && i->second)) {
+		return false;
+	}
+	if (type == mtpc_phone_getGroupCall || type == mtpc_phone_getGroupParticipants) {
+		return true; // Banner participant reads for a currently allowlisted peer.
+	}
+	switch (type) {
+	case mtpc_phone_joinGroupCall:
+	case mtpc_phone_checkGroupCall:
+	case mtpc_phone_editGroupCallParticipant:
+	case mtpc_phone_joinGroupCallPresentation:
+	case mtpc_phone_getGroupCallStreamChannels:
+		return i != end(_owned);
+	default:
+		return false;
+	}
+}
+
 bool AllowlistRequestAllowed(
 		const details::SerializedRequest &request,
 		UserId selfId,
 		const Fn<bool(PeerId)> &allows,
 		const Fn<bool(UserId)> &knownBot,
 		AllowlistContentContext *content,
-		AllowlistCallContext *calls) {
+		AllowlistCallContext *calls,
+		AllowlistGroupCallContext *groupCalls) {
 	constexpr auto offset = details::SerializedRequest::kMessageBodyPosition;
 	if (!request || request->size() <= offset) {
 		return false;
@@ -1173,6 +1331,7 @@ bool AllowlistRequestAllowed(
 		knownBot,
 		content,
 		calls,
+		groupCalls,
 		0);
 }
 

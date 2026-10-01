@@ -407,8 +407,6 @@ case mtpc_updates_getDifference:
 case mtpc_updates_getState:
 case mtpc_upload_getCdnFile:
 case mtpc_upload_getCdnFileHashes:
-case mtpc_upload_getFile:
-case mtpc_upload_getFileHashes:
 case mtpc_upload_getWebFile:
 case mtpc_upload_reuploadCdnFile:
 case mtpc_users_getFullUser:

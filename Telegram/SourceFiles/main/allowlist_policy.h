@@ -24,6 +24,8 @@ enum class Error { None, Empty, InvalidId, WrongField, TooMany, TooLong };
 [[nodiscard]] bool CanPresentPeerProfile(Kind kind, bool conversationAllowed);
 [[nodiscard]] bool CanCreateConversations();
 [[nodiscard]] bool CanUseCalls();
+[[nodiscard]] bool CanJoinGroupCall(
+	Kind kind, bool conversationAllowed, bool existing, bool conference);
 [[nodiscard]] bool CanCallUser(
 	Kind kind, bool conversationAllowed, bool knownUser, bool self, bool bot);
 [[nodiscard]] bool CanStartUserSession(int authorizedAccounts);

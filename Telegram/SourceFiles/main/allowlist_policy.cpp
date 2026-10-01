@@ -113,6 +113,11 @@ bool CanUseCalls() {
 	return false;
 }
 
+bool CanJoinGroupCall(
+		Kind kind, bool conversationAllowed, bool existing, bool conference) {
+	return kind != Kind::User && conversationAllowed && existing && !conference;
+}
+
 bool CanCallUser(
 		Kind kind,
 		bool conversationAllowed,

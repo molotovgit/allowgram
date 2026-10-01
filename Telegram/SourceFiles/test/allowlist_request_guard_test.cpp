@@ -365,6 +365,9 @@ int main() {
 			std::cerr << "FAIL: " << name << '\n';
 		}
 	};
+
+#include "test/allowlist_group_call_guard_test.inc"
+
 	auto eligible = true;
 	const auto eligibleUser = Fn<bool(UserId)>([&](UserId peer) {
 		return eligible && peer == UserId(42);

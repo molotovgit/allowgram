@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "calls/group/calls_group_call.h"
+#include "mtproto/allowlist_request_guard.h"
 
 #include "calls/group/calls_group_common.h"
 #include "calls/group/calls_group_messages.h"
@@ -606,7 +607,7 @@ GroupCall::GroupCall(
 , _conferenceJoinMessageId(startInfo.joinMessageId)
 , _rtmpUrl(join.rtmpInfo.url)
 , _rtmpKey(join.rtmpInfo.key)
-, _canManage(Data::CanManageGroupCallValue(_peer))
+, _canManage(rpl::single(false))
 , _scheduleDate(join.scheduleDate)
 , _lastSpokeCheckTimer([=] { checkLastSpoke(); })
 , _checkJoinedTimer([=] { checkJoined(); })
@@ -632,6 +633,13 @@ GroupCall::GroupCall(
 , _rtmp(join.rtmp)
 , _singleSourceVolume(Group::kDefaultVolume) {
 	applyInputCall(inputCall);
+	if (!_peer->session().canJoinGroupCall(_peer->id)
+		|| _joinAs != _peer->session().user()
+		|| !_peer->session().allowlistGroupCalls().requestAllowed(
+			_peer->session().userId(), mtpc_phone_joinGroupCall, _id, _accessHash)) {
+		_state = State::Failed;
+		return;
+	}
 
 	_muted.value(
 	) | rpl::combine_previous(
@@ -744,6 +752,7 @@ void GroupCall::processConferenceStart(StartConferenceInfo conference) {
 }
 
 GroupCall::~GroupCall() {
+	_peer->session().allowlistGroupCalls().close(_id, _accessHash);
 	_e2e = nullptr;
 	destroyScreencast();
 	destroyController();
@@ -1582,14 +1591,15 @@ void GroupCall::setJoinAs(not_null<PeerData*> as) {
 }
 
 void GroupCall::saveDefaultJoinAs(not_null<PeerData*> as) {
-	setJoinAs(as);
-	_api.request(MTPphone_SaveDefaultGroupCallJoinAs(
-		_peer->input(),
-		joinAs()->input()
-	)).send();
+	if (as == _peer->session().user()) {
+		setJoinAs(as); // Allowgram always joins as self; no remote identity preference.
+	}
 }
 
 void GroupCall::rejoin(not_null<PeerData*> as) {
+	if (as != _peer->session().user() || !revalidateAuthorization()) {
+		return;
+	}
 	if (state() != State::Joining
 		&& state() != State::Joined
 		&& state() != State::Connecting) {
@@ -1640,6 +1650,9 @@ void GroupCall::rejoin(not_null<PeerData*> as) {
 }
 
 void GroupCall::sendJoinRequest() {
+	if (!revalidateAuthorization()) {
+		return;
+	}
 	if (state() != State::Joining) {
 		_joinState.finish();
 		checkNextJoinAction();
@@ -2167,7 +2180,22 @@ void GroupCall::applyParticipantLocally(
 			MTP_int(0)).c_updateGroupCallParticipants());
 }
 
+bool GroupCall::revalidateAuthorization() {
+	if (_joinAs == _peer->session().user()
+		&& _peer->session().canJoinGroupCall(_peer->id)
+		&& _peer->session().allowlistGroupCalls().requestAllowed(
+			_peer->session().userId(), mtpc_phone_checkGroupCall, _id, _accessHash)) {
+		return true;
+	}
+	_peer->session().allowlistGroupCalls().close(_id, _accessHash);
+	destroyScreencast();
+	destroyController();
+	hangup();
+	return false;
+}
+
 void GroupCall::hangup() {
+	_peer->session().allowlistGroupCalls().close(_id, _accessHash);
 	finish(FinishType::Ended);
 }
 
@@ -2190,6 +2218,9 @@ void GroupCall::discard() {
 }
 
 void GroupCall::rejoinAs(Group::JoinInfo info) {
+	if (info.peer != _peer || info.joinAs != _peer->session().user()) {
+		return;
+	}
 	_possibleJoinAs = std::move(info.possibleJoinAs);
 	if (info.joinAs == joinAs()) {
 		return;

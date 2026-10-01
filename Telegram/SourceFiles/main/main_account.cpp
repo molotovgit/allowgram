@@ -451,7 +451,8 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 				return bot && bot->isBot();
 			},
 			_session ? &_session->allowlistContent() : nullptr,
-			_session ? &_session->allowlistCalls() : nullptr);
+			_session ? &_session->allowlistCalls() : nullptr,
+			_session ? &_session->allowlistGroupCalls() : nullptr);
 	});
 
 	const auto writingKeys = _mtp->lifetime().make_state<bool>(false);

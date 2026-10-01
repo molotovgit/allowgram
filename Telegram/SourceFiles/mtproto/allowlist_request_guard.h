@@ -79,12 +79,31 @@ private:
 
 };
 
+// Session-local ownership of existing, server-bound group calls. Eligibility
+// resolves BOTH id/hash through the session's current peer->groupCall mapping.
+class AllowlistGroupCallContext final {
+public:
+	AllowlistGroupCallContext(UserId self, Fn<bool(uint64, uint64)> eligible);
+	[[nodiscard]] bool begin(uint64 id, uint64 hash);
+	void close(uint64 id, uint64 hash);
+	void forget(uint64 id, uint64 hash);
+	[[nodiscard]] bool requestAllowed(
+		UserId self, mtpTypeId type, uint64 id, uint64 hash);
+
+private:
+	const UserId _self;
+	const Fn<bool(uint64, uint64)> _eligible;
+	// false = active/joining, true = closing (teardown only).
+	std::map<std::pair<uint64, uint64>, bool> _owned;
+};
+
 [[nodiscard]] bool AllowlistRequestAllowed(
 	const details::SerializedRequest &request,
 	UserId selfId,
 	const Fn<bool(PeerId)> &allows,
 	const Fn<bool(UserId)> &knownBot = nullptr,
 	AllowlistContentContext *content = nullptr,
-	AllowlistCallContext *calls = nullptr);
+	AllowlistCallContext *calls = nullptr,
+	AllowlistGroupCallContext *groupCalls = nullptr);
 
 } // namespace MTP

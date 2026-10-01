@@ -4331,11 +4331,8 @@ bool FillVideoChatMenu(
 		not_null<SessionController*> controller,
 		Dialogs::EntryState request,
 		const PeerMenuCallback &addAction) {
-	if (!Main::Allowlist::CanUseCalls()) {
-		return false;
-	}
 	const auto peer = request.key.peer();
-	if (!peer || peer->isUser()) {
+	if (!peer || !peer->session().canJoinGroupCall(peer->id)) {
 		return false;
 	}
 

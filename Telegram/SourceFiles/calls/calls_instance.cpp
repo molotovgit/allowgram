@@ -238,28 +238,23 @@ void Instance::startOrJoinGroupCall(
 		std::shared_ptr<Ui::Show> show,
 		not_null<PeerData*> peer,
 		StartGroupCallArgs args) {
-	if (!Main::Allowlist::CanUseCalls()) {
+	if (args.scheduleNeeded || !peer->session().canJoinGroupCall(peer->id)) {
 		return;
 	}
+	const auto weak = base::make_weak(&peer->session());
 	confirmLeaveCurrent(show, peer, args, [=](StartGroupCallArgs args) {
-		using JoinConfirm = Calls::StartGroupCallArgs::JoinConfirm;
-		const auto context = (args.confirm == JoinConfirm::Always)
-			? Group::ChooseJoinAsProcess::Context::JoinWithConfirm
-			: peer->groupCall()
-			? Group::ChooseJoinAsProcess::Context::Join
-			: args.scheduleNeeded
-			? Group::ChooseJoinAsProcess::Context::CreateScheduled
-			: Group::ChooseJoinAsProcess::Context::Create;
-		_chooseJoinAs->start(peer, context, show, [=](Group::JoinInfo info) {
-			const auto call = info.peer->groupCall();
-			info.joinHash = args.joinHash;
-			if (call) {
-				info.rtmp = call->rtmp();
-			}
-			createGroupCall(
-				std::move(info),
-				call ? call->input() : MTP_inputGroupCall({}, {}));
-		});
+		if (!weak || !peer->session().canJoinGroupCall(peer->id)) {
+			return;
+		}
+		const auto call = peer->groupCall();
+		const auto self = peer->session().user();
+		createGroupCall(Group::JoinInfo{
+			.peer = peer,
+			.joinAs = self,
+			.possibleJoinAs = { self },
+			.joinHash = args.joinHash,
+			.rtmp = call->rtmp(),
+		}, call->input());
 	});
 }
 
@@ -528,7 +523,18 @@ void Instance::destroyGroupCall(not_null<GroupCall*> call) {
 void Instance::createGroupCall(
 		Group::JoinInfo info,
 		const MTPInputGroupCall &inputCall) {
+	const auto session = &info.peer->session();
+	if (!session->canJoinGroupCall(info.peer->id)
+		|| info.joinAs != session->user()
+		|| inputCall.type() != mtpc_inputGroupCall) {
+		return;
+	}
 	destroyCurrentCall();
+	const auto &identity = inputCall.c_inputGroupCall();
+	if (!session->allowlistGroupCalls().begin(
+		identity.vid().v, identity.vaccess_hash().v)) {
+		return;
+	}
 
 	auto call = std::make_unique<GroupCall>(
 		_delegate.get(),
@@ -543,6 +549,17 @@ void Instance::createGroupCall(
 
 	_currentGroupCallPanel = std::make_unique<Group::Panel>(raw);
 	_currentGroupCall = std::move(call);
+	session->settings().allowlistChanges(
+	) | rpl::on_next([=] {
+		if (!session->canJoinGroupCall(raw->peer()->id)) {
+			// Stop capture/media immediately, even with a join request pending.
+			const auto weak = base::make_weak(raw);
+			raw->revalidateAuthorization();
+			if (weak) {
+				destroyGroupCall(raw);
+			}
+		}
+	}, raw->lifetime());
 	_currentGroupCallChanges.fire_copy(raw);
 }
 
@@ -746,7 +763,28 @@ void Instance::handleCallUpdate(
 void Instance::handleGroupCallUpdate(
 		not_null<Main::Session*> session,
 		const MTPUpdate &update) {
-	if (!Main::Allowlist::CanUseCalls()) {
+	const auto current = _currentGroupCall
+		? _currentGroupCall.get() : _startingGroupCall.get();
+	const auto ownsCurrent = current && &current->peer()->session() == session
+		&& !current->conference() && session->allowlistAllows(current->peer()->id);
+	const auto allowedId = [&](uint64 id) {
+		const auto known = session->data().groupCall(id);
+		return (known && session->canJoinGroupCall(known->peer()->id))
+			|| (ownsCurrent && current->id() == id);
+	};
+	const auto allowed = update.match([&](const MTPDupdateGroupCall &data) {
+		return data.vcall().match([&](const auto &call) {
+			return allowedId(call.vid().v);
+		});
+	}, [&](const MTPDupdateGroupCallParticipants &data) {
+		return data.vcall().type() == mtpc_inputGroupCall
+			&& allowedId(data.vcall().c_inputGroupCall().vid().v);
+	}, [&](const MTPDupdateGroupCallConnection &) {
+		return ownsCurrent;
+	}, [](const auto &) {
+		return false; // Conference, story-stream and paid-message updates stay off.
+	});
+	if (!allowed) {
 		return;
 	}
 	if (const auto i = _streams.find(session); i != end(_streams)) {
@@ -839,13 +877,12 @@ void Instance::handleGroupCallUpdate(
 void Instance::applyGroupCallUpdateChecked(
 		not_null<Main::Session*> session,
 		const MTPUpdate &update) {
-	if (!Main::Allowlist::CanUseCalls()) {
-		return;
-	}
 	const auto groupCall = _currentGroupCall
 		? _currentGroupCall.get()
 		: _startingGroupCall.get();
-	if (groupCall && (&groupCall->peer()->session() == session)) {
+	if (groupCall && (&groupCall->peer()->session() == session)
+		&& !groupCall->conference()
+		&& session->allowlistAllows(groupCall->peer()->id)) {
 		groupCall->handleUpdate(update);
 	}
 }

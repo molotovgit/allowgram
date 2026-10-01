@@ -22,6 +22,7 @@ namespace MTP {
 class Instance;
 class AllowlistContentContext;
 class AllowlistCallContext;
+class AllowlistGroupCallContext;
 struct ConfigFields;
 } // namespace MTP
 
@@ -248,6 +249,8 @@ public:
 	[[nodiscard]] MTP::AllowlistContentContext &allowlistContent();
 	[[nodiscard]] bool canCallPeer(PeerId peer) const;
 	[[nodiscard]] MTP::AllowlistCallContext &allowlistCalls();
+	[[nodiscard]] bool canJoinGroupCall(PeerId peer) const;
+	[[nodiscard]] MTP::AllowlistGroupCallContext &allowlistGroupCalls();
 	[[nodiscard]] bool canPresentPeerProfile(PeerId peer) const;
 	[[nodiscard]] const base::flat_set<PeerId> &allowlistPeers() const;
 	[[nodiscard]] QString configureAllowlist(
@@ -325,6 +328,7 @@ private:
 	rpl::variable<bool> _allowlistConfigured;
 	std::unique_ptr<MTP::AllowlistContentContext> _allowlistContent;
 	std::unique_ptr<MTP::AllowlistCallContext> _allowlistCalls;
+	std::unique_ptr<MTP::AllowlistGroupCallContext> _allowlistGroupCalls;
 	const std::unique_ptr<Data::Changes> _changes;
 	const std::unique_ptr<ApiWrap> _api;
 	const std::unique_ptr<Api::Updates> _updates;

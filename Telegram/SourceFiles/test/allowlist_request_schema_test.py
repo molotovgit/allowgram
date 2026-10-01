@@ -121,7 +121,12 @@ class RequestPolicySchemaTest(unittest.TestCase):
             "users_getUsers", "updates_getState", "updates_getDifference",
             "messages_getDialogs", "upload_getFile",
         ):
-            self.assertIn(name, SAFE)
+            if name == "upload_getFile":
+                guard = (SOURCE / "mtproto/allowlist_request_guard.cpp").read_text()
+                self.assertIn("ReadGroupStreamAllowed<MTPupload_GetFile>", guard)
+                self.assertNotIn(name, SAFE)
+            else:
+                self.assertIn(name, SAFE)
         self.assertIn("messages_getHistory", PEER_CHECKED)
 
 

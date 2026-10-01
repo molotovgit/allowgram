@@ -46,7 +46,8 @@ int TotalChecks = 0;
 constexpr auto kTarget = Target{ Os::Linux, Arch::X64 };
 constexpr auto kOtherArch = Target{ Os::Linux, Arch::Arm };
 constexpr auto kOtherOs = Target{ Os::Mac, Arch::X64 };
-constexpr auto kAllowgramSequence = quint32(8);
+// The release counter is configured per build; fixed vector tests below stay at 8.
+constexpr auto kAllowgramSequence = Core::BuildAllowgramSequence;
 
 void Check(bool condition, const char *name) {
 	++TotalChecks;

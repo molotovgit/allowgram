@@ -422,9 +422,6 @@ rpl::producer<Ui::GroupCallBarContent> GroupCallBarContentByPeer(
 		not_null<PeerData*> peer,
 		int userpicSize,
 		bool showInForum) {
-	if (!Main::Allowlist::CanUseCalls()) {
-		return rpl::single(Ui::GroupCallBarContent{ .shown = false });
-	}
 	const auto channel = peer->asChannel();
 	return rpl::combine(
 		peer->session().changes().peerFlagsValue(
@@ -437,6 +434,7 @@ rpl::producer<Ui::GroupCallBarContent> GroupCallBarContentByPeer(
 	) | rpl::map([=](auto, Calls::GroupCall *current, bool hiddenByForum) {
 		const auto call = peer->groupCall();
 		return (call
+			&& peer->session().canJoinGroupCall(peer->id)
 			&& !hiddenByForum
 			&& (!current || current->peer() != peer))
 			? call

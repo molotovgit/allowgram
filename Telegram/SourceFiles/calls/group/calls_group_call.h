@@ -277,6 +277,7 @@ public:
 	void startConference();
 	void start(TimeId scheduleDate, bool rtmp);
 	void hangup();
+	bool revalidateAuthorization();
 	void discard();
 	void rejoinAs(Group::JoinInfo info);
 	void rejoinWithHash(const QString &hash);

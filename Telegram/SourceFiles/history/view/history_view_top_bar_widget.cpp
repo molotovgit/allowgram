@@ -1422,7 +1422,7 @@ void TopBarWidget::updateControlsVisibility() {
 		return false;
 	}();
 	_groupCall->setVisible(historyMode
-		&& Main::Allowlist::CanUseCalls()
+		&& peer && peer->session().canJoinGroupCall(peer->id)
 		&& groupCallsEnabled
 		&& !_chooseForReportReason);
 

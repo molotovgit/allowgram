@@ -1252,12 +1252,13 @@ std::optional<bool> PeerHasThisCall(
 [[nodiscard]] ClickHandlerPtr GroupCallClickHandler(
 		not_null<PeerData*> peer,
 		CallId callId) {
-	if (!Main::Allowlist::CanUseCalls()) {
+	if (peer->isUser() || !peer->session().allowlistAllows(peer->id)) {
 		return nullptr;
 	}
 	return std::make_shared<LambdaClickHandler>([=] {
 		const auto call = peer->groupCall();
-		if (call && call->id() == callId) {
+		if (call && call->id() == callId
+			&& peer->session().canJoinGroupCall(peer->id)) {
 			const auto &windows = peer->session().windows();
 			if (windows.empty()) {
 				Core::App().domain().activate(&peer->session().account());

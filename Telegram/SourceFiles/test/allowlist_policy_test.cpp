@@ -27,7 +27,17 @@ void CheckInvalid(std::string_view value, bool users, Error expected) {
 int main() {
 	using namespace Main::Allowlist;
 	Check(!CanCreateConversations(), "Conversation creation must be disabled");
-	Check(!CanUseCalls(), "Generic call navigation and group calls remain disabled");
+	Check(!CanUseCalls(), "Generic and conference call navigation stays disabled");
+	for (const auto kind : { Kind::User, Kind::Chat, Kind::Channel }) {
+		for (auto flags = 0; flags != 8; ++flags) {
+			const auto allowed = bool(flags & 1);
+			const auto existing = bool(flags & 2);
+			const auto conference = bool(flags & 4);
+			Check(CanJoinGroupCall(kind, allowed, existing, conference)
+				== (kind != Kind::User && allowed && existing && !conference),
+				"Group joining requires an existing allowlisted nonconference group");
+		}
+	}
 	for (const auto kind : { Kind::User, Kind::Chat, Kind::Channel }) {
 		for (auto flags = 0; flags != 16; ++flags) {
 			const auto allowed = bool(flags & 1);

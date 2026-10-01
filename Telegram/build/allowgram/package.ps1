@@ -153,8 +153,9 @@ notifications. Excluded conversations produce no message previews, unread
 badges, sounds or incoming-call alerts. Incoming and outgoing private voice/video
 calls require an explicitly allowed, known nonbot user. Use the eligible private
 chat's call button (right-click for voice/video). Group permission does not permit
-calls with its members. Calls history, group/conference calls, aggregate stories,
-payments and business automation are disabled. Creating groups/channels,
+calls with its members. Join existing calls in explicitly allowed groups as yourself.
+Group call creation, invitations/moderation, conference calls, calls history,
+aggregate stories, payments and business automation remain disabled. Creating groups/channels,
 Saved Messages, all user profile views (including My Profile) and adding
 another account are disabled. Contacts, Settings and existing allowed
 conversations remain available. Emoji (including typed or

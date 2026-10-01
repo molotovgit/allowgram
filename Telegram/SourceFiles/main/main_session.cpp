@@ -51,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_changes.h"
 #include "data/data_user.h"
+#include "data/data_group_call.h"
 #include "data/data_document.h"
 #include "data/data_document_media.h"
 #include <QtCore/QFile>
@@ -465,6 +466,34 @@ MTP::AllowlistCallContext &Session::allowlistCalls() {
 			userId(), [=](UserId peer) { return canCallPeer(peerFromUser(peer)); });
 	}
 	return *_allowlistCalls;
+}
+
+bool Session::canJoinGroupCall(PeerId id) const {
+	const auto peer = data().peerLoaded(id);
+	const auto call = peer ? peer->groupCall() : nullptr;
+	return Allowlist::CanJoinGroupCall(
+		peerIsUser(id) ? Allowlist::Kind::User
+			: peerIsChat(id) ? Allowlist::Kind::Chat : Allowlist::Kind::Channel,
+		allowlistAllows(id),
+		call && call->id() && !call->scheduleDate(),
+		call && call->origin() != Data::GroupCallOrigin::Group);
+}
+
+MTP::AllowlistGroupCallContext &Session::allowlistGroupCalls() {
+	if (!_allowlistGroupCalls) {
+		_allowlistGroupCalls = std::make_unique<MTP::AllowlistGroupCallContext>(
+			userId(), [=](uint64 id, uint64 hash) {
+				const auto call = data().groupCall(id);
+				if (!call || call != call->peer()->groupCall()
+					|| !canJoinGroupCall(call->peer()->id)) {
+					return false;
+				}
+				const auto input = call->input();
+				return input.type() == mtpc_inputGroupCall
+					&& input.c_inputGroupCall().vaccess_hash().v == hash;
+			});
+	}
+	return *_allowlistGroupCalls;
 }
 
 bool Session::canPresentPeerProfile(PeerId peer) const {

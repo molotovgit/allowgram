@@ -174,7 +174,11 @@ changes remain disabled. Third-party dashboards retain their backend permissions
 
 Each setup section has a + button to add another ID row and a Remove button
 to delete an unwanted row. Up to 10,000 distinct IDs are supported.
-The list stays fixed until you log out; logging out requires setup again.
+Unmanaged lists stay fixed until logout. With explicit Head-managed enrollment,
+authorized managers can change the signed list while you remain signed in.
+The client verifies and saves each policy before acknowledging it; an empty
+managed list denies all chats. A device without connectivity keeps its last
+verified restrictions. Temporary management hosts are for isolated QA only.
 
 The restriction applies to this client. Other Telegram clients and existing
 sessions are outside its control. Official Telegram updates are disabled;

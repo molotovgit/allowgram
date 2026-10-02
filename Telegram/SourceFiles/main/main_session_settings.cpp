@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 
 #include "main/allowlist_policy.h"
+#include "main/allowlist_managed_policy.h"
+#include <QtCore/QDateTime>
 
 #include "chat_helpers/tabbed_selector.h"
 #include "ui/widgets/fields/input_field.h"
@@ -27,6 +29,7 @@ constexpr auto kLegacyCallsPeerToPeerNobody = 4;
 constexpr auto kVersionTag = -1;
 constexpr auto kVersion = 2;
 constexpr auto kAllowlistMagic = qint32(0x414C5731);
+constexpr auto kManagedMagic = qint32(0x41474831);
 
 } // namespace
 
@@ -34,6 +37,25 @@ SessionSettings::SessionSettings()
 : _selectorTab(ChatHelpers::SelectorTab::Emoji)
 , _supportSwitch(Support::SwitchSettings::Next)
 , _setupEmailState(Data::SetupEmailState::None) {
+}
+
+void SessionSettings::validateManagedAllowlist(UserId user) {
+	if (_managedAllowlist.isEmpty()) return;
+	_allowlistPeers.clear();
+	const auto subject = QString::number(user.bare);
+	const auto now = QDateTime::currentSecsSinceEpoch();
+	const auto state = Managed::ReadState(_managedAllowlist, subject, now);
+	if (!state) return; // Nonempty marker remains configured, but denies all.
+	const auto policy = Managed::VerifyPolicy(state->envelope, state->publicKey,
+		subject, state->device, 0, {}, now);
+	if (!policy) return;
+	for (const auto &entry : policy->peers) {
+		_allowlistPeers.emplace(entry.kind == QStringLiteral("user")
+			? peerFromUser(UserId(entry.id))
+			: entry.kind == QStringLiteral("chat")
+			? peerFromChat(ChatId(entry.id))
+			: peerFromChannel(ChannelId(entry.id)));
+	}
 }
 
 QByteArray SessionSettings::serialize() const {
@@ -99,6 +121,9 @@ QByteArray SessionSettings::serialize() const {
 		size += sizeof(quint64) + Serialize::stringSize(id.emoji());
 	}
 	size += 2 * sizeof(qint32) + _allowlistPeers.size() * sizeof(quint64);
+	if (!_managedAllowlist.isEmpty()) {
+		size += sizeof(qint32) + Serialize::bytearraySize(_managedAllowlist);
+	}
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -195,6 +220,9 @@ QByteArray SessionSettings::serialize() const {
 		for (const auto peer : _allowlistPeers) {
 			stream << SerializePeerId(peer);
 		}
+		if (!_managedAllowlist.isEmpty()) {
+			stream << kManagedMagic << _managedAllowlist;
+		}
 	}
 
 	Ensures(result.size() == size);
@@ -204,6 +232,7 @@ QByteArray SessionSettings::serialize() const {
 void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	const auto notifyAllowlist = gsl::finally([&] { _allowlistChanges.fire({}); });
 	_allowlistPeers.clear();
+	_managedAllowlist.clear();
 	if (serialized.isEmpty()) {
 		return;
 	}
@@ -781,6 +810,20 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 		}
 		if (allowlistPeers.size() != count) {
 			return;
+		}
+		if (!stream.atEnd()) {
+			// A damaged managed extension must not reopen local setup.
+			_managedAllowlist = QByteArray("invalid-managed-state");
+			auto managedMagic = qint32();
+			auto size = quint32();
+			stream >> managedMagic >> size;
+			if (managedMagic != kManagedMagic || !size
+				|| size > Managed::MaxWireBytes
+				|| size != stream.device()->bytesAvailable()) return;
+			auto managed = QByteArray(int(size), Qt::Uninitialized);
+			if (stream.readRawData(managed.data(), int(size)) != int(size)
+				|| stream.status() != QDataStream::Ok || !stream.atEnd()) return;
+			_managedAllowlist = std::move(managed);
 		}
 	}
 	if (stream.status() != QDataStream::Ok) {

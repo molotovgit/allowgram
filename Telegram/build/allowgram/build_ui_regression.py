@@ -11,13 +11,19 @@ parser = argparse.ArgumentParser(description="Build a disposable real-widget reg
 parser.add_argument('--repository', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--hardening', action='store_true')
+parser.add_argument('--managed', action='store_true', help='Offline head-managed policy checks; requires --hardening')
 parser.add_argument('--picker', action='store_true')
 parser.add_argument('--optional-update', action='store_true')
 parser.add_argument('--optional-update-restart', action='store_true')
 parser.add_argument('--optional-update-trust', type=Path)
 parser.add_argument('--test-repository', type=Path)
 parser.add_argument('--compile-only', action='store_true')
+parser.add_argument('--compile-unit', action='append', choices=('mainwindow', 'managed_client'), default=[], help='Compile selected managed-fixture units only; requires --managed --compile-only')
 args = parser.parse_args()
+if args.managed and (not args.hardening or args.picker or args.optional_update or args.optional_update_restart or args.optional_update_trust):
+    parser.error('--managed requires --hardening and cannot combine with picker/update modes')
+if args.compile_unit and not (args.managed and args.compile_only):
+    parser.error('--compile-unit requires --managed --compile-only')
 root = args.repository.resolve()
 build = root / 'out'
 fixture = args.output.resolve()
@@ -387,6 +393,9 @@ if args.hardening:
                    + 'allowgramCallButtonVisible' + chr(34) + ', !_call->isHidden());\n')
     top_bar = top_bar[:end] + observation + top_bar[end:]
     extra_sources.append(('top_bar', 'history/view/history_view_top_bar_widget.cpp', json_includes + '\n' + top_bar))
+if args.managed:
+    from managed_fixture import instrument_managed
+    main, extra_sources = instrument_managed(root, test_root, fixture, main, extra_sources)
 if args.picker:
     assert not args.hardening and not args.optional_update_restart
     from picker_fixture import instrument_picker
@@ -403,6 +412,8 @@ original_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
 replacements = []
 compile_failures = []
 for name, relative in [('mainwindow', 'mainwindow.cpp'), ('window_allowlist', 'window/window_allowlist.cpp'), ('application', 'core/application.cpp')] + [(name, relative) for name, relative, source in extra_sources]:
+    if args.compile_unit and name not in args.compile_unit:
+        continue
     target = 'Telegram/CMakeFiles/Telegram.dir/Release/SourceFiles/' + relative + '.obj'
     command = subprocess.check_output(['ninja', '-f', 'build-Release.ninja', '-t', 'commands', target], cwd=build).decode().splitlines()[-1]
     old_source = str(root / 'Telegram/SourceFiles' / relative).replace('\\', '/')
@@ -460,6 +471,8 @@ block = re.sub(r'^  OBJECT_DIR = .*$', '  OBJECT_DIR = ' + str(fixture).replace(
     'testCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=(args.test_repository or root), text=True).strip(),
     'testDirty': subprocess.check_output(['git', 'status', '--porcelain'], cwd=(args.test_repository or root), text=True).splitlines(),
     'productionExecutableSha256': original_hash,
+    'selectedCompileUnits': args.compile_unit,
+    'managedFixture': args.managed,
     'hardeningFixture': args.hardening,
     'pickerFixture': args.picker,
     'optionalFixture': args.optional_update or args.optional_update_restart,

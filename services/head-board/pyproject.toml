@@ -1,0 +1,10 @@
+[project]
+name = "allowgram-head"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115,<0.130", "uvicorn>=0.30,<1", "cryptography>=44,<47"]
+[dependency-groups]
+dev = ["pytest>=8,<10", "httpx>=0.27,<1"]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

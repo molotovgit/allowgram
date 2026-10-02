@@ -19,6 +19,7 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import type { Session, Peer, User, Detail, Head, Audit, Device } from "./types";
+import Connections, { type Connection } from "./Connections";
 
 const key = (p: Peer) => `${p.kind}:${p.id}`;
 const stamp = (n: number | null) =>
@@ -45,6 +46,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null),
     [loading, setLoading] = useState(true),
     [page, setPage] = useState("users");
+  const [connections, setConnections] = useState<Connection[]>([]);
   const [users, setUsers] = useState<User[]>([]),
     [heads, setHeads] = useState<Head[]>([]),
     [events, setEvents] = useState<Audit[]>([]);
@@ -80,6 +82,7 @@ export default function App() {
   function clearPrivate() {
     setSession(null);
     setUsers([]);
+    setConnections([]);
     setHeads([]);
     setEvents([]);
     setDetail(null);
@@ -186,17 +189,19 @@ export default function App() {
     let cancelled = false;
     async function refreshAll() {
       try {
-        const [u, h, a] = await Promise.all([
+        const [u, h, a, c] = await Promise.all([
           api<User[]>("/api/users"),
           session?.role === "owner"
             ? api<Head[]>("/api/heads")
             : Promise.resolve([]),
           api<Audit[]>("/api/audit"),
+          session?.role === "owner" ? api<Connection[]>("/api/registrations") : Promise.resolve([]),
         ]);
         if (!cancelled) {
           setUsers(u);
           setHeads(h);
           setEvents(a);
+          setConnections(c);
         }
       } catch (e) {
         if (!cancelled)
@@ -556,6 +561,19 @@ export default function App() {
                   </button>
                 )}
               </div>
+              {session.role === "owner" && <Connections rows={connections} busy={busy}
+                approve={row => void run(async () => {
+                  await api(`/api/registrations/${row.id}/approve`, {fingerprint:row.fingerprint}, "POST");
+                  setConnections(await api<Connection[]>("/api/registrations"));
+                  await refresh();
+                  setNotice("Connection approved. Waiting for the device to apply and acknowledge its policy.");
+                })}
+                reject={row => void run(async () => {
+                  await api(`/api/registrations/${row.id}/reject`, {}, "POST");
+                  setConnections(await api<Connection[]>("/api/registrations"));
+                  setNotice("Connection rejected. No managed settings were shared.");
+                })}
+              />}
               <div className="stats">
                 <div>
                   <span>Managed users</span>

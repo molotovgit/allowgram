@@ -30,6 +30,7 @@ constexpr auto kVersionTag = -1;
 constexpr auto kVersion = 2;
 constexpr auto kAllowlistMagic = qint32(0x414C5731);
 constexpr auto kManagedMagic = qint32(0x41474831);
+constexpr auto kConnectionMagic = qint32(0x41474331);
 
 } // namespace
 
@@ -124,6 +125,7 @@ QByteArray SessionSettings::serialize() const {
 	if (!_managedAllowlist.isEmpty()) {
 		size += sizeof(qint32) + Serialize::bytearraySize(_managedAllowlist);
 	}
+	if (!_dashboardConnection.isEmpty()) size += sizeof(qint32) + Serialize::bytearraySize(_dashboardConnection);
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -223,6 +225,7 @@ QByteArray SessionSettings::serialize() const {
 		if (!_managedAllowlist.isEmpty()) {
 			stream << kManagedMagic << _managedAllowlist;
 		}
+		if (!_dashboardConnection.isEmpty()) stream << kConnectionMagic << _dashboardConnection;
 	}
 
 	Ensures(result.size() == size);
@@ -233,6 +236,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	const auto notifyAllowlist = gsl::finally([&] { _allowlistChanges.fire({}); });
 	_allowlistPeers.clear();
 	_managedAllowlist.clear();
+	_dashboardConnection.clear();
 	if (serialized.isEmpty()) {
 		return;
 	}
@@ -811,19 +815,25 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 		if (allowlistPeers.size() != count) {
 			return;
 		}
-		if (!stream.atEnd()) {
-			// A damaged managed extension must not reopen local setup.
-			_managedAllowlist = QByteArray("invalid-managed-state");
-			auto managedMagic = qint32();
+		while (!stream.atEnd()) {
+			auto tag = qint32();
 			auto size = quint32();
-			stream >> managedMagic >> size;
-			if (managedMagic != kManagedMagic || !size
-				|| size > Managed::MaxWireBytes
-				|| size != stream.device()->bytesAvailable()) return;
-			auto managed = QByteArray(int(size), Qt::Uninitialized);
-			if (stream.readRawData(managed.data(), int(size)) != int(size)
-				|| stream.status() != QDataStream::Ok || !stream.atEnd()) return;
-			_managedAllowlist = std::move(managed);
+			stream >> tag >> size;
+			const auto connection = tag == kConnectionMagic;
+			const auto managed = tag == kManagedMagic && _managedAllowlist.isEmpty() && _dashboardConnection.isEmpty();
+			if ((!connection && !managed) || (connection && !_dashboardConnection.isEmpty())) {
+				_managedAllowlist = QByteArray("invalid-managed-state"); return;
+			}
+			if (managed) _managedAllowlist = QByteArray("invalid-managed-state");
+			else _dashboardConnection = QByteArray("invalid-connection-state");
+			if (!size || size > Managed::MaxWireBytes || size > stream.device()->bytesAvailable()) return;
+			auto bytes = QByteArray(int(size), Qt::Uninitialized);
+			if (stream.readRawData(bytes.data(), int(size)) != int(size) || stream.status() != QDataStream::Ok) return;
+			if (managed) _managedAllowlist = std::move(bytes);
+			else {
+				_dashboardConnection = std::move(bytes);
+				if (!stream.atEnd()) { _managedAllowlist = QByteArray("invalid-managed-state"); return; }
+			}
 		}
 	}
 	if (stream.status() != QDataStream::Ok) {

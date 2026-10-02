@@ -1,4 +1,11 @@
 @import url("./tokens.css");
+.connections { padding: 20px; margin: 20px 0; }
+.connections .panel-toolbar { padding: 0; }
+.connection-card { padding: 16px 0; border-top: 1px solid var(--line, #e3e7ed); overflow-wrap: anywhere; }
+.connection-card h3 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.connection-confirm { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; }
+.connection-confirm input { width: auto; flex: none; }
+.connection-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 * {
   box-sizing: border-box;
 }

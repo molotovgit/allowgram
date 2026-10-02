@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from .store import Store, digest
 
 COOKIE = "agh_session"
+MAX_RATE_SOURCES = 4096
+_rate_now = time.monotonic
 
 
 class Code(BaseModel):
@@ -57,16 +59,22 @@ def create_app(
 
     @app.middleware("http")
     async def security(request: Request, call_next):
-        if request.url.hostname not in {url.hostname, "127.0.0.1", "localhost"}:
+        railway_health = (kwargs.get("production_public_key") and request.url.hostname == "healthcheck.railway.app"
+                          and request.method == "GET" and request.url.path == "/api/health")
+        if not railway_health and request.url.hostname not in {url.hostname, "127.0.0.1", "localhost"}:
             return JSONResponse({"detail": "Invalid host"}, status_code=400)
-        now = time.monotonic()
+        now = _rate_now()
         key = (
             request.client.host if request.client else "unknown",
             "auth" if request.url.path.startswith("/api/auth/") else "api",
         )
         with lock:
-            if key not in buckets and len(buckets) >= 4096:
-                return JSONResponse({"detail": "Busy; retry later"}, status_code=429)
+            if key not in buckets:
+                for old in [k for k, q in buckets.items() if not q or q[-1] < now - 60]:
+                    del buckets[old]
+                if len(buckets) >= MAX_RATE_SOURCES:
+                    return JSONResponse({"detail": "Busy; retry later"}, status_code=429,
+                                        headers={"Retry-After": "60"})
             bucket = buckets[key]
             while bucket and bucket[0] < now - 60:
                 bucket.popleft()
@@ -154,7 +162,11 @@ def create_app(
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "service": "Allowgram Head", "version": "0.1.0"}
+        result = {"ok": True, "service": "Allowgram Head", "version": "0.1.0"}
+        if kwargs.get("production_public_key"):
+            result.update(policy_public_key=kwargs["production_public_key"],
+                          build_commit=os.environ.get("HEAD_BUILD_COMMIT", "unknown"))
+        return result
 
     @app.get("/api/session")
     def session(request: Request):
@@ -204,6 +216,9 @@ def create_app(
     from . import wire
 
     wire.register(app)
+    from . import registration
+
+    registration.register(app)
     from fastapi.staticfiles import StaticFiles
 
     dist = Path(__file__).resolve().parent.parent / "web" / "dist"
@@ -213,7 +228,12 @@ def create_app(
 
 
 def configured_app():
+    public_key = None
+    if os.environ.get("HEAD_PRODUCTION") == "1":
+        from .production import prepare
+        public_key = prepare()
     return create_app(
+        production_public_key=public_key,
         public_url=os.environ.get("HEAD_PUBLIC_URL", "http://127.0.0.1:28444"),
         owner_id=os.environ.get("HEAD_OWNER_ID", "8683512953"),
     )

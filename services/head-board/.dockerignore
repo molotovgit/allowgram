@@ -1,0 +1,17 @@
+*
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!headboard/
+!headboard/*.py
+!web/
+!web/package.json
+!web/package-lock.json
+!web/index.html
+!web/tsconfig*.json
+!web/vite.config.ts
+!web/src/
+!web/src/**
+!web/public/
+!web/public/**

@@ -1,6 +1,10 @@
 /* Allowgram: account-bound managed allowlist transport. See LEGAL. */
 #include "main/allowlist_managed_client.h"
 #include <QtCore/QDateTime>
+#include <QtCore/QCryptographicHash>
+#include <QtCore/QRegularExpression>
+#include <QtCore/QSet>
+#include <openssl/rand.h>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtNetwork/QNetworkRequest>
@@ -8,10 +12,17 @@
 #include <memory>
 
 namespace Main {
-ManagedClient::ManagedClient(Host host, QObject *parent, QNetworkAccessManager *testTransport)
+ManagedClient::ManagedClient(Host host, QObject *parent, QNetworkAccessManager *testTransport,
+		std::optional<Managed::Invitation> testConnectionTrust)
 : QObject(parent)
 , _host(std::move(host))
+, _connectionOrigin(QStringLiteral("https://allowgram-head-production.up.railway.app"))
+, _connectionKey(QByteArray::fromBase64("emcLYc3W7m8Gv1y9r_cLBug_WZuzjFl1iMaNiV1ZYKw", QByteArray::Base64UrlEncoding))
 , _network(testTransport ? testTransport : new QNetworkAccessManager(this)) {
+	if (testTransport && testConnectionTrust) {
+		_connectionOrigin = testConnectionTrust->origin;
+		_connectionKey = testConnectionTrust->publicKey;
+	}
 	_timer.setSingleShot(true);
 	QObject::connect(&_timer,&QTimer::timeout,this,[this] { refresh(); });
 }
@@ -46,7 +57,7 @@ void ManagedClient::start() {
 	if (_stopped || _busy) return;
 	const auto saved = _host.stored();
 	if (saved.isEmpty()) {
-		changeStatus(QStringLiteral("Not managed. Your initial chat selection remains in use."));
+		if (readConnection()) refreshConnection();
 		return;
 	}
 	_state = Managed::ReadState(saved,_host.subject,QDateTime::currentSecsSinceEpoch());
@@ -60,10 +71,11 @@ void ManagedClient::start() {
 	refresh();
 }
 void ManagedClient::later() {
-	if (!_stopped && _state) _timer.start(30000);
+	if (!_stopped && (_state || _connection["decision"] == "pending")) _timer.start(30000);
 }
 void ManagedClient::refresh() {
-	if (_stopped || _busy || !_state) return;
+	if (_stopped || _busy) return;
+	if (!_state) { refreshConnection(); return; }
 	_timer.stop();
 	request(Stage::Policy,_state->origin,{},_state->token,[this](const QByteArray &body) {
 		auto next = *_state;
@@ -74,6 +86,10 @@ void ManagedClient::refresh() {
 }
 bool ManagedClient::pair(const QString &invitation) {
 	if (_stopped || _busy) return false;
+	if (_connection["decision"] == "pending") {
+		changeStatus(QStringLiteral("A dashboard connection is pending. Verify its code with your owner."));
+		return false;
+	}
 	if (paired()) {
 		changeStatus(QStringLiteral("Already managed. This account cannot replace its pinned head locally."));
 		return false;
@@ -138,7 +154,9 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 		const QByteArray &token, std::function<void(const QByteArray &)> done) {
 	if (_stopped || _busy) return;
 	const auto path = stage == Stage::Enroll ? QStringLiteral("/api/client/enroll")
-		: stage == Stage::Ack ? QStringLiteral("/api/client/ack") : QStringLiteral("/api/client/policy");
+		: stage == Stage::Ack ? QStringLiteral("/api/client/ack")
+		: stage == Stage::Register ? QStringLiteral("/api/client/register")
+		: stage == Stage::Connection ? QStringLiteral("/api/client/registration") : QStringLiteral("/api/client/policy");
 	QNetworkRequest request(origin.resolved(QUrl(path)));
 	request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
 	request.setAttribute(QNetworkRequest::CookieLoadControlAttribute,QNetworkRequest::Manual);
@@ -146,10 +164,11 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 	request.setTransferTimeout(15000);
 	request.setRawHeader("Accept","application/json");
 	if (!token.isEmpty()) request.setRawHeader("Authorization",QByteArray("Bearer ")+token);
-	if (stage != Stage::Policy) request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/json"));
+	const auto get = stage == Stage::Policy || stage == Stage::Connection;
+	if (!get) request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/json"));
 	_busy = true;
 	changeStatus(_status);
-	const auto reply = stage == Stage::Policy ? _network->get(request) : _network->post(request,body);
+	const auto reply = get ? _network->get(request) : _network->post(request,body);
 	_reply = reply;
 	reply->setReadBufferSize(Managed::MaxWireBytes);
 	const auto deadline = new QTimer(reply);
@@ -189,4 +208,5 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 		done(received->bytes);
 	});
 }
+#include "main/allowlist_managed_connection.inc"
 } // namespace Main

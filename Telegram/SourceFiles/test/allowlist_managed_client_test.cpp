@@ -33,9 +33,12 @@ public:
  struct Call { Operation operation; QNetworkRequest request; QByteArray body; };
  std::deque<Response> responses;
  std::vector<Call> calls;
+ std::function<bool()> applied;
+ std::vector<bool> appliedFlags;
 protected:
  QNetworkReply *createRequest(Operation op,const QNetworkRequest &request,QIODevice *outgoing=nullptr) override {
   calls.push_back({op,request,outgoing?outgoing->readAll():QByteArray()});
+  appliedFlags.push_back(applied ? applied() : false);
   auto response=Response{503,{}};
   if(!responses.empty()){response=responses.front();responses.pop_front();}
   return new Reply(request,std::move(response),this);
@@ -95,6 +98,78 @@ int main(int argc,char **argv) {
  }
  stored="corrupt";Network corrupt;ManagedClient locked(host,nullptr,&corrupt);locked.start();
  check(QStringLiteral("corrupt managed state cannot reopen pairing"),locked.paired()&&!locked.pair(data["invitation"].toString())&&corrupt.calls.empty());
+ stored.clear();
+ QByteArray connection = json(QJsonObject{{"v",1},{"decision","pending"},{"subject",host.subject},
+  {"token",QString(43,QChar('A'))},{"origin","https://allowgram-head-production.up.railway.app"},
+  {"public_key","emcLYc3W7m8Gv1y9r_cLBug_WZuzjFl1iMaNiV1ZYKw"},{"request",QJsonObject{{"telegram_user_id",host.subject},
+   {"initial_peers",QJsonArray{QJsonObject{{"kind","user"},{"id","23456"}}}},
+   {"device_name","Allowgram Desktop"},{"client_version","7.2.8.12"},{"consent_version",1}}}});
+ host.connectionStored=[&]{return connection;};
+ host.connectionCommit=[&](const QByteArray &bytes){if(!writes)return false;connection=bytes;return true;};
+ {
+  Network n;ManagedClient pending(host,nullptr,&n);pending.start();settle(pending);
+  check(QStringLiteral("pending consent resumes registration after restart"),n.calls.size()==1&&!pending.paired());
+  if(!n.calls.empty()) {
+   check(QStringLiteral("registration endpoint is pinned stable HTTPS"),n.calls[0].request.url().toString()==QStringLiteral("https://allowgram-head-production.up.railway.app/api/client/register"));
+   check(QStringLiteral("retry retains durable authorization"),n.calls[0].request.rawHeader("Authorization")==QByteArray("Bearer ")+QByteArray(43,'A'));
+  }
+ }
+ const auto pendingConnection = connection;
+ connection.clear();
+ {
+  Network n;ManagedClient anonymous(host,nullptr,&n);anonymous.start();
+  check(QStringLiteral("no management request before explicit consent"),n.calls.empty()&&anonymous.needsConsent());
+  check(QStringLiteral("automatic consent prompt is claimed once per session"),anonymous.claimConsentPrompt()&&!anonymous.claimConsentPrompt());
+  writes=false;check(QStringLiteral("consent disk failure prevents registration"),!anonymous.connectDashboard()&&n.calls.empty()&&connection.isEmpty());writes=true;
+  check(QStringLiteral("decline persists without management traffic"),anonymous.declineDashboard()&&n.calls.empty()&&!connection.isEmpty());
+ }
+ {
+  Network n;ManagedClient declined(host,nullptr,&n);declined.start();
+  check(QStringLiteral("decline survives restart and suppresses prompt"),!declined.needsConsent()&&n.calls.empty());
+ }
+ connection.clear();
+ QByteArray durableRequest,durableBearer;
+ {
+  Network n;ManagedClient consent(host,nullptr,&n);consent.start();
+  check(QStringLiteral("explicit consent persists then sends registration"),consent.connectDashboard()&&!connection.isEmpty()&&n.calls.size()==1);
+  durableRequest=n.calls.front().body;durableBearer=n.calls.front().request.rawHeader("Authorization");settle(consent);
+  consent.stop();consent.refresh();check(QStringLiteral("logout stops pending retries"),n.calls.size()==1);
+ }
+ {
+  Network n;ManagedClient retry(host,nullptr,&n);retry.start();settle(retry);
+  check(QStringLiteral("lost registration response reuses exact durable token and request"),n.calls.size()==1&&n.calls.front().body==durableRequest&&n.calls.front().request.rawHeader("Authorization")==durableBearer);
+ }
+ connection=pendingConnection;
+ {
+  auto wrong=QJsonDocument::fromJson(connection).object();wrong["origin"]="https://attacker.invalid";connection=json(wrong);
+  Network n;ManagedClient corruptConsent(host,nullptr,&n);corruptConsent.start();
+  check(QStringLiteral("tampered pending origin never receives credentials"),n.calls.empty()&&!corruptConsent.paired());
+ }
+ connection=pendingConnection;
+ const auto trust=Managed::ReadInvitation(data["invitation"].toString(),host.subject);
+ auto injected=QJsonDocument::fromJson(connection).object();
+ injected["origin"]=trust->origin.toString(QUrl::FullyEncoded);injected["public_key"]=QString::fromLatin1(trust->publicKey.toBase64(QByteArray::Base64UrlEncoding|QByteArray::OmitTrailingEquals));
+ connection=json(injected);
+ {
+  Network n;n.applied=[&]{return !stored.isEmpty();};ManagedClient pending(host,nullptr,&n,*trust);
+  auto status=QJsonObject{{"v",1},{"id",QString(32,QChar('c'))},{"status","pending"},{"telegram_user_id",host.subject},
+   {"fingerprint",QStringLiteral("placeholder")}};
+  pending.start();settle(pending);status["fingerprint"]=pending.connectionFingerprint();
+  n.responses.push_back({200,json(status)});pending.refresh();settle(pending);
+  check(QStringLiteral("pending approval preserves existing local permissions"),!pending.paired()&&stored.isEmpty()&&n.calls.size()==2);
+  const auto policy=data["enrollment"].toObject()["policy"].toObject();
+  status["status"]="approved";status["device_id"]=data["enrollment"].toObject()["device_id"];status["policy"]=policy;
+  n.responses.push_back({200,json(status)});n.responses.push_back({200,QByteArray("{\"ok\":true}")});pending.refresh();settle(pending);
+  check(QStringLiteral("approved consent verifies and persists policy before ACK"),pending.paired()&&!stored.isEmpty()&&n.calls.size()==4&&n.appliedFlags.back());
+  check(QStringLiteral("promoted registration keeps same device bearer for ACK"),n.calls.back().request.rawHeader("Authorization")==QByteArray("Bearer ")+QByteArray(43,'A'));
+ }
+ stored.clear();connection=json(injected);
+ {
+  Network n;ManagedClient rejected(host,nullptr,&n,*trust);rejected.start();settle(rejected);
+  const auto status=QJsonObject{{"v",1},{"id",QString(32,QChar('c'))},{"status","rejected"},{"telegram_user_id",host.subject},{"fingerprint",rejected.connectionFingerprint()}};
+  n.responses.push_back({200,json(status)});rejected.refresh();settle(rejected);rejected.refresh();
+  check(QStringLiteral("rejected registration stops retries without clearing local policy"),n.calls.size()==2&&stored.isEmpty()&&!rejected.paired());
+ }
  QFile receipt(QString::fromLocal8Bit(argv[2]));if(!receipt.open(QIODevice::WriteOnly))return 4;
  receipt.write(QJsonDocument(QJsonObject{{"finished",true},{"synthetic",true},{"tests",total},{"failures",failures},{"results",results}}).toJson());
  printf("Native managed client: %d checks, %d failures\n",total,failures);return failures?1:0;

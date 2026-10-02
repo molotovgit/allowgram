@@ -299,6 +299,16 @@ Session::Session(
 			return result;
 		},
 		[this](const QByteArray &blob) { return applyManagedAllowlist(blob); },
+		[this] { return _settings->_dashboardConnection; },
+		[this](const QByteArray &blob) {
+			if (blob.isEmpty() || blob.size() > Managed::MaxWireBytes) return false;
+			auto candidate = SessionSettings();
+			candidate.addFromSerialized(_settings->serialize());
+			candidate._dashboardConnection = blob;
+			if (!local().writeSessionSettingsVerified(candidate.serialize())) return false;
+			_settings->_dashboardConnection = blob;
+			return true; // No local permission mutation for consent/pending/decline.
+		},
 	});
 	crl::on_main(this, [this] { _managedAllowlist->start(); });
 }

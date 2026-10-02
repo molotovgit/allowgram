@@ -265,6 +265,7 @@ private:
 	std::vector<Data::ReactionId> _extraFavoriteReactions;
 	base::flat_set<PeerId> _allowlistPeers;
 	QByteArray _managedAllowlist;
+	QByteArray _dashboardConnection;
 	rpl::event_stream<> _allowlistChanges;
 
 	friend class Session;

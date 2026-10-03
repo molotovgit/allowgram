@@ -35,8 +35,10 @@ public:
 	void addFromSerialized(const QByteArray &serialized);
 
 	[[nodiscard]] bool allowlistConfigured() const {
-		return !_allowlistPeers.empty();
+		return !_managedAllowlist.isEmpty() || !_allowlistPeers.empty();
 	}
+	[[nodiscard]] const QByteArray &managedAllowlist() const { return _managedAllowlist; }
+	void validateManagedAllowlist(UserId user);
 	[[nodiscard]] const base::flat_set<PeerId> &allowlistPeers() const {
 		return _allowlistPeers;
 	}
@@ -262,6 +264,8 @@ private:
 
 	std::vector<Data::ReactionId> _extraFavoriteReactions;
 	base::flat_set<PeerId> _allowlistPeers;
+	QByteArray _managedAllowlist;
+	QByteArray _dashboardConnection;
 	rpl::event_stream<> _allowlistChanges;
 
 	friend class Session;

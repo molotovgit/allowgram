@@ -43,6 +43,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_domain.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
+#include "main/allowlist_managed_client.h"
+#include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/labels.h"
+#include "styles/style_boxes.h"
 #include "settings/settings_builder.h"
 #include "settings/cloud_password/settings_cloud_password_input.h"
 #include "settings/sections/settings_advanced.h"
@@ -96,6 +100,63 @@ namespace {
 using namespace Builder;
 
 constexpr auto kSugValidatePhone = "VALIDATE_PHONE_NUMBER"_cs;
+
+void DashboardConsentBox(not_null<Ui::GenericBox*> box, QPointer<::Main::ManagedClient> client, QString subject) {
+	if (!client) { box->closeBox(); return; }
+	box->setTitle(rpl::single(u"Connect to Allowgram dashboard?"_q));
+	box->addRow(object_ptr<Ui::FlatLabel>(box,
+		u"Account %1\n%2\n\nConnecting shares your Telegram account ID, device label and selected chat IDs — never your messages or login credentials. "
+		"You will appear as a pending connection. After the owner verifies your device code and approves, your assigned head can change your allowed chats. Removing a chat can end its calls. "
+		"Not now keeps your current sessions and chat selections unchanged."_q.arg(subject,client->dashboardAddress()),st::boxLabel));
+	const auto status = box->addRow(object_ptr<Ui::FlatLabel>(box,client->status(),st::boxLabel));
+	client->observe(box,[=] { if (client) status->setText(client->status()); else box->closeBox(); });
+	box->addButton(rpl::single(u"Connect"_q),[=] { if (client && client->connectDashboard()) box->closeBox(); });
+	box->addButton(rpl::single(u"Not now"_q),[=] { if (!client || client->declineDashboard()) box->closeBox(); });
+	box->boxClosing() | rpl::on_next([=] { if (client && client->needsConsent()) client->declineDashboard(); },box->lifetime());
+}
+
+void ManagedAllowlistBox(not_null<Ui::GenericBox*> box, not_null<Main::Session*> session) {
+	const auto client = QPointer<Main::ManagedClient>(&session->managedAllowlist());
+	const auto subject = QString::number(session->userId().bare);
+	box->setTitle(rpl::single(u"Head-managed allowlist"_q));
+	box->setWidth(520);
+	box->addRow(object_ptr<Ui::FlatLabel>(box,
+		u"Telegram account ID: %1\n\nA trusted head can change your allowed chats while you stay logged in. "
+		"Removing a chat also ends its calls. Only your account ID and selected chat IDs are shared — "
+		"not your Telegram login or messages."_q.arg(subject), st::boxLabel));
+	box->addRow(object_ptr<Ui::FlatLabel>(box,u"Connect to %1 without an invitation. The owner must verify your device code before approving management."_q.arg(client->dashboardAddress()),st::boxLabel));
+	const auto dashboard = box->addLeftButton(rpl::single(u"Connect dashboard"_q),[=] { if (client) client->connectDashboard(); });
+	const auto status = box->addRow(object_ptr<Ui::FlatLabel>(box,client->status(),st::boxLabel));
+	const auto target = box->addRow(object_ptr<Ui::FlatLabel>(box,QString(),st::boxLabel));
+	const auto field = box->addRow(object_ptr<Ui::InputField>(box,st::defaultInputField,
+		Ui::InputField::Mode::NoNewlines,rpl::single(u"Paste AGH1 invitation"_q)));
+	field->setObjectName(u"allowgramHeadInvitation"_q);
+	field->setMaxLength(4096);
+	const auto connect = box->addButton(rpl::single(u"Connect head"_q),[=] {
+		if (client) client->pair(field->getLastText());
+	});
+	const auto refresh = box->addButton(rpl::single(u"Sync now"_q),[=] {
+		if (client) client->refresh();
+	});
+	box->addButton(tr::lng_close(),[=] { box->closeBox(); });
+	const auto update = [=] {
+		if (!client) { box->closeBox(); return; }
+		status->setText(client->status());
+		const auto paired = client->paired();
+		const auto invitation = Main::Managed::ReadInvitation(field->getLastText().trimmed(),subject);
+		target->setText(paired ? u"Pinned head: %1"_q.arg(client->manager())
+			: invitation ? u"Connect to: %1"_q.arg(invitation->origin.toString(QUrl::FullyEncoded))
+			: u"Paste an invitation issued by your head. Verify its address before connecting."_q);
+		connect->setDisabled(client->busy() || paired || !invitation);
+		dashboard->setDisabled(client->busy() || paired);
+		refresh->setDisabled(client->busy());
+		field->setDisabled(client->busy() || paired);
+		if (paired && !field->getLastText().isEmpty()) field->setTextWithTags({});
+	};
+	client->observe(box,update);
+	field->changes() | rpl::on_next(update,box->lifetime());
+	update();
+}
 
 class Cover final : public Ui::FixedHeightWidget {
 public:
@@ -428,6 +489,14 @@ void BuildSectionButtons(SectionBuilder &builder) {
 			.shown = std::move(shownProducer),
 		});
 	}
+
+	builder.addButton({
+		.id = u"main/allowgram-head"_q,
+		.title = rpl::single(u"Head-managed allowlist"_q),
+		.icon = { &st::menuIconManage },
+		.onClick = [=] { controller->show(Box(ManagedAllowlistBox,session)); },
+		.keywords = { u"head"_q, u"allowlist"_q, u"managed"_q },
+	});
 
 	builder.addSectionButton({
 		.title = tr::lng_settings_advanced(),
@@ -793,6 +862,12 @@ const auto kMeta = BuildHelper({
 });
 
 } // namespace
+
+void ShowDashboardConnectionPrompt(not_null<Window::SessionController*> controller) {
+	const auto client = QPointer<::Main::ManagedClient>(&controller->session().managedAllowlist());
+	if (!client->claimConsentPrompt()) return;
+	controller->show(Box(DashboardConsentBox,client,QString::number(controller->session().userId().bare)));
+}
 
 void SetupLanguageButton(
 		not_null<Window::Controller*> window,

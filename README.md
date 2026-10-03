@@ -16,7 +16,7 @@ Allowgram is an unofficial, independent modification maintained by [molotovgit](
 - [Build from source](docs/allowgram/build.md)
 - [Frequently asked questions](docs/allowgram/faq.md)
 
-This repository publishes source. **No public installer or GitHub Release is provided by this publication.** Version 7.2.8.4 was built and delivered privately to the owner; a public binary release requires a separate distribution step. Do not substitute an upstream Telegram installer: it does not contain Allowgram's restrictions.
+Download the current published Windows installer or portable package from [GitHub Releases](https://github.com/molotovgit/allowgram/releases/latest). Development branches can contain changes not yet released. Windows updates use signed Allowgram packages and the native voluntary restart controls. Do not substitute an upstream Telegram installer: it does not contain Allowgram's restrictions.
 
 [![Allowgram allow-list setup with add-row and save controls](docs/allowgram/images/allow-list-overview.png)](docs/allowgram/allow-list.md)
 
@@ -24,7 +24,7 @@ This repository publishes source. **No public installer or GitHub Release is pro
 
 ## What the client enforces
 
-| Capability | Behavior in 7.2.8.7 |
+| Capability | Behavior |
 | --- | --- |
 | Choose existing chats | Search and check existing conversations after sign-in, then **Save and continue**. Saving waits for the complete list. Up to 10,000 distinct chats total. |
 | Conversation visibility | Excluded chat rows, search results, archive entries, message previews, unread badges and notifications are suppressed. |
@@ -33,9 +33,13 @@ This repository publishes source. **No public installer or GitHub Release is pro
 | Restricted navigation | Calls history, new group/channel creation, personal profiles, Saved Messages and additional accounts remain unavailable. |
 | Allowed groups | Messages from participants are visible inside an allowed group. This does not allow those participants' DMs or authorize their bots' Mini Apps. |
 | Bot Mini Apps | The server-resolved bot must be explicitly allowed. Conversation, reply and send-as contexts are also checked. Links resolve their own target; account switches close app windows. |
-| Persistent account policy | The list is stored with the account's encrypted local settings. There is no in-session editor in this version. |
+| Persistent account policy | Stored in encrypted local settings. Unmanaged users keep the initial picker. Explicit Head-managed enrollment enables signed manager changes without logout; ordinary users cannot replace a managed list. |
 
 The list is **a client-side restriction**, not a Telegram server rule or device-management policy. Telegram can still receive excluded messages for the account. Other Telegram clients, existing sessions, scheduled server-side actions and someone replacing this application remain outside its control. Read the [security boundaries and disabled features](docs/allowgram/security.md) before relying on it.
+
+## Managed allowlists
+
+[Version 7.2.8.11](docs/allowgram-7.2.8.11.md) adds explicit enrollment through **Settings → Head-managed allowlist**. The invitation is bound to the current account and pins the management origin and signing key. Unmanaged onboarding remains available. This is application-level control, not device-wide management.
 
 ## Verification
 

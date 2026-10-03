@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mainwindow.h"
+#include "settings/sections/settings_main.h"
 
 #include "data/data_document.h"
 #include "data/data_session.h"
@@ -410,6 +411,7 @@ void MainWindow::setupMain(
 	if (const auto strong = weakAnimatedLayer.get()) {
 		strong->hideAllAnimatedRun();
 	}
+	setInnerFocus();
 }
 
 void MainWindow::showSettings() {
@@ -682,6 +684,10 @@ bool MainWindow::contentOverlapped(const QRect &globalRect) {
 }
 
 void MainWindow::setInnerFocus() {
+	crl::on_main(this,[=] {
+		if (!isVisible() || _passcodeLock || _setupEmailLock || _allowlistLock || _layer || !_main) return;
+		if (const auto current = sessionController()) Settings::ShowDashboardConnectionPrompt(current);
+	});
 	if (_testingThemeWarning) {
 		_testingThemeWarning->setFocus();
 	} else if (_layer && _layer->canSetFocus()) {

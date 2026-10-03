@@ -93,6 +93,7 @@ class Account;
 class AppConfig;
 class Domain;
 class SessionSettings;
+class ManagedClient;
 class SendAsPeers;
 
 struct FreezeInfo {
@@ -243,6 +244,7 @@ public:
 	}
 
 	void saveSettings();
+	[[nodiscard]] ManagedClient &managedAllowlist() const;
 	[[nodiscard]] bool allowlistConfigured() const;
 	[[nodiscard]] rpl::producer<bool> allowlistConfiguredValue() const;
 	[[nodiscard]] bool allowlistAllows(PeerId peer) const;
@@ -320,6 +322,7 @@ private:
 	static constexpr auto kDefaultSaveDelay = crl::time(1000);
 
 	void appConfigRefreshed();
+	bool applyManagedAllowlist(const QByteArray &blob);
 
 	const UserId _userId;
 	const not_null<Account*> _account;
@@ -329,6 +332,7 @@ private:
 	std::unique_ptr<MTP::AllowlistContentContext> _allowlistContent;
 	std::unique_ptr<MTP::AllowlistCallContext> _allowlistCalls;
 	std::unique_ptr<MTP::AllowlistGroupCallContext> _allowlistGroupCalls;
+	std::unique_ptr<ManagedClient> _managedAllowlist;
 	const std::unique_ptr<Data::Changes> _changes;
 	const std::unique_ptr<ApiWrap> _api;
 	const std::unique_ptr<Api::Updates> _updates;

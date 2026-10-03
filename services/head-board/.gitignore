@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+.env
+*.sqlite*
+*.pem
+*.key
+playwright-report/
+test-results/

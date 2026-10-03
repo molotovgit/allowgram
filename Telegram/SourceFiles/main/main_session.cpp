@@ -8,6 +8,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 
 #include "main/allowlist_policy.h"
+#include "main/allowlist_managed_client.h"
+#include "dialogs/dialogs_indexed_list.h"
+#include "window/window_session_controller.h"
+#include <QtCore/QDateTime>
 #include "mtproto/allowlist_request_guard.h"
 
 #include "apiwrap.h"
@@ -78,6 +82,13 @@ namespace {
 
 constexpr auto kTmpPasswordReserveTime = TimeId(10);
 
+std::unique_ptr<SessionSettings> ValidateManagedSettings(
+		std::unique_ptr<SessionSettings> settings, UserId user) {
+	if (!settings) settings = std::make_unique<SessionSettings>();
+	settings->validateManagedAllowlist(user);
+	return settings;
+}
+
 [[nodiscard]] QString ValidatedInternalLinksDomain(
 		not_null<const Session*> session) {
 	// This domain should start with 'http[s]://' and end with '/'.
@@ -109,7 +120,7 @@ Session::Session(
 	std::unique_ptr<SessionSettings> settings)
 : _userId(user.c_user().vid())
 , _account(account)
-, _settings(std::move(settings))
+, _settings(ValidateManagedSettings(std::move(settings), _userId))
 , _allowlistConfigured(_settings && _settings->allowlistConfigured())
 , _changes(std::make_unique<Data::Changes>(this))
 , _api(std::make_unique<ApiWrap>(this))
@@ -274,6 +285,32 @@ Session::Session(
 	) | rpl::on_next([=] {
 		appConfigRefreshed();
 	}, _lifetime);
+	_managedAllowlist = std::make_unique<ManagedClient>(ManagedClient::Host{
+		QString::number(_userId.bare),
+		[this] { return _settings->managedAllowlist(); },
+		[this] { return allowlistConfigured(); },
+		[this] {
+			auto result = std::vector<Managed::Peer>();
+			for (const auto peer : allowlistPeers()) {
+				result.push_back({peerIsUser(peer) ? QStringLiteral("user")
+					: peerIsChat(peer) ? QStringLiteral("chat") : QStringLiteral("channel"),
+					peer.value & PeerId::kChatTypeMask});
+			}
+			return result;
+		},
+		[this](const QByteArray &blob) { return applyManagedAllowlist(blob); },
+		[this] { return _settings->_dashboardConnection; },
+		[this](const QByteArray &blob) {
+			if (blob.isEmpty() || blob.size() > Managed::MaxWireBytes) return false;
+			auto candidate = SessionSettings();
+			candidate.addFromSerialized(_settings->serialize());
+			candidate._dashboardConnection = blob;
+			if (!local().writeSessionSettingsVerified(candidate.serialize())) return false;
+			_settings->_dashboardConnection = blob;
+			return true; // No local permission mutation for consent/pending/decline.
+		},
+	});
+	crl::on_main(this, [this] { _managedAllowlist->start(); });
 }
 
 void Session::appConfigRefreshed() {
@@ -312,12 +349,14 @@ QByteArray Session::validTmpPassword() const {
 
 // Can be called only right before ~Session.
 void Session::finishLogout() {
+	if (_managedAllowlist) _managedAllowlist->stop();
 	unlockTerms();
 	data().clear();
 	data().clearLocalStorage();
 }
 
 Session::~Session() {
+	_managedAllowlist.reset();
 	unlockTerms();
 	data().clear();
 	ClickHandler::clearActive();
@@ -505,6 +544,73 @@ bool Session::canPresentPeerProfile(PeerId peer) const {
 
 const base::flat_set<PeerId> &Session::allowlistPeers() const {
 	return _settings->allowlistPeers();
+}
+
+ManagedClient &Session::managedAllowlist() const {
+	return *_managedAllowlist;
+}
+
+bool Session::applyManagedAllowlist(const QByteArray &blob) {
+	if (!allowlistConfigured()) return false;
+	const auto subject = QString::number(_userId.bare);
+	const auto now = QDateTime::currentSecsSinceEpoch();
+	const auto state = Managed::ReadState(blob, subject, now);
+	if (!state) return false;
+	auto floor = qint64();
+	auto previous = QByteArray();
+	if (!_settings->_managedAllowlist.isEmpty()) {
+		const auto current = Managed::ReadState(_settings->_managedAllowlist, subject, now);
+		if (!current || current->origin != state->origin || current->publicKey != state->publicKey
+			|| current->device != state->device) return false;
+		const auto old = Managed::VerifyPolicy(current->envelope, current->publicKey,
+			subject, current->device, 0, {}, now);
+		if (!old) return false;
+		floor = old->revision;
+		previous = old->bytes;
+	}
+	const auto policy = Managed::VerifyPolicy(state->envelope, state->publicKey,
+		subject, state->device, floor, previous, now);
+	if (!policy) return false;
+	if (_settings->_managedAllowlist == blob) return true;
+
+	// Stage separately: no live permissions change before disk read-back succeeds.
+	auto candidate = SessionSettings();
+	candidate.addFromSerialized(_settings->serialize());
+	candidate._managedAllowlist = blob;
+	candidate.validateManagedAllowlist(_userId);
+	if (!local().writeSessionSettingsVerified(candidate.serialize())) return false;
+	const auto oldPeers = _settings->_allowlistPeers;
+	const auto changed = oldPeers != candidate._allowlistPeers;
+	_settings->_managedAllowlist = blob;
+	_settings->_allowlistPeers = std::move(candidate._allowlistPeers);
+	_allowlistConfigured = true; // Empty managed policy remains configured deny-all.
+	_settings->_allowlistChanges.fire({}); // Revalidates active direct/group calls.
+	if (changed) {
+		auto removed = false;
+		for (const auto peer : oldPeers) {
+			if (allowlistAllows(peer)) continue;
+			removed = true;
+			if (const auto history = _data->historyLoaded(peer)) {
+				_data->removeChatListEntry(history);
+				_data->contactsList()->remove(history);
+				_data->contactsNoChatsList()->remove(history);
+				history->clear(History::ClearType::Unload);
+			}
+		}
+		if (removed) {
+			Core::App().hideMediaView();
+			auto windows = std::vector<base::weak_ptr<Window::SessionController>>();
+			for (const auto window : _windows) windows.push_back(base::make_weak(window.get()));
+			for (const auto &weak : windows) {
+				if (const auto window = weak.get()) {
+					const auto history = window->activeChatCurrent().history();
+					if (history && !allowlistAllows(history->peer->id)) window->clearSectionStack();
+				}
+			}
+		}
+		_allowlistConfigured.force_assign(true); // Refresh rows without reopening setup.
+	}
+	return true;
 }
 
 QString Session::configureAllowlist(

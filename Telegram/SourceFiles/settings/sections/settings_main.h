@@ -21,6 +21,7 @@ class VerticalLayout;
 namespace Settings {
 
 [[nodiscard]] Type MainId();
+void ShowDashboardConnectionPrompt(not_null<Window::SessionController*> controller);
 
 void SetupLanguageButton(
 	not_null<Window::Controller*> window,

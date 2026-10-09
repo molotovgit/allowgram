@@ -22,6 +22,18 @@ class VerticalLayout;
 } // namespace Ui
 
 namespace Window {
+struct AllowlistCatalogChat {
+ Main::Allowlist::Entry peer;
+ QString title;
+};
+// Every selectable dialog (pinned, main list, archive) in dialog order, capped
+// at kMaxCatalogChats; the same server pages and rules as the first-login picker.
+// done receives an empty list when loading fails.
+inline constexpr auto kMaxCatalogChats = 1000;
+void LoadAllowlistChatCatalog(
+ not_null<Main::Session*> session,
+ Fn<void(std::vector<AllowlistCatalogChat>)> done);
+
 class AllowlistLockWidget final : public LockWidget {
 public:
  AllowlistLockWidget(QWidget *parent, not_null<Controller*> window);

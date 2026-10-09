@@ -115,6 +115,29 @@ PRIVATE
     TDESKTOP_CANARY_PRIVATE_CHANNEL_ID=${TDESKTOP_CANARY_PRIVATE_CHANNEL_ID}
     TDESKTOP_CANARY_METADATA_MSG_ID=${TDESKTOP_CANARY_METADATA_MSG_ID}
 )
+set(ALLOWGRAM_HUB_ORIGIN "https://classaeducation.com" CACHE STRING "Pinned Class A Hub origin for managed enrollment.")
+set(ALLOWGRAM_TEST_HEAD_ORIGIN "" CACHE STRING "Test builds only: replaces the pinned head origin.")
+set(ALLOWGRAM_TEST_HEAD_KEY "" CACHE STRING "Test builds only: replaces the pinned head public key (base64url).")
+if (NOT ALLOWGRAM_HUB_ORIGIN MATCHES "^https://[A-Za-z0-9.-]+(:[0-9]+)?$")
+    message(FATAL_ERROR "ALLOWGRAM_HUB_ORIGIN must be a bare https origin, got '${ALLOWGRAM_HUB_ORIGIN}'.")
+elseif (NOT ALLOWGRAM_HUB_ORIGIN STREQUAL "https://classaeducation.com")
+    message(WARNING "TEST BUILD: the Class A Hub origin is ${ALLOWGRAM_HUB_ORIGIN}. Never release this build.")
+endif()
+# Scoped to the one file that reads them, so changing an origin rebuilds only that file.
+set(allowgram_origin_source ${CMAKE_CURRENT_SOURCE_DIR}/SourceFiles/main/allowlist_managed_client.cpp)
+set_property(SOURCE ${allowgram_origin_source} APPEND PROPERTY COMPILE_DEFINITIONS
+    ALLOWGRAM_HUB_ORIGIN="${ALLOWGRAM_HUB_ORIGIN}")
+if (NOT ALLOWGRAM_TEST_HEAD_ORIGIN STREQUAL "" OR NOT ALLOWGRAM_TEST_HEAD_KEY STREQUAL "")
+    if (NOT ALLOWGRAM_TEST_HEAD_ORIGIN MATCHES "^https://[A-Za-z0-9.-]+(:[0-9]+)?$"
+        OR NOT ALLOWGRAM_TEST_HEAD_KEY MATCHES "^[A-Za-z0-9_-]+$")
+        message(FATAL_ERROR "ALLOWGRAM_TEST_HEAD_ORIGIN and ALLOWGRAM_TEST_HEAD_KEY must both be set and valid.")
+    endif()
+    message(WARNING "TEST BUILD: the pinned Allowgram head is replaced by ${ALLOWGRAM_TEST_HEAD_ORIGIN}. Never release this build.")
+    set_property(SOURCE ${allowgram_origin_source} APPEND PROPERTY COMPILE_DEFINITIONS
+        ALLOWGRAM_TEST_HEAD_ORIGIN="${ALLOWGRAM_TEST_HEAD_ORIGIN}"
+        ALLOWGRAM_TEST_HEAD_KEY="${ALLOWGRAM_TEST_HEAD_KEY}")
+endif()
+
 if (NOT TDESKTOP_CANARY_COMMIT STREQUAL "")
     target_compile_definitions(Telegram PRIVATE TDESKTOP_CANARY_COMMIT=${TDESKTOP_CANARY_COMMIT})
 endif()

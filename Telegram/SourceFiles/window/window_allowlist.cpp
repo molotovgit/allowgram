@@ -1,7 +1,9 @@
 /* Allowgram: first-login chat selection. Upstream license: see LEGAL. */
 #include "window/window_allowlist.h"
 #include <algorithm>
+#include <set>
 #include <vector>
+#include "apiwrap.h"
 #include "core/application.h"
 #include "data/data_user.h"
 #include "data/data_chat.h"
@@ -108,6 +110,82 @@ public:
  }
 };
 } // namespace
+
+void LoadAllowlistChatCatalog(
+  not_null<Main::Session*> session,
+  Fn<void(std::vector<AllowlistCatalogChat>)> done) {
+ struct State {
+  Main::Allowlist::Picker::Model model;
+  std::uint64_t generation = 0;
+  std::vector<AllowlistCatalogChat> chats;
+  std::set<Entry> seen;
+  Fn<void()> next;
+ };
+ const auto state = std::make_shared<State>();
+ state->generation = state->model.start();
+ const auto weak = base::make_weak(session);
+ const auto finish = [=](bool ok) {
+  auto chats = ok ? std::move(state->chats) : std::vector<AllowlistCatalogChat>();
+  state->next = nullptr; // Breaks the self-reference once the walk ends.
+  done(std::move(chats));
+ };
+ const auto receive = [=](Page page) {
+  for (const auto &row : page.dialogs) {
+   if (row.selectable
+     && int(state->chats.size()) < kMaxCatalogChats
+     && state->seen.insert(row.peer).second) {
+    state->chats.push_back({ row.peer, QString::fromStdString(row.title) });
+   }
+  }
+  if (!state->model.accept(state->generation, page)) {
+   finish(false);
+  } else if (state->model.ready()) {
+   finish(true);
+  } else {
+   crl::on_main([=] { if (state->next) state->next(); });
+  }
+ };
+ state->next = [=] {
+  const auto strong = weak.get();
+  if (!strong) {
+   finish(false);
+   return;
+  }
+  const auto cursor = state->model.cursor();
+  const auto fail = [=] { finish(false); };
+  if (cursor.pinned) {
+   strong->api().request(MTPmessages_GetPinnedDialogs(MTP_int(cursor.folder)))
+    .done([=](const MTPmessages_PeerDialogs &result) {
+     if (const auto session = weak.get()) {
+      result.match([&](const MTPDmessages_peerDialogs &data) {
+       receive(ReadPage(session, data, true));
+      });
+     }
+    }).fail(fail).handleAllErrors().send();
+  } else {
+   const auto offset = cursor.peer.id
+    ? strong->data().peer(ToPeer(cursor.peer))->input()
+    : MTP_inputPeerEmpty();
+   strong->api().request(MTPmessages_GetDialogs(
+    MTP_flags(MTPmessages_GetDialogs::Flag::f_exclude_pinned
+     | MTPmessages_GetDialogs::Flag::f_folder_id),
+    MTP_int(cursor.folder), MTP_int(cursor.date), MTP_int(cursor.message),
+    offset, MTP_int(100), MTP_long(0)))
+    .done([=](const MTPmessages_Dialogs &result) {
+     const auto session = weak.get();
+     if (!session) return;
+     result.match([&](const MTPDmessages_dialogsNotModified &) {
+      finish(false);
+     }, [&](const MTPDmessages_dialogs &data) {
+      receive(ReadPage(session, data, true));
+     }, [&](const MTPDmessages_dialogsSlice &data) {
+      receive(ReadPage(session, data, false));
+     });
+    }).fail(fail).handleAllErrors().send();
+  }
+ };
+ state->next();
+}
 
 AllowlistLockWidget::AllowlistLockWidget(
  QWidget *parent, not_null<Controller*> window)

@@ -1,14 +1,16 @@
+import asyncio
 import hashlib
 import hmac
 import json
 import secrets
 import time
+from typing import Literal
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Query, Request, Response
 from pydantic import Field, field_validator
 
 from .admin import audit, set_policy, visible
-from .models import Id, Model, Peer, PeerList
+from .models import Id, Label, Model, Peer, PeerList
 from .signing import Signer, b64, payload
 from .store import digest
 
@@ -28,6 +30,25 @@ class Enrollment(Model):
     @classmethod
     def validate_peers(cls, peers):
         return PeerList(peers=peers).peers
+
+
+class ChatEntry(Model):
+    kind: Literal["user", "chat", "channel"]
+    id: Id
+    label: Label
+
+
+class ChatReport(Model):
+    v: Literal[1]
+    chats: list[ChatEntry] = Field(max_length=1000)
+
+    @field_validator("chats")
+    @classmethod
+    def unique_chats(cls, chats):
+        keys = [(c.kind, c.id) for c in chats]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Duplicate chat")
+        return chats
 
 
 class Ack(Model):
@@ -51,6 +72,7 @@ def register(app):
         db.executescript("""
         CREATE TABLE IF NOT EXISTS invitations(id TEXT PRIMARY KEY, code_hash TEXT UNIQUE NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), actor_id TEXT NOT NULL REFERENCES heads(id), expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), device_name TEXT NOT NULL, client_version TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, last_seen INTEGER NOT NULL, applied_revision INTEGER NOT NULL DEFAULT 0, applied_at INTEGER);
+        CREATE TABLE IF NOT EXISTS device_chats(device_id TEXT PRIMARY KEY REFERENCES devices(id), chats TEXT NOT NULL, updated_at INTEGER NOT NULL, seq INTEGER NOT NULL);
         """)
     signer = Signer(store)
     app.state.signer = signer
@@ -137,6 +159,7 @@ def register(app):
                 (device_id, user_id),
             ).rowcount:
                 raise HTTPException(404, "Device not found")
+            db.execute("DELETE FROM device_chats WHERE device_id=?", (device_id,))
             audit(db, who["id"], user_id, "device.revoked", {"id": device_id})
         return {"ok": True}
 
@@ -204,6 +227,53 @@ def register(app):
                 (int(time.time()), device["id"]),
             )
             return signer.envelope(user, device["id"])
+
+    @app.get("/api/client/policy/wait")
+    async def wait_policy(request: Request,
+                          after_revision: int = Query(ge=0, le=9007199254740991),
+                          timeout: int = Query(default=20, ge=0, le=25)):
+        def snapshot():
+            with store.read() as db:
+                device = device_auth(db, request)
+                user = db.execute("SELECT * FROM users WHERE id=?", (device["user_id"],)).fetchone()
+                if after_revision > user["revision"]:
+                    raise HTTPException(409, "Requested revision is ahead of the server")
+                if user["revision"] > after_revision:
+                    return signer.envelope(user, device["id"])
+            return None
+
+        def seen():
+            with store.db() as db:
+                device = device_auth(db, request)
+                db.execute("UPDATE devices SET last_seen=? WHERE id=?",
+                           (int(time.time()), device["id"]))
+
+        deadline = time.monotonic() + timeout
+        await asyncio.to_thread(seen)
+        while True:
+            envelope = await asyncio.to_thread(snapshot)
+            if envelope is not None:
+                return envelope
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or await request.is_disconnected():
+                return Response(status_code=204)
+            await asyncio.sleep(min(0.25, remaining))
+
+    # The device's own dialog list with display names, for Management's one-click picker. Display data only:
+    # never signed, never part of a policy, replaced whole on every report.
+    @app.put("/api/client/chats")
+    def report_chats(body: ChatReport, request: Request):
+        with store.db() as db:
+            device = device_auth(db, request)
+            chats = json.dumps([c.model_dump() for c in body.chats], ensure_ascii=False)
+            seq = db.execute("SELECT COALESCE(MAX(seq),0)+1 FROM device_chats").fetchone()[0]
+            now = int(time.time())
+            db.execute(
+                "INSERT INTO device_chats(device_id,chats,updated_at,seq) VALUES(?,?,?,?) "
+                "ON CONFLICT(device_id) DO UPDATE SET chats=excluded.chats,updated_at=excluded.updated_at,seq=excluded.seq",
+                (device["id"], chats, now, seq))
+            db.execute("UPDATE devices SET last_seen=? WHERE id=?", (now, device["id"]))
+        return {"ok": True}
 
     @app.post("/api/client/ack")
     def ack(body: Ack, request: Request):

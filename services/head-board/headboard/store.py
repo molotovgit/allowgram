@@ -52,6 +52,16 @@ class Store:
         finally:
             db.close()
 
+    @contextmanager
+    def read(self):
+        db = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True, timeout=1)
+        db.row_factory = sqlite3.Row
+        try:
+            db.execute("BEGIN")
+            yield db
+        finally:
+            db.close()
+
     def issue_owner_code(self, output):
         code = secrets.token_urlsafe(32)
         output = Path(output)

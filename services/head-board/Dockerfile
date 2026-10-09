@@ -13,4 +13,5 @@ RUN uv sync --frozen --no-dev --no-editable
 COPY --from=web /web/dist ./web/dist
 ENV PATH="/app/.venv/bin:$PATH" HEAD_DATA_DIR=/data HEAD_PRODUCTION=1
 EXPOSE 8080
-CMD ["sh", "-c", "exec uvicorn headboard.api:configured_app --factory --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --no-access-log"]
+# A Railway secret HEAD_HUB_SERVICE_KEY becomes a private 0600 file; the variable itself never reaches the app.
+CMD ["sh", "-c", "if [ -n \"$HEAD_HUB_SERVICE_KEY\" ]; then umask 077 && printf %s \"$HEAD_HUB_SERVICE_KEY\" > /tmp/hub-service.key && export HEAD_HUB_SERVICE_KEY_FILE=/tmp/hub-service.key; unset HEAD_HUB_SERVICE_KEY; fi; exec uvicorn headboard.api:configured_app --factory --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --no-access-log"]

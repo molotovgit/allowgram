@@ -79,6 +79,10 @@ def register(app):
             device_id TEXT NOT NULL REFERENCES devices(id),
             minted_device INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS hub_cancelled_enrollments(
+            id TEXT PRIMARY KEY,
+            cancelled_at INTEGER NOT NULL
+        );
         """)
         if "minted_device" not in {row["name"] for row in db.execute("PRAGMA table_info(hub_enrollments)")} :
             db.execute("ALTER TABLE hub_enrollments ADD COLUMN minted_device INTEGER NOT NULL DEFAULT 0")
@@ -88,6 +92,10 @@ def register(app):
         peers = [p.model_dump(exclude_none=True) for p in body.initial_peers]
         request_hash = digest(body.model_dump_json(exclude_none=True))
         with store.db() as db:
+            # A cancelled enrollment ID is final: a late or replayed request can never mint or reuse a device for it.
+            if db.execute("SELECT 1 FROM hub_cancelled_enrollments WHERE id=?",
+                          (body.hub_enrollment_id,)).fetchone():
+                raise HTTPException(409, "Enrollment cancelled")
             receipt = db.execute("SELECT * FROM hub_enrollments WHERE id=?",
                                  (body.hub_enrollment_id,)).fetchone()
             if receipt and receipt["request_hash"] != request_hash:
@@ -135,6 +143,9 @@ def register(app):
         if not re.fullmatch(r"[0-9a-f]{32}", hub_enrollment_id):
             raise HTTPException(422, "Invalid enrollment ID")
         with store.db() as db:
+            # The tombstone comes first, so a cancel that races ahead of its own enroll still blocks it.
+            db.execute("INSERT OR IGNORE INTO hub_cancelled_enrollments(id,cancelled_at) VALUES(?,?)",
+                       (hub_enrollment_id, int(time.time())))
             row = db.execute(
                 "SELECT e.minted_device,d.id,d.user_id,d.revoked FROM hub_enrollments e "
                 "JOIN devices d ON d.id=e.device_id WHERE e.id=?", (hub_enrollment_id,)

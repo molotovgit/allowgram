@@ -1,6 +1,6 @@
 /* Consent transport implementation, included inside namespace Main. See LEGAL. */
 bool ManagedClient::needsConsent() const {
-	return !_stopped && !paired() && _host.configured()
+	return !automaticManagement() && !_stopped && !paired() && _host.configured()
 		&& _host.connectionStored && _host.connectionCommit
 		&& _host.connectionStored().isEmpty();
 }
@@ -13,7 +13,7 @@ bool ManagedClient::persistConnection(const QJsonObject &value) {
 	const auto bytes = QJsonDocument(value).toJson(QJsonDocument::Compact);
 	if (!_host.connectionCommit || bytes.size() > Managed::MaxWireBytes
 		|| !_host.connectionCommit(bytes)) {
-		changeStatus(QStringLiteral("Could not save connection settings. Nothing was sent or changed."));
+		changeStatus(QStringLiteral("Could not save connection settings. Your existing chat restrictions remain active."));
 		return false;
 	}
 	_connection = value;
@@ -27,6 +27,7 @@ QString ManagedClient::connectionFingerprint() const {
 	return QString::fromLatin1(code.mid(0,4) + '-' + code.mid(4,4) + '-' + code.mid(8,4) + '-' + code.mid(12,4));
 }
 bool ManagedClient::declineDashboard() {
+	if (automaticManagement()) return false;
 	if (_stopped || _busy || paired() || _connection["decision"] == "pending") return false;
 	if (!persistConnection(QJsonObject{{"v",1},{"decision","declined"},{"subject",_host.subject},
 		{"origin",_connectionOrigin.toString(QUrl::FullyEncoded)},
@@ -35,6 +36,7 @@ bool ManagedClient::declineDashboard() {
 	return true;
 }
 bool ManagedClient::connectDashboard() {
+	if (automaticManagement()) { refresh(); return !_stopped; }
 	if (_stopped || _busy || paired() || !_host.configured()
 		|| !_host.connectionStored || !_host.connectionCommit) return false;
 	if (_connection["decision"] == "pending") { refreshConnection(); return true; }

@@ -2,6 +2,7 @@
 import base64
 import hmac
 import os
+import stat
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -10,6 +11,27 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 def encoded(raw):
     return base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+
+def hub_service_key():
+    name = os.environ.get("HEAD_HUB_SERVICE_KEY_FILE")
+    if not name:
+        return None
+    path = Path(name)
+    if path.is_symlink():
+        raise ValueError("Hub service key must be a regular private file")
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+                raise ValueError("Hub service key must be a regular private file")
+            raw = stream.read(203)
+        if len(raw) > 202:
+            raise ValueError("Invalid Hub service key")
+        return raw.rstrip(b"\r\n").decode("ascii")
+    except (OSError, UnicodeError):
+        raise ValueError("Cannot read private Hub service key") from None
 
 
 def prepare():

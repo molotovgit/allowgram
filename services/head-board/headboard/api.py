@@ -24,8 +24,16 @@ class Code(BaseModel):
 
 
 def create_app(
-    data_dir=None, public_url="http://127.0.0.1:28444", owner_id="8683512953", **kwargs
+    data_dir=None, public_url="http://127.0.0.1:28444", owner_id="8683512953",
+    hub_service_token=None, **kwargs
 ):
+    if hub_service_token is not None and (
+        not isinstance(hub_service_token, str)
+        or not hub_service_token.isascii()
+        or not 32 <= len(hub_service_token) <= 200
+        or any(not (c.isalnum() or c in "-_") for c in hub_service_token)
+    ):
+        raise ValueError("Invalid Hub service credential")
     public_url = public_url.rstrip("/")
     url = urlsplit(public_url)
     if (
@@ -85,9 +93,17 @@ def create_app(
                     headers={"Retry-After": "60"},
                 )
             bucket.append(now)
+        service_request = request.url.path.startswith("/api/service/v1/")
+        if service_request:
+            if hub_service_token is None:
+                return JSONResponse({"detail": "Hub service disabled"}, status_code=503)
+            supplied = request.headers.get("authorization", "").encode("utf-8")
+            if not hmac.compare_digest(supplied, ("Bearer " + hub_service_token).encode("ascii")):
+                return JSONResponse({"detail": "Service authorization required"}, status_code=401)
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             if (
-                not request.url.path.startswith("/api/client/")
+                not service_request
+                and not request.url.path.startswith("/api/client/")
                 and request.headers.get("origin") != public_url
             ):
                 return JSONResponse({"detail": "Invalid origin"}, status_code=403)
@@ -219,6 +235,9 @@ def create_app(
     from . import registration
 
     registration.register(app)
+    from . import hub
+
+    hub.register(app)
     from fastapi.staticfiles import StaticFiles
 
     dist = Path(__file__).resolve().parent.parent / "web" / "dist"
@@ -228,12 +247,16 @@ def create_app(
 
 
 def configured_app():
+    from .production import hub_service_key
+
+    service_key = hub_service_key()
     public_key = None
     if os.environ.get("HEAD_PRODUCTION") == "1":
         from .production import prepare
         public_key = prepare()
     return create_app(
         production_public_key=public_key,
+        hub_service_token=service_key,
         public_url=os.environ.get("HEAD_PUBLIC_URL", "http://127.0.0.1:28444"),
         owner_id=os.environ.get("HEAD_OWNER_ID", "8683512953"),
     )

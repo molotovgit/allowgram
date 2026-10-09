@@ -1,10 +1,11 @@
+import asyncio
 import hashlib
 import hmac
 import json
 import secrets
 import time
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Query, Request, Response
 from pydantic import Field, field_validator
 
 from .admin import audit, set_policy, visible
@@ -204,6 +205,37 @@ def register(app):
                 (int(time.time()), device["id"]),
             )
             return signer.envelope(user, device["id"])
+
+    @app.get("/api/client/policy/wait")
+    async def wait_policy(request: Request,
+                          after_revision: int = Query(ge=0, le=9007199254740991),
+                          timeout: int = Query(default=20, ge=0, le=25)):
+        def snapshot():
+            with store.read() as db:
+                device = device_auth(db, request)
+                user = db.execute("SELECT * FROM users WHERE id=?", (device["user_id"],)).fetchone()
+                if after_revision > user["revision"]:
+                    raise HTTPException(409, "Requested revision is ahead of the server")
+                if user["revision"] > after_revision:
+                    return signer.envelope(user, device["id"])
+            return None
+
+        def seen():
+            with store.db() as db:
+                device = device_auth(db, request)
+                db.execute("UPDATE devices SET last_seen=? WHERE id=?",
+                           (int(time.time()), device["id"]))
+
+        deadline = time.monotonic() + timeout
+        await asyncio.to_thread(seen)
+        while True:
+            envelope = await asyncio.to_thread(snapshot)
+            if envelope is not None:
+                return envelope
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or await request.is_disconnected():
+                return Response(status_code=204)
+            await asyncio.sleep(min(0.25, remaining))
 
     @app.post("/api/client/ack")
     def ack(body: Ack, request: Request):

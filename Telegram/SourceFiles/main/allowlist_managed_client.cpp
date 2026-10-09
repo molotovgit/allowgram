@@ -5,6 +5,7 @@
 #include <QtCore/QRegularExpression>
 #include <QtCore/QSet>
 #include <openssl/rand.h>
+#include <openssl/evp.h>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtNetwork/QNetworkRequest>
@@ -13,7 +14,7 @@
 
 namespace Main {
 ManagedClient::ManagedClient(Host host, QObject *parent, QNetworkAccessManager *testTransport,
-		std::optional<Managed::Invitation> testConnectionTrust)
+		std::optional<Managed::Invitation> testConnectionTrust, std::optional<QUrl> testHubOrigin)
 : QObject(parent)
 , _host(std::move(host))
 , _connectionOrigin(QStringLiteral("https://allowgram-head-production.up.railway.app"))
@@ -23,12 +24,24 @@ ManagedClient::ManagedClient(Host host, QObject *parent, QNetworkAccessManager *
 		_connectionOrigin = testConnectionTrust->origin;
 		_connectionKey = testConnectionTrust->publicKey;
 	}
+#ifdef ALLOWGRAM_HUB_ORIGIN
+	_hubOrigin = QUrl(QString::fromUtf8(ALLOWGRAM_HUB_ORIGIN));
+#endif
+	if (testTransport && testHubOrigin) _hubOrigin = *testHubOrigin;
+	_proofDeadline.setSingleShot(true);
+	QObject::connect(&_proofDeadline,&QTimer::timeout,this,[this] {
+		++_proofGeneration; _busy = false;
+		changeStatus(QStringLiteral("Telegram identity request timed out. Existing restrictions remain active."));
+		later();
+	});
 	_timer.setSingleShot(true);
 	QObject::connect(&_timer,&QTimer::timeout,this,[this] { refresh(); });
 }
 ManagedClient::~ManagedClient() { stop(); }
 void ManagedClient::stop() {
 	_stopped = true;
+	++_proofGeneration;
+	_proofDeadline.stop();
 	_timer.stop();
 	if (_reply) {
 		_reply->disconnect(this);
@@ -57,6 +70,7 @@ void ManagedClient::start() {
 	if (_stopped || _busy) return;
 	const auto saved = _host.stored();
 	if (saved.isEmpty()) {
+		if (automaticManagement()) { beginHubEnrollment(); return; }
 		if (readConnection()) refreshConnection();
 		return;
 	}
@@ -67,17 +81,22 @@ void ManagedClient::start() {
 	}
 	_policy = Managed::VerifyPolicy(_state->envelope,_state->publicKey,_host.subject,
 		_state->device,0,{},QDateTime::currentSecsSinceEpoch());
+	_ackPending = _host.liveSync;
 	changeStatus(QStringLiteral("Using verified revision %1. Connecting to your head...").arg(_policy->revision));
 	refresh();
 }
 void ManagedClient::later() {
-	if (!_stopped && (_state || _connection["decision"] == "pending")) _timer.start(30000);
+	if (!_stopped && (_state || automaticManagement() || _connection["decision"] == "pending")) _timer.start(30000);
 }
 void ManagedClient::refresh() {
 	if (_stopped || _busy) return;
+	if (paired() && !_state) return; // Corrupt signed state never reopens enrollment.
+	if (automaticManagement() && !_hubSuppressed && !hubReady()) { beginHubEnrollment(); return; }
 	if (!_state) { refreshConnection(); return; }
 	_timer.stop();
-	request(Stage::Policy,_state->origin,{},_state->token,[this](const QByteArray &body) {
+	if (_host.liveSync && _ackPending) { acknowledge(); return; }
+	const auto stage = _host.liveSync && _waitSupported ? Stage::Wait : Stage::Policy;
+	request(stage,_state->origin,{},_state->token,[this](const QByteArray &body) {
 		auto next = *_state;
 		next.envelope = body;
 		if (apply(std::move(next))) acknowledge();
@@ -85,6 +104,7 @@ void ManagedClient::refresh() {
 	});
 }
 bool ManagedClient::pair(const QString &invitation) {
+	if (automaticManagement()) return false;
 	if (_stopped || _busy) return false;
 	if (_connection["decision"] == "pending") {
 		changeStatus(QStringLiteral("A dashboard connection is pending. Verify its code with your owner."));
@@ -138,6 +158,7 @@ bool ManagedClient::apply(Managed::State state) {
 	}
 	_state = std::move(state);
 	_policy = policy;
+	_ackPending = true;
 	changeStatus(QStringLiteral("Revision %1 applied locally. Acknowledging...").arg(_policy->revision));
 	return true;
 }
@@ -145,15 +166,26 @@ void ManagedClient::acknowledge() {
 	if (_stopped || !_state || !_policy) return;
 	const auto body = QJsonDocument(QJsonObject{{"revision",_policy->revision},
 		{"policy_sha256",QString::fromLatin1(_policy->digest)}}).toJson(QJsonDocument::Compact);
-	request(Stage::Ack,_state->origin,body,_state->token,[this](const QByteArray &) {
+	request(Stage::Ack,_state->origin,body,_state->token,[this](const QByteArray &response) {
+		const auto value = Managed::ReadObject(response);
+		if (!value || value->size() != 1 || (*value)["ok"] != QJsonValue(true)) {
+			changeStatus(QStringLiteral("Policy applied locally; acknowledgment not confirmed. Retrying."));
+			later();
+			return;
+		}
+		_ackPending = false;
 		changeStatus(QStringLiteral("Revision %1 applied and acknowledged. Connected to your head.").arg(_policy->revision));
-		later();
+		if (_host.liveSync && _waitSupported) _timer.start(100);
+		else later();
 	});
 }
 void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &body,
 		const QByteArray &token, std::function<void(const QByteArray &)> done) {
 	if (_stopped || _busy) return;
-	const auto path = stage == Stage::Enroll ? QStringLiteral("/api/client/enroll")
+	const auto path = stage == Stage::HubChallenge ? QStringLiteral("/api/allowgram/v1/client/challenge")
+		: stage == Stage::HubEnroll ? QStringLiteral("/api/allowgram/v1/client/enroll")
+		: stage == Stage::Enroll ? QStringLiteral("/api/client/enroll")
+		: stage == Stage::Wait ? QStringLiteral("/api/client/policy/wait?after_revision=%1&timeout=20").arg(_policy->revision)
 		: stage == Stage::Ack ? QStringLiteral("/api/client/ack")
 		: stage == Stage::Register ? QStringLiteral("/api/client/register")
 		: stage == Stage::Connection ? QStringLiteral("/api/client/registration") : QStringLiteral("/api/client/policy");
@@ -161,10 +193,11 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 	request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
 	request.setAttribute(QNetworkRequest::CookieLoadControlAttribute,QNetworkRequest::Manual);
 	request.setAttribute(QNetworkRequest::CookieSaveControlAttribute,QNetworkRequest::Manual);
-	request.setTransferTimeout(15000);
+	const auto timeout = stage == Stage::Wait ? 30000 : 15000;
+	request.setTransferTimeout(timeout);
 	request.setRawHeader("Accept","application/json");
 	if (!token.isEmpty()) request.setRawHeader("Authorization",QByteArray("Bearer ")+token);
-	const auto get = stage == Stage::Policy || stage == Stage::Connection;
+	const auto get = stage == Stage::Policy || stage == Stage::Wait || stage == Stage::Connection;
 	if (!get) request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/json"));
 	_busy = true;
 	changeStatus(_status);
@@ -174,7 +207,7 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 	const auto deadline = new QTimer(reply);
 	deadline->setSingleShot(true);
 	QObject::connect(deadline,&QTimer::timeout,reply,&QNetworkReply::abort);
-	deadline->start(15000); // Absolute deadline also stops a slow drip-feed.
+	deadline->start(timeout); // Absolute deadline also stops a slow drip-feed.
 	struct Received { QByteArray bytes; bool oversized = false; bool finished = false; };
 	const auto received = std::make_shared<Received>();
 	const auto consume = [this,reply,received] {
@@ -187,7 +220,7 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 		received->bytes += reply->readAll();
 	};
 	QObject::connect(reply,&QNetworkReply::readyRead,this,consume);
-	QObject::connect(reply,&QNetworkReply::finished,this,[this,reply,deadline,received,consume,done = std::move(done)] {
+	QObject::connect(reply,&QNetworkReply::finished,this,[this,reply,deadline,received,consume,stage,done = std::move(done)] {
 		if (_stopped || _reply != reply || received->finished) return;
 		received->finished = true;
 		deadline->stop();
@@ -198,6 +231,23 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 		_reply.clear();
 		_busy = false;
 		reply->deleteLater();
+		if (stage == Stage::Wait && !received->oversized && (status == 404 || status == 405)) {
+			_waitSupported = false; // Backward-compatible older head; never change trust.
+			later();
+			return;
+		}
+		if (stage == Stage::Wait && success && status == 204) {
+			if (!received->bytes.isEmpty()) { later(); return; }
+			changeStatus(QStringLiteral("Revision %1 remains active. Connected to your head.").arg(_policy->revision));
+			_timer.start(100);
+			return;
+		}
+		if (stage == Stage::Ack && !received->oversized && status == 409) {
+			_ackPending = false;
+			changeStatus(QStringLiteral("A newer policy is available. Refreshing before acknowledgment."));
+			later();
+			return;
+		}
 		if (!success) {
 			changeStatus(status == 401 || status == 403
 				? QStringLiteral("Sync denied. Your last verified list is still active.")
@@ -209,4 +259,5 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 	});
 }
 #include "main/allowlist_managed_connection.inc"
+#include "main/allowlist_hub_connection.inc"
 } // namespace Main

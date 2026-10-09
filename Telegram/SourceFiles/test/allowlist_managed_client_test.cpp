@@ -3,6 +3,7 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QElapsedTimer>
 #include <QtCore/QFile>
+#include <QtCore/QDateTime>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QThread>
@@ -169,6 +170,65 @@ int main(int argc,char **argv) {
   const auto status=QJsonObject{{"v",1},{"id",QString(32,QChar('c'))},{"status","rejected"},{"telegram_user_id",host.subject},{"fingerprint",rejected.connectionFingerprint()}};
   n.responses.push_back({200,json(status)});rejected.refresh();settle(rejected);rejected.refresh();
   check(QStringLiteral("rejected registration stops retries without clearing local policy"),n.calls.size()==2&&stored.isEmpty()&&!rejected.paired());
+ }
+ stored=prior;host.liveSync=true;
+ {
+  Network n;n.responses.push_back({200,"{\"ok\":true}"});
+  ManagedClient live(host,nullptr,&n);live.start();settle(live);
+  check(QStringLiteral("live sync re-ACKs durable cached policy after restart"),n.calls.size()==1&&n.calls[0].request.url().path()==QStringLiteral("/api/client/ack"));
+  const auto saved=commits;
+  n.responses.push_back({204,{}});live.refresh();settle(live);
+  check(QStringLiteral("unchanged long poll does not save or ACK"),n.calls.size()==2&&commits==saved&&n.calls.back().request.url().query()==QStringLiteral("after_revision=2&timeout=20"));
+  n.responses.push_back({200,envelope(QStringLiteral("valid deny-all"))});n.responses.push_back({503,{}});live.refresh();settle(live);
+  check(QStringLiteral("changed long poll saves policy before ACK attempt"),commits==saved+1&&n.calls.size()==4&&n.calls.back().request.url().path()==QStringLiteral("/api/client/ack"));
+  n.responses.push_back({200,"{\"ok\":true}"});live.refresh();settle(live);
+  check(QStringLiteral("lost ACK retries before another long poll"),n.calls.size()==5&&n.calls.back().request.url().path()==QStringLiteral("/api/client/ack"));
+  n.responses.push_back({204,{}});live.refresh();settle(live);
+  check(QStringLiteral("next wait uses newly applied revision"),n.calls.size()==6&&n.calls.back().request.url().query()==QStringLiteral("after_revision=3&timeout=20"));
+  live.stop();
+ }
+ stored=prior;
+ {
+  Network n;n.responses.push_back({200,"{\"ok\":true}"});ManagedClient live(host,nullptr,&n);live.start();settle(live);
+  n.responses.push_back({404,{}});live.refresh();settle(live);
+  n.responses.push_back({200,envelope(QStringLiteral("valid deny-all"))});n.responses.push_back({200,"{\"ok\":true}"});live.refresh();settle(live);
+  check(QStringLiteral("legacy head falls back to existing policy endpoint"),n.calls.size()==4&&n.calls[2].request.url().path()==QStringLiteral("/api/client/policy"));
+  live.stop();
+ }
+ stored=prior;
+ {
+  Network n;n.responses.push_back({409,{}});ManagedClient stale(host,nullptr,&n);stale.start();settle(stale);
+  n.responses.push_back({200,envelope(QStringLiteral("valid deny-all"))});n.responses.push_back({200,"{\"ok\":true}"});stale.refresh();settle(stale);
+  check(QStringLiteral("stale ACK fetches newer policy instead of retrying forever"),n.calls.size()==3&&n.calls[1].request.url().path()==QStringLiteral("/api/client/policy/wait")&&stale.status().contains(QStringLiteral("acknowledged")));
+  stale.stop();
+ }
+ stored.clear();connection.clear();int proofs=0;
+ host.hubProof=[&](const QString &start,std::function<void(QByteArray)> done){++proofs;done("auth_date=1700000000&start_param="+start.toUtf8()+"&user=%7B%22id%22%3A"+host.subject.toUtf8()+"%7D&signature=synthetic");};
+ const auto challenge=QJsonObject{{"v",1},{"challenge_id",QString(32,'c')},{"start_param",QStringLiteral("agc_")+QString(22,'N')},{"bot_id",QStringLiteral("8558994389")},{"bot_username",QStringLiteral("ClassAAssistant_bot")},{"expires_at",QDateTime::currentSecsSinceEpoch()+300}};
+ auto hubResponse=QJsonObject{{"status","enrolled"},{"device_id",data["enrollment"].toObject()["device_id"]},{"head_url",trust->origin.toString(QUrl::FullyEncoded)},{"policy",data["enrollment"].toObject()["policy"]}};
+ {
+  Network n;n.applied=[&]{return !connection.isEmpty();};n.responses.push_back({200,json(challenge)});n.responses.push_back({200,json(hubResponse)});n.responses.push_back({200,"{\"ok\":true}"});
+  ManagedClient automatic(host,nullptr,&n,*trust,QUrl(QStringLiteral("https://hub.invalid")));automatic.start();settle(automatic);
+  check(QStringLiteral("Hub enrollment is automatic without optional consent"),!automatic.needsConsent()&&!automatic.claimConsentPrompt()&&proofs==1&&automatic.paired()&&n.calls.size()==3);
+  if(n.calls.size()==3){
+   const auto body=QJsonDocument::fromJson(n.calls[1].body).object();
+   const auto saved=Managed::ReadState(stored,host.subject,QDateTime::currentSecsSinceEpoch());
+   check(QStringLiteral("device identity is durable before challenge"),n.appliedFlags.front());
+   check(QStringLiteral("Hub only receives hash, public key and device proof"),saved&&n.calls[0].request.rawHeader("Authorization").isEmpty()&&n.calls[1].request.rawHeader("Authorization").isEmpty()&&!n.calls[1].body.contains(saved->token)&&body["device"].toObject()["credential_hash"].toString().size()==64&&body["device_sig"].toString().size()==86);
+   check(QStringLiteral("first picker snapshot is sent to Hub"),body["initial_peers"].toArray().size()==1&&body["initial_peers"].toArray()[0].toObject()["id"]==QStringLiteral("23456"));
+   check(QStringLiteral("Hub proof is discarded after signed policy is saved"),!connection.contains("init_data")&&n.calls.back().request.url().path()==QStringLiteral("/api/client/ack"));
+  }
+  automatic.stop();
+ }
+ stored.clear();connection.clear();proofs=0;
+ {
+  auto notReady=host;notReady.configured=[]{return false;};Network n;
+  ManagedClient firstPick(notReady,nullptr,&n,*trust,QUrl(QStringLiteral("https://hub.invalid")));firstPick.start();
+  check(QStringLiteral("automatic enrollment never bypasses initial picker"),n.calls.empty()&&proofs==0&&connection.isEmpty());
+ }
+ {
+  Network n;ManagedClient noConfig(host,nullptr,&n,*trust);noConfig.start();
+  check(QStringLiteral("missing Hub trust is fail-closed without old opt-in"),n.calls.empty()&&proofs==0&&!noConfig.needsConsent());
  }
  QFile receipt(QString::fromLocal8Bit(argv[2]));if(!receipt.open(QIODevice::WriteOnly))return 4;
  receipt.write(QJsonDocument(QJsonObject{{"finished",true},{"synthetic",true},{"tests",total},{"failures",failures},{"results",results}}).toJson());

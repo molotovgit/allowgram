@@ -29,6 +29,23 @@ QByteArray HubSign(const QByteArray &seed, const QByteArray &message) {
 		&& EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char*>(result.data()), &size,
 			reinterpret_cast<const unsigned char*>(message.data()), message.size()) == 1 && size == 64) ? HubEncoded(result) : QByteArray();
 }
+// The Hub's canonical peer list (canonicalPeers): {"kind","id"} in that key
+// order, sorted by kind then id, no labels, no whitespace.
+QByteArray HubCanonicalPeers(const QJsonArray &peers) {
+	auto list = std::vector<std::pair<QString, QString>>();
+	for (const auto &value : peers) {
+		const auto peer = value.toObject();
+		list.emplace_back(peer["kind"].toString(), peer["id"].toString());
+	}
+	std::sort(list.begin(), list.end());
+	auto result = QByteArray("[");
+	for (const auto &[kind, id] : list) {
+		if (result.size() > 1) result += ',';
+		result += "{\"kind\":" + QJsonDocument(QJsonArray{kind}).toJson(QJsonDocument::Compact).mid(1).chopped(1)
+			+ ",\"id\":" + QJsonDocument(QJsonArray{id}).toJson(QJsonDocument::Compact).mid(1).chopped(1) + '}';
+	}
+	return result + ']';
+}
 bool HubSafeOrigin(const QUrl &url) {
 	return url.isValid() && url.scheme() == QStringLiteral("https") && !url.host().isEmpty()
 		&& url.userInfo().isEmpty() && !url.hasQuery() && !url.hasFragment()
@@ -43,6 +60,7 @@ void ManagedClient::beginHubEnrollment() {
 	if (_stopped || _busy || !automaticManagement() || (paired() && !_state)) return;
 	if (!_host.configured()) {
 		changeStatus(QStringLiteral("Choose your initial allowed chats. Class A management connects automatically afterward."));
+		later(); // A local re-check only: nothing is sent until the first pick is saved.
 		return;
 	}
 	if (!HubSafeOrigin(_hubOrigin) || !_host.connectionStored || !_host.connectionCommit) {
@@ -132,7 +150,7 @@ void ManagedClient::receiveHubChallenge(const QByteArray &bytes) {
 		const auto credential = HubDigest(guard->_connection["token"].toString().toLatin1());
 		const auto id = challenge["challenge_id"].toString();
 		const auto message = QByteArray("ALLOWGRAM_HUB_ENROLL_V1\n") + id.toLatin1() + '\n'
-			+ HubDigest(proof) + '\n' + HubDigest(QJsonDocument(peers).toJson(QJsonDocument::Compact)) + '\n' + credential;
+			+ HubDigest(proof) + '\n' + HubDigest(HubCanonicalPeers(peers)) + '\n' + credential;
 		const auto signature = HubSign(seed, message);
 		if (signature.isEmpty()) { guard->later(); return; }
 		const auto body = QJsonObject{{"v",1},{"challenge_id",id},{"init_data",QString::fromUtf8(proof)},
@@ -160,5 +178,60 @@ void ManagedClient::submitHubEnrollment() {
 		auto next = _connection; next["decision"] = "hub-enrolled"; next.remove("enroll_body"); next.remove("expires_at");
 		if (!persistConnection(next)) { later(); return; }
 		acknowledge();
+	});
+}
+namespace {
+constexpr auto kChatsReportInterval = qint64(300);
+// The head's Label rule: 1..128 code points, no Unicode category C (control, format, unassigned, private use).
+QString HubChatLabel(const QString &title, const QString &fallback) {
+	auto result = QString();
+	auto count = 0;
+	for (const auto codepoint : title.trimmed().toUcs4()) {
+		const auto category = QChar::category(char32_t(codepoint));
+		if (category == QChar::Other_Control || category == QChar::Other_Format
+			|| category == QChar::Other_Surrogate || category == QChar::Other_PrivateUse
+			|| category == QChar::Other_NotAssigned) {
+			continue;
+		}
+		if (++count > 128) break;
+		result += QString::fromUcs4(&codepoint, 1);
+	}
+	result = result.trimmed();
+	return result.isEmpty() ? fallback : result;
+}
+} // namespace
+void ManagedClient::reportChats() {
+	if (_stopped || !_host.chats || !_state || _chatsLoading) return;
+	const auto now = QDateTime::currentSecsSinceEpoch();
+	if (_chatsReportedAt && now - _chatsReportedAt < kChatsReportInterval) return;
+	_chatsLoading = true;
+	_chatsReportedAt = now; // A failed walk or upload waits a full interval too.
+	const auto guard = QPointer<ManagedClient>(this);
+	const auto origin = _state->origin;
+	const auto token = _state->token;
+	_host.chats([guard, origin, token](QJsonArray chats) {
+		if (!guard || guard->_stopped) return;
+		guard->_chatsLoading = false;
+		if (chats.isEmpty() || !guard->_state || guard->_state->origin != origin || guard->_state->token != token) return;
+		auto clean = QJsonArray();
+		for (const auto &value : chats) {
+			const auto chat = value.toObject();
+			const auto id = chat["id"].toString();
+			clean.append(QJsonObject{{"kind",chat["kind"]},{"id",id},
+				{"label",HubChatLabel(chat["label"].toString(), id)}});
+		}
+		const auto body = QJsonDocument(QJsonObject{{"v",1},{"chats",clean}}).toJson(QJsonDocument::Compact);
+		QNetworkRequest request(origin.resolved(QUrl(QStringLiteral("/api/client/chats"))));
+		request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
+		request.setAttribute(QNetworkRequest::CookieLoadControlAttribute,QNetworkRequest::Manual);
+		request.setAttribute(QNetworkRequest::CookieSaveControlAttribute,QNetworkRequest::Manual);
+		request.setTransferTimeout(15000);
+		request.setRawHeader("Accept","application/json");
+		request.setRawHeader("Authorization",QByteArray("Bearer ")+token);
+		request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/json"));
+		if (guard->_chatsReply) guard->_chatsReply->abort();
+		const auto reply = guard->_network->put(request, body);
+		guard->_chatsReply = reply;
+		QObject::connect(reply,&QNetworkReply::finished,reply,&QObject::deleteLater);
 	});
 }

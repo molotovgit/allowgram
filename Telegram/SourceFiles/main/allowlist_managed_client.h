@@ -4,6 +4,7 @@
 #include <QtCore/QObject>
 #include <QtCore/QPointer>
 #include <QtCore/QTimer>
+#include <QtCore/QJsonArray>
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 #include <functional>
@@ -22,6 +23,8 @@ public:
 		std::function<bool(const QByteArray &)> connectionCommit;
 		bool liveSync = false;
 		std::function<void(const QString &, std::function<void(QByteArray)>)> hubProof;
+		// The account's dialogs as [{kind,id,label}] for Management's picker; an empty array on failure.
+		std::function<void(std::function<void(QJsonArray)>)> chats;
 	};
 	ManagedClient(Host host, QObject *parent = nullptr,
 		QNetworkAccessManager *testTransport = nullptr,
@@ -49,6 +52,7 @@ private:
 	void beginHubEnrollment();
 	void receiveHubChallenge(const QByteArray &body);
 	void submitHubEnrollment();
+	void reportChats();
 	bool hubReady() const;
 	bool readConnection();
 	void refreshConnection();
@@ -65,6 +69,9 @@ private:
 	QUrl _hubOrigin;
 	QTimer _proofDeadline;
 	quint64 _proofGeneration = 0;
+	qint64 _chatsReportedAt = 0;
+	bool _chatsLoading = false;
+	QPointer<QNetworkReply> _chatsReply;
 	bool _hubSuppressed = false;
 	QUrl _connectionOrigin;
 	QByteArray _connectionKey;

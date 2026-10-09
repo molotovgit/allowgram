@@ -9,6 +9,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "main/allowlist_policy.h"
 #include "main/allowlist_managed_client.h"
+#include "window/window_allowlist.h"
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonObject>
 #include "dialogs/dialogs_indexed_list.h"
 #include "window/window_session_controller.h"
 #include <QtCore/QDateTime>
@@ -110,6 +113,77 @@ std::unique_ptr<SessionSettings> ValidateManagedSettings(
 	return MTP::ConfigFields(
 		session->mtp().environment()
 	).internalLinksDomain;
+}
+
+// Class A management identity proof: the bot's Main Mini App,
+// launched with the Hub's one-time start_param. The page is never loaded,
+// no write access is requested and nothing is sent; only the signed
+// launch data Telegram returns in the URL fragment is read locally.
+constexpr auto kHubBotId = uint64(8558994389ULL);
+constexpr auto kHubBotUsername = "ClassAAssistant_bot";
+
+[[nodiscard]] QByteArray HubProofFromUrl(const QString &url) {
+	const auto hash = url.indexOf('#');
+	if (hash < 0) {
+		return {};
+	}
+	const auto prefix = u"tgWebAppData="_q;
+	for (const auto &part : QStringView(url).mid(hash + 1).split('&')) {
+		if (part.startsWith(prefix)) {
+			return QByteArray::fromPercentEncoding(
+				part.mid(prefix.size()).toUtf8());
+		}
+	}
+	return {};
+}
+
+void RequestHubProof(
+		not_null<Session*> session,
+		const QString &startParam,
+		Fn<void(QByteArray)> done) {
+	const auto botId = UserId(kHubBotId);
+	const auto request = [=](not_null<UserData*> bot) {
+		// Only a Main Mini App launch carries start_param inside the
+		// signed launch data; a menu-button launch drops it.
+		using Flag = MTPmessages_RequestMainWebView::Flag;
+		session->api().request(MTPmessages_RequestMainWebView(
+			MTP_flags(Flag::f_start_param),
+			bot->input(),
+			bot->inputUser(),
+			MTP_string(startParam),
+			MTPDataJSON(), // theme_params
+			MTP_string("tdesktop")
+		)).done([=](const MTPWebViewResult &result) {
+			done(HubProofFromUrl(qs(result.data().vurl())));
+		}).fail([=] {
+			done({});
+		}).send();
+	};
+	if (const auto bot = session->data().userLoaded(botId)) {
+		if (bot->isBot() && bot->accessHash()) {
+			request(bot);
+			return;
+		}
+	}
+	session->api().request(MTPcontacts_ResolveUsername(
+		MTP_flags(0),
+		MTP_string(kHubBotUsername),
+		MTP_string()
+	)).done([=](const MTPcontacts_ResolvedPeer &result) {
+		const auto &data = result.data();
+		session->data().processUsers(data.vusers());
+		session->data().processChats(data.vchats());
+		const auto bot = session->data().userLoaded(botId);
+		if (peerFromMTP(data.vpeer()) != peerFromUser(botId)
+			|| !bot
+			|| !bot->isBot()) {
+			done({});
+			return;
+		}
+		request(bot);
+	}).fail([=] {
+		done({});
+	}).send();
 }
 
 } // namespace
@@ -308,6 +382,29 @@ Session::Session(
 			if (!local().writeSessionSettingsVerified(candidate.serialize())) return false;
 			_settings->_dashboardConnection = blob;
 			return true; // No local permission mutation for consent/pending/decline.
+		},
+		true, // liveSync
+		[this](const QString &startParam, Fn<void(QByteArray)> done) {
+			RequestHubProof(this, startParam, std::move(done));
+		},
+		[this](Fn<void(QJsonArray)> done) {
+			Window::LoadAllowlistChatCatalog(this, [=](
+					std::vector<Window::AllowlistCatalogChat> chats) {
+				using Kind = Main::Allowlist::Kind;
+				auto result = QJsonArray();
+				for (const auto &chat : chats) {
+					result.append(QJsonObject{
+						{ "kind", (chat.peer.kind == Kind::User)
+							? u"user"_q
+							: (chat.peer.kind == Kind::Chat)
+							? u"chat"_q
+							: u"channel"_q },
+						{ "id", QString::number(qulonglong(chat.peer.id)) },
+						{ "label", chat.title },
+					});
+				}
+				done(std::move(result));
+			});
 		},
 	});
 	crl::on_main(this, [this] { _managedAllowlist->start(); });

@@ -7,10 +7,12 @@
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QThread>
+#include <QtCore/QCryptographicHash>
 #include <QtNetwork/QNetworkRequest>
 #include <deque>
 #include <cstdio>
 #include <cstring>
+#include <openssl/evp.h>
 using namespace Main;
 namespace {
 struct Response { int status = 200; QByteArray bytes; };
@@ -202,6 +204,24 @@ int main(int argc,char **argv) {
   check(QStringLiteral("stale ACK fetches newer policy instead of retrying forever"),n.calls.size()==3&&n.calls[1].request.url().path()==QStringLiteral("/api/client/policy/wait")&&stale.status().contains(QStringLiteral("acknowledged")));
   stale.stop();
  }
+ stored=prior;
+ {
+  auto reporting=host;reporting.liveSync=true;int walks=0;
+  reporting.chats=[&](std::function<void(QJsonArray)> done){++walks;done(QJsonArray{
+   QJsonObject{{"kind","user"},{"id","8558994389"},{"label",QStringLiteral("Class A\u200D Assistant\u0007")}},
+   QJsonObject{{"kind","channel"},{"id","2233445566"},{"label",QString(200,QChar('x'))}},
+   QJsonObject{{"kind","chat"},{"id","4001"},{"label",QStringLiteral("\u200B")}}});};
+  Network n;n.responses.push_back({200,"{\"ok\":true}"});n.responses.push_back({200,"{\"ok\":true}"});
+  ManagedClient live(reporting,nullptr,&n);live.start();settle(live);
+  QElapsedTimer t;t.start();while(n.calls.size()<2&&t.elapsed()<2500){QCoreApplication::processEvents(QEventLoop::AllEvents,20);}
+  const auto put=n.calls.size()>=2?n.calls[1]:Network::Call{};
+  const auto chats=QJsonDocument::fromJson(put.body).object()["chats"].toArray();
+  check(QStringLiteral("chat list is reported once after ACK with the device bearer"),walks==1&&put.operation==QNetworkAccessManager::PutOperation
+   &&put.request.url().path()==QStringLiteral("/api/client/chats")&&!put.request.rawHeader("Authorization").isEmpty()&&put.request.rawHeader("Authorization")==n.calls[0].request.rawHeader("Authorization")&&chats.size()==3);
+  check(QStringLiteral("reported labels follow the head label rule"),chats.size()==3&&chats[0].toObject()["label"]==QStringLiteral("Class A Assistant")
+   &&chats[1].toObject()["label"].toString().size()==128&&chats[2].toObject()["label"]==QStringLiteral("4001"));
+  live.stop();
+ }
  stored.clear();connection.clear();int proofs=0;
  host.hubProof=[&](const QString &start,std::function<void(QByteArray)> done){++proofs;done("auth_date=1700000000&start_param="+start.toUtf8()+"&user=%7B%22id%22%3A"+host.subject.toUtf8()+"%7D&signature=synthetic");};
  const auto challenge=QJsonObject{{"v",1},{"challenge_id",QString(32,'c')},{"start_param",QStringLiteral("agc_")+QString(22,'N')},{"bot_id",QStringLiteral("8558994389")},{"bot_username",QStringLiteral("ClassAAssistant_bot")},{"expires_at",QDateTime::currentSecsSinceEpoch()+300}};
@@ -215,6 +235,20 @@ int main(int argc,char **argv) {
    const auto saved=Managed::ReadState(stored,host.subject,QDateTime::currentSecsSinceEpoch());
    check(QStringLiteral("device identity is durable before challenge"),n.appliedFlags.front());
    check(QStringLiteral("Hub only receives hash, public key and device proof"),saved&&n.calls[0].request.rawHeader("Authorization").isEmpty()&&n.calls[1].request.rawHeader("Authorization").isEmpty()&&!n.calls[1].body.contains(saved->token)&&body["device"].toObject()["credential_hash"].toString().size()==64&&body["device_sig"].toString().size()==86);
+   {
+    // Rebuilt exactly as the Hub verifies it: canonicalPeers is {"kind","id"}, sorted, no labels.
+    const auto hex=[](const QByteArray &b){return QCryptographicHash::hash(b,QCryptographicHash::Sha256).toHex();};
+    const auto device=body["device"].toObject();
+    const auto message=QByteArray("ALLOWGRAM_HUB_ENROLL_V1\n")+body["challenge_id"].toString().toLatin1()+"\n"
+     +hex(body["init_data"].toString().toUtf8())+"\n"+hex("[{\"kind\":\"user\",\"id\":\"23456\"}]")+"\n"+device["credential_hash"].toString().toLatin1();
+    const auto pub=QByteArray::fromBase64(device["public_key"].toString().toLatin1(),QByteArray::Base64UrlEncoding);
+    const auto sig=QByteArray::fromBase64(body["device_sig"].toString().toLatin1(),QByteArray::Base64UrlEncoding);
+    const auto key=std::unique_ptr<EVP_PKEY,decltype(&EVP_PKEY_free)>(EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519,nullptr,reinterpret_cast<const unsigned char*>(pub.data()),pub.size()),EVP_PKEY_free);
+    const auto ctx=std::unique_ptr<EVP_MD_CTX,decltype(&EVP_MD_CTX_free)>(EVP_MD_CTX_new(),EVP_MD_CTX_free);
+    const auto valid=key&&ctx&&EVP_DigestVerifyInit(ctx.get(),nullptr,nullptr,nullptr,key.get())==1
+     &&EVP_DigestVerify(ctx.get(),reinterpret_cast<const unsigned char*>(sig.data()),sig.size(),reinterpret_cast<const unsigned char*>(message.data()),message.size())==1;
+    check(QStringLiteral("device signature verifies over the Hub canonical peer list"),valid);
+   }
    check(QStringLiteral("first picker snapshot is sent to Hub"),body["initial_peers"].toArray().size()==1&&body["initial_peers"].toArray()[0].toObject()["id"]==QStringLiteral("23456"));
    check(QStringLiteral("Hub proof is discarded after signed policy is saved"),!connection.contains("init_data")&&n.calls.back().request.url().path()==QStringLiteral("/api/client/ack"));
   }

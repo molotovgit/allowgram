@@ -24,6 +24,13 @@ ManagedClient::ManagedClient(Host host, QObject *parent, QNetworkAccessManager *
 		_connectionOrigin = testConnectionTrust->origin;
 		_connectionKey = testConnectionTrust->publicKey;
 	}
+#if defined ALLOWGRAM_TEST_HEAD_ORIGIN && defined ALLOWGRAM_TEST_HEAD_KEY
+	// Local sign-in test builds only; CMake warns that they are never released.
+	if (!testTransport) {
+		_connectionOrigin = QUrl(QString::fromUtf8(ALLOWGRAM_TEST_HEAD_ORIGIN));
+		_connectionKey = QByteArray::fromBase64(ALLOWGRAM_TEST_HEAD_KEY, QByteArray::Base64UrlEncoding);
+	}
+#endif
 #ifdef ALLOWGRAM_HUB_ORIGIN
 	_hubOrigin = QUrl(QString::fromUtf8(ALLOWGRAM_HUB_ORIGIN));
 #endif
@@ -43,6 +50,10 @@ void ManagedClient::stop() {
 	++_proofGeneration;
 	_proofDeadline.stop();
 	_timer.stop();
+	if (_chatsReply) {
+		_chatsReply->disconnect(this);
+		_chatsReply->abort();
+	}
 	if (_reply) {
 		_reply->disconnect(this);
 		_reply->abort();
@@ -175,6 +186,7 @@ void ManagedClient::acknowledge() {
 		}
 		_ackPending = false;
 		changeStatus(QStringLiteral("Revision %1 applied and acknowledged. Connected to your head.").arg(_policy->revision));
+		reportChats();
 		if (_host.liveSync && _waitSupported) _timer.start(100);
 		else later();
 	});
@@ -239,6 +251,7 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 		if (stage == Stage::Wait && success && status == 204) {
 			if (!received->bytes.isEmpty()) { later(); return; }
 			changeStatus(QStringLiteral("Revision %1 remains active. Connected to your head.").arg(_policy->revision));
+			reportChats();
 			_timer.start(100);
 			return;
 		}

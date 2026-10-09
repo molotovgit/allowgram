@@ -151,6 +151,8 @@ def register(app):
                 "JOIN devices d ON d.id=e.device_id WHERE e.id=?", (hub_enrollment_id,)
             ).fetchone()
             revoked = bool(row and row["minted_device"])
+            if revoked:
+                db.execute("DELETE FROM device_chats WHERE device_id=?", (row["id"],))
             if revoked and not row["revoked"]:
                 db.execute("UPDATE devices SET revoked=1 WHERE id=?", (row["id"],))
                 audit(db, "hub", row["user_id"], "device.revoked", {"device_id": row["id"]})
@@ -197,6 +199,7 @@ def register(app):
                              (device_id, tg_id)).fetchone()
             if not row:
                 raise HTTPException(404, "Device not found")
+            db.execute("DELETE FROM device_chats WHERE device_id=?", (device_id,))
             if not row["revoked"]:
                 db.execute("UPDATE devices SET revoked=1 WHERE id=?", (device_id,))
                 audit(db, "hub", tg_id, "device.revoked", {"device_id": device_id})
@@ -210,9 +213,19 @@ def register(app):
             for row in db.execute("SELECT initial_peers FROM hub_device_keys WHERE user_id=? ORDER BY device_id", (tg_id,)):
                 for peer in json.loads(row["initial_peers"]):
                     offered[(peer["kind"], peer["id"])] = peer
+            chats, seen, updated = [], set(), None
+            for row in db.execute(
+                    "SELECT c.device_id,c.chats,c.updated_at FROM device_chats c JOIN devices d ON d.id=c.device_id "
+                    "WHERE d.user_id=? AND d.revoked=0 ORDER BY c.seq DESC", (tg_id,)):
+                updated = max(updated or 0, row["updated_at"])
+                for chat in json.loads(row["chats"]):
+                    if (chat["kind"], chat["id"]) not in seen:
+                        seen.add((chat["kind"], chat["id"]))
+                        chats.append({**chat, "device_id": row["device_id"]})
             return {
                 "tg_id": tg_id, "revision": user["revision"],
                 "peers": json.loads(user["peers"]),
                 "offered_peers": [offered[key] for key in sorted(offered)],
                 "devices": device_status(db, tg_id),
+                "chats": chats, "chats_updated_at": updated,
             }

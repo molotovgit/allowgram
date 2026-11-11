@@ -17,7 +17,7 @@ ManagedClient::ManagedClient(Host host, QObject *parent, QNetworkAccessManager *
 		std::optional<Managed::Invitation> testConnectionTrust, std::optional<QUrl> testHubOrigin)
 : QObject(parent)
 , _host(std::move(host))
-, _connectionOrigin(QStringLiteral("https://allowgram-head-production.up.railway.app"))
+, _connectionOrigin(QStringLiteral("https://head.classaeducation.com"))
 , _connectionKey(QByteArray::fromBase64("emcLYc3W7m8Gv1y9r_cLBug_WZuzjFl1iMaNiV1ZYKw", QByteArray::Base64UrlEncoding))
 , _network(testTransport ? testTransport : new QNetworkAccessManager(this)) {
 	if (testTransport && testConnectionTrust) {
@@ -79,6 +79,7 @@ QString ManagedClient::manager() const {
 }
 void ManagedClient::start() {
 	if (_stopped || _busy) return;
+	migrateLegacyHead();
 	const auto saved = _host.stored();
 	if (saved.isEmpty()) {
 		if (automaticManagement()) { beginHubEnrollment(); return; }
@@ -273,4 +274,28 @@ void ManagedClient::request(Stage stage, const QUrl &origin, const QByteArray &b
 }
 #include "main/allowlist_managed_connection.inc"
 #include "main/allowlist_hub_connection.inc"
+// 7.2.8.14: the head moved from Railway to https://head.classaeducation.com and kept its signing key. A device
+// pinned to the old address is moved once, in both saved records, and only when its pinned key is this build's
+// head key: a different head is never adopted, and a failed write leaves the old record for the next start.
+void ManagedClient::migrateLegacyHead() {
+	const auto legacy = QUrl(QStringLiteral("https://allowgram-head-production.up.railway.app"));
+	if (_connectionOrigin == legacy) return;
+	const auto saved = _host.stored();
+	if (!saved.isEmpty()) {
+		auto state = Managed::ReadState(saved,_host.subject,QDateTime::currentSecsSinceEpoch());
+		if (state && state->origin == legacy && state->publicKey == _connectionKey) {
+			state->origin = _connectionOrigin;
+			_host.commit(Managed::SaveState(*state));
+		}
+	}
+	if (!_host.connectionStored || !_host.connectionCommit) return;
+	const auto stored = _host.connectionStored();
+	if (stored.isEmpty()) return;
+	auto value = Managed::ReadObject(stored);
+	if (value && (*value)["origin"] == legacy.toString(QUrl::FullyEncoded)
+		&& (*value)["public_key"] == QString::fromLatin1(HubEncoded(_connectionKey))) {
+		(*value)["origin"] = _connectionOrigin.toString(QUrl::FullyEncoded);
+		_host.connectionCommit(QJsonDocument(*value).toJson(QJsonDocument::Compact));
+	}
+}
 } // namespace Main

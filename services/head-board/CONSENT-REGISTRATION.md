@@ -4,7 +4,7 @@ The default desktop flow is now one informed **Connect** prompt after login and 
 
 ## Trust and authority
 
-The release client pins `https://allowgram-head-production.up.railway.app` and management public key `emcLYc3W7m8Gv1y9r_cLBug_WZuzjFl1iMaNiV1ZYKw`. These are independent of the unchanged software-update signing root. No plaintext HTTP, redirect, discovery/TOFU, or runtime pin override exists in the default flow. Test-only constructor injection requires an injected transport.
+The release client pins `https://head.classaeducation.com` (7.2.8.14 and later; earlier releases pinned `https://allowgram-head-production.up.railway.app` and move to the new address on their first start after the update) and management public key `emcLYc3W7m8Gv1y9r_cLBug_WZuzjFl1iMaNiV1ZYKw`. These are independent of the unchanged software-update signing root. No plaintext HTTP, redirect, discovery/TOFU, or runtime pin override exists in the default flow. Test-only constructor injection requires an injected transport.
 
 An account ID supplied by a desktop client is **not Telegram identity verification**. The server creates a separate, owner-only **unverified pending connection**, not an established managed user, head, or privileged dashboard session. The owner must compare the device verification code with the intended user's Settings → Head-managed allowlist before approving. Approval grants only device access to that account's existing policy. Heads cannot approve or list pending connections. It never grants dashboard roles or changes scope membership.
 

@@ -49,6 +49,7 @@ public:
 	void observe(QObject *context, std::function<void()> changed);
 private:
 	enum class Stage { Enroll, Policy, Wait, Ack, Register, Connection, HubChallenge, HubEnroll };
+	void migrateLegacyHead();
 	void beginHubEnrollment();
 	void receiveHubChallenge(const QByteArray &body);
 	void submitHubEnrollment();

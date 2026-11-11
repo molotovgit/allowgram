@@ -99,6 +99,27 @@ int main(int argc,char **argv) {
   Network n;ManagedClient restored(host,nullptr,&n);n.responses.push_back({401,"{}"});restored.start();settle(restored);
   check(QStringLiteral("cached policy survives denied reconnect"),restored.paired()&&stored!=QByteArray()&&n.calls.size()==1);
  }
+ {
+  // 7.2.8.14: a device pinned to the old Railway head with THIS build's head key moves to the new head once; any other head is never adopted.
+  const auto trusted=Managed::ReadInvitation(data["invitation"].toString(),host.subject);
+  auto legacyState=QJsonDocument::fromJson(stored).object();
+  legacyState["origin"]=QStringLiteral("https://allowgram-head-production.up.railway.app");
+  const auto legacyBytes=QJsonDocument(legacyState).toJson(QJsonDocument::Compact);
+  if(trusted){
+   auto moved=*trusted;moved.origin=QUrl(QStringLiteral("https://head.example.test"));
+   stored=legacyBytes;{Network n;n.responses.push_back({401,"{}"});ManagedClient client2(host,nullptr,&n,moved);client2.start();settle(client2);
+    const auto now=Managed::ReadState(stored,host.subject,1700000000);
+    check(QStringLiteral("old Railway head with the build's key is moved to the new head"),now&&now->origin==moved.origin);
+    check(QStringLiteral("the moved device syncs with the new head only"),n.calls.size()==1&&n.calls[0].request.url().host()==QStringLiteral("head.example.test"));
+    check(QStringLiteral("the move keeps device, key, token and policy"),now&&now->device==QJsonDocument::fromJson(legacyBytes).object()["device"].toString()&&now->publicKey==trusted->publicKey);}
+   stored=legacyBytes;{auto other=moved;other.publicKey=QByteArray(32,'\x07');Network n;n.responses.push_back({401,"{}"});ManagedClient client3(host,nullptr,&n,other);client3.start();settle(client3);
+    const auto now=Managed::ReadState(stored,host.subject,1700000000);
+    check(QStringLiteral("a pinned head with a different key is never moved"),stored==legacyBytes&&now&&now->origin.host()==QStringLiteral("allowgram-head-production.up.railway.app"));}
+   stored=legacyBytes;{Network n;n.responses.push_back({401,"{}"});writes=false;ManagedClient client4(host,nullptr,&n,moved);client4.start();settle(client4);writes=true;
+    check(QStringLiteral("a failed write leaves the old record for the next start"),stored==legacyBytes);}
+  } else check(QStringLiteral("test invitation parses"),false);
+  stored=prior;
+ }
  stored="corrupt";Network corrupt;ManagedClient locked(host,nullptr,&corrupt);locked.start();
  check(QStringLiteral("corrupt managed state cannot reopen pairing"),locked.paired()&&!locked.pair(data["invitation"].toString())&&corrupt.calls.empty());
  stored.clear();
@@ -113,7 +134,8 @@ int main(int argc,char **argv) {
   Network n;ManagedClient pending(host,nullptr,&n);pending.start();settle(pending);
   check(QStringLiteral("pending consent resumes registration after restart"),n.calls.size()==1&&!pending.paired());
   if(!n.calls.empty()) {
-   check(QStringLiteral("registration endpoint is pinned stable HTTPS"),n.calls[0].request.url().toString()==QStringLiteral("https://allowgram-head-production.up.railway.app/api/client/register"));
+   check(QStringLiteral("registration endpoint is pinned stable HTTPS"),n.calls[0].request.url().toString()==QStringLiteral("https://head.classaeducation.com/api/client/register"));
+   check(QStringLiteral("a pending record pinned to the old Railway head moves to the new head"),QJsonDocument::fromJson(connection).object()["origin"].toString()==QStringLiteral("https://head.classaeducation.com"));
    check(QStringLiteral("retry retains durable authorization"),n.calls[0].request.rawHeader("Authorization")==QByteArray("Bearer ")+QByteArray(43,'A'));
   }
  }

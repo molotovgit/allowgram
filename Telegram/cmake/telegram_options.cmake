@@ -59,7 +59,9 @@ endif()
 
 set(TDESKTOP_UPDATE_CHANNEL "stable" CACHE STRING "Compile-time update channel (stable, beta, canary-public, canary-private).")
 set(TDESKTOP_CANARY_COUNTER "0" CACHE STRING "Per-channel canary build counter, required positive for canary channels.")
-set(TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE "11" CACHE STRING "Monotonic Allowgram stable update sequence.")
+# Must equal the last part of Telegram/build/version (AllowgramUpdateSequence): raise it with every release, or package.ps1
+# refuses the build. 7.2.8.14 = 14.
+set(TDESKTOP_ALLOWGRAM_UPDATE_SEQUENCE "14" CACHE STRING "Monotonic Allowgram stable update sequence.")
 set(TDESKTOP_CANARY_COMMIT "" CACHE STRING "Short commit hash shown in the canary version string.")
 set(TDESKTOP_CANARY_PUBLIC_CHANNEL "" CACHE STRING "Public canary channel username (canary-public builds).")
 set(TDESKTOP_CANARY_PRIVATE_CHANNEL_ID "0" CACHE STRING "Private canary channel numeric id (canary-private builds).")

@@ -503,7 +503,9 @@ win:
 stage('jom', """
 win:
     powershell -Command "iwr -OutFile ./jom.zip https://master.qt.io/official_releases/jom/jom_1_1_3.zip"
-    powershell -Command "Expand-Archive ./jom.zip"
+    mkdir jom
+    %SystemRoot%\\System32\\tar.exe -xf jom.zip -C jom
+    if not exist jom\\jom.exe exit /b 1
     del jom.zip
 """, 'ThirdParty')
 

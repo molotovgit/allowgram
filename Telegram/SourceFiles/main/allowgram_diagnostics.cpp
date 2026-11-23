@@ -32,11 +32,13 @@ constexpr auto kReportLogBytes = qint64(160 * 1024); // newest bytes of the app'
 constexpr auto kPendingMax = 30;                     // reports waiting to be sent; the oldest go first
 constexpr auto kRetryMs = 5 * 60 * 1000;
 constexpr auto kSendTimeoutMs = 20000;
+constexpr auto kReasonMaxAgeMs = qint64(2 * 60 * 1000); // a reason left by a cancelled logout must not stick
 
 struct State {
 	bool started = false;
 	QString folder;
 	QString logoutReason;
+	qint64 logoutReasonAt = 0;
 	QNetworkAccessManager *network = nullptr;
 	QTimer *retry = nullptr;
 	bool flushing = false;
@@ -63,6 +65,12 @@ bool Portable() {
 	return QDir(cExeDir() + u"AllowgramForcePortable"_q).exists();
 }
 
+bool SameCopy(const QString &a, const QString &b) {
+	return QDir::cleanPath(QDir::fromNativeSeparators(a)).compare(
+		QDir::cleanPath(QDir::fromNativeSeparators(b)),
+		Qt::CaseInsensitive) == 0;
+}
+
 // A short name for the running copy in event lines: its folder, as recruiters see it.
 QString CopyName() {
 	return QDir::toNativeSeparators(QDir(cExeDir()).absolutePath());
@@ -81,6 +89,9 @@ QString PendingDir() {
 }
 
 QJsonObject ReadState() {
+	if (S().folder.isEmpty()) {
+		return {};
+	}
 	auto file = QFile(StatePath());
 	if (!file.open(QIODevice::ReadOnly)) {
 		return {};
@@ -90,6 +101,9 @@ QJsonObject ReadState() {
 }
 
 void WriteState(const QJsonObject &state) {
+	if (S().folder.isEmpty()) {
+		return;
+	}
 	auto file = QSaveFile(StatePath());
 	if (file.open(QIODevice::WriteOnly)) {
 		file.write(QJsonDocument(state).toJson(QJsonDocument::Compact));
@@ -162,14 +176,23 @@ QJsonObject Report(const QString &kind, const QString &reason, const QJsonObject
 
 // What the previous state says about the last signed-in account on this computer, without its token.
 QJsonObject Previous(const QJsonObject &state) {
-	auto result = state;
-	result.remove(u"token"_q);
+	auto result = QJsonObject();
+	for (auto i = state.begin(); i != state.end(); ++i) {
+		if (i.key() == u"token"_q) {
+			continue;
+		}
+		result.insert(i.key(), i.value().isString() ? QJsonValue(Mask(i.value().toString())) : i.value());
+	}
 	return result;
 }
 
 void Flush(std::function<void(bool)> done = nullptr);
 
 void Queue(QJsonObject report, std::function<void(bool)> done = nullptr) {
+	if (S().folder.isEmpty()) {
+		if (done) done(false);
+		return;
+	}
 	QDir().mkpath(PendingDir());
 	static auto counter = 0;
 	const auto name = u"%1-%2-%3.json"_q.arg(
@@ -296,19 +319,15 @@ void RememberDevice(
 		const QString &deviceId,
 		const QByteArray &token) {
 	EnsureStarted();
+	// Only the device: which copy ran (exe, folder, signed in) is AccountsLoaded()'s to record, after it has
+	// compared the copy with the one used last. A Session (and so this call) is created before that check.
 	auto state = ReadState();
-	const auto changed = state.value(u"device_id"_q).toString() != deviceId
-		|| state.value(u"exe"_q).toString() != ExePath();
+	const auto changed = state.value(u"device_id"_q).toString() != deviceId;
 	state[u"user_id"_q] = QString::number(userId);
 	state[u"origin"_q] = origin.toString(QUrl::FullyEncoded);
 	state[u"device_id"_q] = deviceId;
 	state[u"token"_q] = QString::fromLatin1(token);
-	state[u"signed_in"_q] = true;
-	state[u"exe"_q] = ExePath();
-	state[u"working_dir"_q] = WorkingDir();
-	state[u"portable"_q] = Portable();
-	state[u"version"_q] = QString::fromLatin1(AppVersionStr);
-	state[u"updated_at"_q] = QDateTime::currentSecsSinceEpoch();
+	state[u"device_at"_q] = QDateTime::currentSecsSinceEpoch();
 	WriteState(state);
 	if (changed) {
 		AppendEvent(u"head device %1 for account %2"_q.arg(deviceId, QString::number(userId)));
@@ -319,13 +338,16 @@ void RememberDevice(
 void SetLogoutReason(const QString &reason) {
 	EnsureStarted();
 	S().logoutReason = reason;
+	S().logoutReasonAt = QDateTime::currentMSecsSinceEpoch();
 }
 
 void LoggedOut(quint64 userId) {
 	EnsureStarted();
-	const auto reason = S().logoutReason.isEmpty()
-		? u"unknown (no reason recorded by the caller)"_q
-		: S().logoutReason;
+	const auto fresh = !S().logoutReason.isEmpty()
+		&& QDateTime::currentMSecsSinceEpoch() - S().logoutReasonAt <= kReasonMaxAgeMs;
+	const auto reason = Mask(fresh
+		? S().logoutReason
+		: u"unknown (no reason recorded by the caller)"_q);
 	S().logoutReason = QString();
 	AppendEvent(u"LOGOUT account %1: %2"_q.arg(QString::number(userId), reason));
 	auto state = ReadState();
@@ -346,7 +368,7 @@ void AccountsLoaded(bool anySignedIn, quint64 activeUserId) {
 	const auto previousExe = state.value(u"exe"_q).toString();
 	if (anySignedIn) {
 		AppendEvent(u"signed in as %1"_q.arg(QString::number(activeUserId)));
-		if (!previousExe.isEmpty() && previousExe != ExePath()) {
+		if (!previousExe.isEmpty() && !SameCopy(previousExe, ExePath())) {
 			// Another Allowgram copy on this computer was used last: each copy keeps its own login.
 			auto report = Report(u"another_copy"_q,
 				u"this copy is signed in, but the last copy used on this computer was %1"_q.arg(previousExe),
@@ -366,7 +388,7 @@ void AccountsLoaded(bool anySignedIn, quint64 activeUserId) {
 		if (wasSignedIn) {
 			// The computer had a signed-in account and this start has none: a logout nobody recorded
 			// (local data removed, a different or freshly extracted copy, a zip opened without extracting).
-			const auto same = (previousExe == ExePath());
+			const auto same = SameCopy(previousExe, ExePath());
 			auto report = Report(u"login_missing"_q,
 				same ? u"same copy, its saved login is gone"_q
 					: u"a different copy started: %1 (the signed-in one was %2)"_q.arg(ExePath(), previousExe),

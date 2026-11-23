@@ -490,9 +490,11 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 	});
 	_mtp->setGlobalFailHandler([=](const MTP::Error &error, const MTP::Response &) {
 		if (const auto session = maybeSession()) {
-			Allowgram::Diagnostics::SetLogoutReason(
-				u"Telegram ended the session: %1 (%2)"_q.arg(error.type()).arg(error.code()));
-			crl::on_main(session, [=] { logOut(); });
+			const auto reason = u"Telegram ended the session: %1 (%2)"_q.arg(error.type()).arg(error.code());
+			crl::on_main(session, [=] {
+				Allowgram::Diagnostics::SetLogoutReason(reason);
+				logOut();
+			});
 		}
 	});
 	_mtp->setStateChangedHandler([=](MTP::ShiftedDcId dc, int32 state) {

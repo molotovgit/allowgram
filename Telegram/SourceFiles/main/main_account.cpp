@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_account.h"
+
+#include "main/allowgram_diagnostics.h"
 #include "main/allowlist_policy.h"
 
 #include "base/platform/base_platform_info.h"
@@ -486,8 +488,10 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 	_mtp->setUpdatesHandler([=](const MTP::Response &message) {
 		checkForUpdates(message) || checkForNewSession(message);
 	});
-	_mtp->setGlobalFailHandler([=](const MTP::Error &, const MTP::Response &) {
+	_mtp->setGlobalFailHandler([=](const MTP::Error &error, const MTP::Response &) {
 		if (const auto session = maybeSession()) {
+			Allowgram::Diagnostics::SetLogoutReason(
+				u"Telegram ended the session: %1 (%2)"_q.arg(error.type()).arg(error.code()));
 			crl::on_main(session, [=] { logOut(); });
 		}
 	});
@@ -573,6 +577,9 @@ void Account::forcedLogOut() {
 }
 
 void Account::loggedOut() {
+	if (sessionExists()) {
+		Allowgram::Diagnostics::LoggedOut(session().userId().bare);
+	}
 	_loggingOut = false;
 	Media::Player::mixer()->stopAndClear();
 	destroySession(DestroyReason::LoggedOut);

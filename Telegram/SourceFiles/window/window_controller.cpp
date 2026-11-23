@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_controller.h"
 
+#include "main/allowgram_diagnostics.h"
+
 #include "api/api_updates.h"
 #include "core/application.h"
 #include "core/click_handler_types.h"
@@ -576,6 +578,7 @@ void Controller::showLogoutConfirmation() {
 	const auto weak = base::make_weak(account);
 	const auto callback = [=](Fn<void()> close) {
 		if (!account || weak) {
+			Allowgram::Diagnostics::SetLogoutReason(u"the user pressed Log out and confirmed"_q);
 			Core::App().logoutWithChecks(account);
 		}
 		if (close) {

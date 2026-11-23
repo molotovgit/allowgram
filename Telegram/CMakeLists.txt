@@ -1458,6 +1458,8 @@ PRIVATE
     main/allowlist_policy.h
     main/allowlist_managed_policy.cpp
     main/allowlist_managed_policy.h
+    main/allowgram_diagnostics.cpp
+    main/allowgram_diagnostics.h
     main/allowlist_managed_client.cpp
     main/allowlist_managed_client.h
     main/allowlist_picker.h

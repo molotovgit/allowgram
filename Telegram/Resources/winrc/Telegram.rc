@@ -44,8 +44,8 @@ IDI_ICON1               ICON                    "..\\art\\allowgram\\allowgram.i
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 7,2,8,14
- PRODUCTVERSION 7,2,8,14
+ FILEVERSION 7,2,8,15
+ PRODUCTVERSION 7,2,8,15
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -62,10 +62,10 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Allowgram contributors"
             VALUE "FileDescription", "Allowgram"
-            VALUE "FileVersion", "7.2.8.14"
+            VALUE "FileVersion", "7.2.8.15"
             VALUE "LegalCopyright", "Copyright (C) 2014-2026"
             VALUE "ProductName", "Allowgram"
-            VALUE "ProductVersion", "7.2.8.14"
+            VALUE "ProductVersion", "7.2.8.15"
         END
     END
     BLOCK "VarFileInfo"

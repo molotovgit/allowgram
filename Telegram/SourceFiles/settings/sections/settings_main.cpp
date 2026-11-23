@@ -44,6 +44,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "main/allowlist_managed_client.h"
+#include "main/allowgram_diagnostics.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
 #include "styles/style_boxes.h"
@@ -139,6 +140,17 @@ void ManagedAllowlistBox(not_null<Ui::GenericBox*> box, not_null<Main::Session*>
 		if (client) client->refresh();
 	});
 	box->addButton(tr::lng_close(),[=] { box->closeBox(); });
+	// Diagnostics: the same report a logout sends by itself, on demand (for "I keep getting logged out").
+	const auto diagnostics = box->addRow(object_ptr<Ui::LinkButton>(box,u"Send diagnostic logs to the head"_q));
+	const auto diagnosticsState = box->addRow(object_ptr<Ui::FlatLabel>(box,QString(),st::boxLabel));
+	diagnostics->setClickedCallback([=] {
+		diagnosticsState->setText(u"Sending..."_q);
+		const auto weak = QPointer<Ui::FlatLabel>(diagnosticsState);
+		Allowgram::Diagnostics::SendNow(u"sent from Settings by account %1"_q.arg(subject), [=](bool sent) {
+			if (weak) weak->setText(sent ? u"Sent to the head."_q
+				: u"Saved on this computer; it will be sent automatically when the head can be reached."_q);
+		});
+	});
 	const auto update = [=] {
 		if (!client) { box->closeBox(); return; }
 		status->setText(client->status());

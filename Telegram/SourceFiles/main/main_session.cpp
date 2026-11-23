@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_session.h"
 
+#include "main/allowgram_diagnostics.h"
+
 #include "main/allowlist_policy.h"
 #include "main/allowlist_managed_client.h"
 #include "window/window_allowlist.h"
@@ -408,6 +410,11 @@ Session::Session(
 		},
 	});
 	crl::on_main(this, [this] { _managedAllowlist->start(); });
+	// A device enrolled by an earlier start (or version) is remembered for diagnostics right away.
+	if (const auto saved = Managed::ReadState(_settings->managedAllowlist(),
+			QString::number(_userId.bare), QDateTime::currentSecsSinceEpoch())) {
+		Allowgram::Diagnostics::RememberDevice(_userId.bare, saved->origin, saved->device, saved->token);
+	}
 }
 
 void Session::appConfigRefreshed() {
@@ -540,6 +547,7 @@ PeerId Session::userPeerId() const {
 bool Session::validateSelf(UserId id) {
 	if (id != userId()) {
 		LOG(("Auth Error: wrong self user received."));
+		Allowgram::Diagnostics::SetLogoutReason(u"Telegram returned a different account than the signed-in one"_q);
 		crl::on_main(this, [=] { _account->logOut(); });
 		return false;
 	}
@@ -676,6 +684,7 @@ bool Session::applyManagedAllowlist(const QByteArray &blob) {
 	candidate._managedAllowlist = blob;
 	candidate.validateManagedAllowlist(_userId);
 	if (!local().writeSessionSettingsVerified(candidate.serialize())) return false;
+	Allowgram::Diagnostics::RememberDevice(_userId.bare, state->origin, state->device, state->token);
 	const auto oldPeers = _settings->_allowlistPeers;
 	const auto changed = oldPeers != candidate._allowlistPeers;
 	_settings->_managedAllowlist = blob;

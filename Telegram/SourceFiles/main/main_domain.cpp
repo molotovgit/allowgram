@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_domain.h"
 
+#include "main/allowgram_diagnostics.h"
+
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/shortcuts.h"
@@ -115,6 +117,7 @@ int Domain::activeForStorage() const {
 }
 
 void Domain::resetWithForgottenPasscode() {
+	Allowgram::Diagnostics::SetLogoutReason(u"the local passcode was reset as forgotten"_q);
 	if (_accounts.empty()) {
 		_local->startFromScratch();
 		activateAfterStarting();
@@ -146,6 +149,9 @@ void Domain::activateAfterStarting() {
 	}
 	activate(toActivate);
 	removePasscodeIfEmpty();
+	Allowgram::Diagnostics::AccountsLoaded(
+		toActivate->sessionExists(),
+		toActivate->sessionExists() ? toActivate->session().userId().bare : 0);
 }
 
 const std::vector<Domain::AccountWithIndex> &Domain::accounts() const {

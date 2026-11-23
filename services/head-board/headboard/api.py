@@ -238,6 +238,9 @@ def create_app(
     from . import hub
 
     hub.register(app)
+    from . import diagnostics
+
+    diagnostics.register(app)
     from fastapi.staticfiles import StaticFiles
 
     dist = Path(__file__).resolve().parent.parent / "web" / "dist"

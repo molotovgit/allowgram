@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/application.h"
 
+#include "main/allowgram_diagnostics.h"
+
 #include "data/data_abstract_structure.h"
 #include "data/data_channel.h"
 #include "data/data_forum.h"
@@ -1056,6 +1058,8 @@ void Application::logoutWithChecks(Main::Account *account) {
 void Application::forceLogOut(
 		not_null<Main::Account*> account,
 		const TextWithEntities &explanation) {
+	Allowgram::Diagnostics::SetLogoutReason(
+		u"Telegram service notice forced a logout: %1"_q.arg(explanation.text.left(300)));
 	const auto box = Ui::show(Ui::MakeConfirmBox({
 		.text = explanation,
 		.confirmText = tr::lng_passcode_logout(tr::now),
